@@ -25,6 +25,8 @@ let
 
     # ── Open apps on top with Super shortcuts ─────────────────────────────────
     bind = SUPER, T, exec, kitty
+    bind = SUPER, V, exec, codium
+    bind = SUPER, C, exec, kitty --title claude -e claude
     bind = SUPER, Q, killactive,
 
     # ── Compositor settings ───────────────────────────────────────────────────
@@ -70,6 +72,9 @@ in
     voiderShell
     voiderPy
     pkgs.kitty
+    pkgs.vscodium
+    pkgs.claude-code
+    pkgs.git
   ];
 
   # ── Wayland / environment ─────────────────────────────────────────────────────
