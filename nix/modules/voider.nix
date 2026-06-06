@@ -40,6 +40,17 @@ let
       enabled = no
     }
 
+    decoration {
+      rounding = 0
+
+      shadow {
+        enabled      = true
+        range        = 30
+        render_power = 3
+        color        = rgba(00000099)
+      }
+    }
+
     misc {
       disable_hyprland_logo  = true
       disable_splash_rendering = true
