@@ -168,12 +168,17 @@ class FullscreenCircleApp(QMainWindow):
             for action, ks in self.config.get('keybindings', {}).items()
         }
 
-        # Resolve void_dir: config → dialog
+        # Resolve void_dir: config → VOIDER_VOID_DIR env var → dialog
         void_dir = self.config.get('void_dir', '')
         if not void_dir or not os.path.isdir(void_dir):
-            void_dir = self._pick_void_directory()
-            if not void_dir:
-                sys.exit(0)
+            env_dir = os.environ.get('VOIDER_VOID_DIR', '')
+            if env_dir:
+                os.makedirs(env_dir, exist_ok=True)
+                void_dir = env_dir
+            else:
+                void_dir = self._pick_void_directory()
+                if not void_dir:
+                    sys.exit(0)
             self.config['void_dir'] = void_dir
             _save_config(self.config)
 

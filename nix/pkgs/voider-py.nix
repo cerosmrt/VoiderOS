@@ -24,6 +24,8 @@ pkgs.writeShellScriptBin "voider-py" ''
 
   export QT_QPA_PLATFORM=wayland
   export VOIDER_CONFIG="$CONFIG_FILE"
+  export VOIDER_VOID_DIR="$HOME/void"
+  mkdir -p "$VOIDER_VOID_DIR"
 
   exec ${python}/bin/python3 ${src}/voider.py "$@"
 ''
