@@ -12,7 +12,7 @@ pkgs.rustPlatform.buildRustPackage {
   cargoLock.lockFile = ../../pkgs/voider-shell/Cargo.lock;
 
   nativeBuildInputs = with pkgs; [ pkg-config ];
-  buildInputs       = with pkgs; [ wayland ];
+  buildInputs       = with pkgs; [ wayland libxkbcommon ];
 
   meta.mainProgram = "voider-shell";
 }
