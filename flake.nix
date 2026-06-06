@@ -19,6 +19,7 @@
     ];
 
     # VM overrides — no NVIDIA, no physical disk, no EFI
+    # Hyprland uses wlroots, same env vars as Sway for software rendering
     vmOverrides = { pkgs, ... }: {
       services.xserver.videoDrivers      = lib.mkForce [ "virtio" ];
       hardware.nvidia.modesetting.enable = lib.mkForce false;
@@ -39,29 +40,22 @@
         efiSupport = false;
       };
 
-      # Sway: let wlroots auto-detect the virtio-gpu via DRM
-      environment.sessionVariables.WLR_RENDERER        = lib.mkForce "pixman";
-      environment.sessionVariables.WLR_NO_HARDWARE_CURSORS = lib.mkForce "1";
-      programs.sway.extraSessionCommands = lib.mkForce ''
-        export XDG_SESSION_TYPE=wayland
-        export XDG_CURRENT_DESKTOP=sway
-        export WLR_NO_HARDWARE_CURSORS=1
-        export WLR_RENDERER=pixman
-      '';
+      # Hyprland / wlroots software rendering in QEMU
+      environment.sessionVariables.WLR_RENDERER             = lib.mkForce "pixman";
+      environment.sessionVariables.WLR_NO_HARDWARE_CURSORS  = lib.mkForce "1";
+      environment.sessionVariables.LIBGL_ALWAYS_SOFTWARE    = lib.mkForce "1";
+      environment.sessionVariables.WLR_RENDERER_ALLOW_SOFTWARE = lib.mkForce "1";
     };
 
   in {
-    # Dev shell: `nix develop` then `cd pkgs/voider && cargo check`
+    # Dev shell: `nix develop` then `cd pkgs/voider-shell && cargo check`
     devShells.${system}.default = let
       pkgs = nixpkgs.legacyPackages.${system};
     in pkgs.mkShell {
       buildInputs = with pkgs; [
         cargo rustc gcc pkg-config git
-        wayland libxkbcommon
-        # wayland-protocols headers for sctk build script
-        wayland-protocols
+        wayland libxkbcommon wayland-protocols
       ];
-      # mkShell automatically populates PKG_CONFIG_PATH for all buildInputs
     };
 
     nixosConfigurations = {

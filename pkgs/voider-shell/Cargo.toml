@@ -1,0 +1,18 @@
+[package]
+name    = "voider-shell"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "voider-shell"
+path = "src/main.rs"
+
+[dependencies]
+smithay-client-toolkit = { version = "0.18", features = ["calloop"] }
+wayland-client          = "0.31"
+anyhow                  = "1"
+
+[profile.release]
+opt-level = 3
+lto       = true
+codegen-units = 1

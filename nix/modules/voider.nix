@@ -1,89 +1,89 @@
 # nix/modules/voider.nix
-# VoiderOS: autologin → sway → voider (layer-shell background)
-# No display manager UI. No desktop environment. Voider IS the shell.
+# VoiderOS desktop: greetd autologin → Hyprland → voider-shell → voider-py
 { config, pkgs, lib, ... }:
 
 let
-  voider = pkgs.callPackage ../pkgs/voider.nix { inherit pkgs lib; };
+  voiderShell = pkgs.callPackage ../pkgs/voider-shell.nix { inherit pkgs lib; };
+  voiderPy    = pkgs.callPackage ../pkgs/voider-py.nix    { inherit pkgs lib; };
 
-  swayConfig = pkgs.writeText "sway-config" ''
-    # ── VoiderOS sway config ─────────────────────────────────────────────────
-    # Sway is a transparent substrate. Voider owns the screen.
+  hyprlandConf = pkgs.writeText "hyprland.conf" ''
+    # ── VoiderOS Hyprland config ─────────────────────────────────────────────
+    # Hyprland is invisible infrastructure. Voider is what the user sees.
 
-    output * bg #000000 solid_color
+    monitor = ,preferred,auto,1
 
-    # No chrome on any window
-    default_border           none
-    default_floating_border  none
-    hide_edge_borders        both
-    gaps inner 0
-    gaps outer 0
-    # Cursor: hidden after 3 seconds of inactivity
-    seat seat0 hide_cursor 3000
-    seat seat0 xcursor_theme default 1
+    # Launch the layer-shell host (which spawns voider-py)
+    exec-once = voider-shell
 
-    # Keyboard layout (matches system.nix)
-    input type:keyboard {
-      xkb_layout gb
+    # ── Voider window rules ───────────────────────────────────────────────────
+    windowrulev2 = fullscreen,          class:voider-py
+    windowrulev2 = noborder,            class:voider-py
+    windowrulev2 = noanim,              class:voider-py
+    windowrulev2 = nofullscreenrequest, class:voider-py
+    windowrulev2 = suppressevent maximize, class:voider-py
+
+    # ── Open apps on top with Super shortcuts ─────────────────────────────────
+    bind = SUPER, T, exec, kitty
+    bind = SUPER, Q, killactive,
+
+    # ── Compositor settings ───────────────────────────────────────────────────
+    general {
+      border_size = 0
+      gaps_in     = 0
+      gaps_out    = 0
     }
 
-    # Launch Voider as the background layer
-    exec ${voider}/bin/voider
+    animations {
+      enabled = no
+    }
 
-    # Emergency terminal (SUPER+Q)
-    bindsym Mod4+q exec ${pkgs.kitty}/bin/kitty
+    misc {
+      disable_hyprland_logo  = true
+      disable_splash_rendering = true
+    }
 
-    # Kill focused window (SUPER+W)
-    bindsym Mod4+w kill
-
-    # All other keybindings are handled by Voider itself via layer-shell keyboard interactivity
+    # ── Input ─────────────────────────────────────────────────────────────────
+    input {
+      kb_layout = gb
+    }
   '';
-
 in
 {
-  # ── Sway ─────────────────────────────────────────────────────────────────────
-  programs.sway = {
-    enable      = true;
-    wrapperFeatures.gtk = false;
-    extraPackages  = [];  # no default sway packages (foot, dmenu, etc.)
-    extraSessionCommands = ''
-      export XDG_SESSION_TYPE=wayland
-      export XDG_CURRENT_DESKTOP=sway
-    '';
+  # ── Hyprland ─────────────────────────────────────────────────────────────────
+  programs.hyprland = {
+    enable = true;
+    xwayland.enable = false;
   };
 
-  # ── Autologin: greetd → sway (no login UI, no password prompt) ───────────────
+  # ── Autologin: greetd → Hyprland (no login UI) ───────────────────────────────
   services.greetd = {
     enable = true;
     settings.default_session = {
-      command = "${pkgs.sway}/bin/sway --config ${swayConfig}";
+      command = "${pkgs.hyprland}/bin/Hyprland --config ${hyprlandConf}";
       user    = "federico";
     };
   };
 
-  # ── Voider + tools ────────────────────────────────────────────────────────────
+  # ── Packages ──────────────────────────────────────────────────────────────────
   environment.systemPackages = [
-    voider
-    pkgs.kitty       # emergency terminal
-    pkgs.pamixer     # volume queries (status overlay)
-    pkgs.playerctl   # media info (status overlay)
+    voiderShell
+    voiderPy
+    pkgs.kitty
   ];
-
-  # ── Fonts ─────────────────────────────────────────────────────────────────────
-  fonts.packages = with pkgs; [ jetbrains-mono ];
 
   # ── Wayland / environment ─────────────────────────────────────────────────────
   environment.sessionVariables = {
-    XDG_SESSION_TYPE      = "wayland";
-    XDG_CURRENT_DESKTOP   = "sway";
-    MOZ_ENABLE_WAYLAND    = "1";   # firefox uses Wayland natively
-    NIXOS_OZONE_WL        = "1";   # electron apps use Wayland
-    WLR_NO_HARDWARE_CURSORS = "1"; # NVIDIA: disable hardware cursor
+    XDG_SESSION_TYPE    = "wayland";
+    XDG_CURRENT_DESKTOP = "Hyprland";
+    QT_QPA_PLATFORM     = "wayland";
+    MOZ_ENABLE_WAYLAND  = "1";
+    NIXOS_OZONE_WL      = "1";
+    VOIDER_CMD          = "voider-py";
   };
 
-  # ── Void directory created on first boot ─────────────────────────────────────
+  # ── Void directory created on first boot ──────────────────────────────────────
   systemd.user.tmpfiles.rules = [
-    "d %h/void            0755 - - -"
+    "d %h/void             0755 - - -"
     "d %h/.config/voideros 0755 - - -"
   ];
 
