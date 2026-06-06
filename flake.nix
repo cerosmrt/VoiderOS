@@ -21,6 +21,9 @@
     # VM overrides — no NVIDIA, no physical disk, no EFI
     # Hyprland uses wlroots, same env vars as Sway for software rendering
     vmOverrides = { pkgs, ... }: {
+      # More RAM — Hyprland + PyQt6 needs breathing room
+      virtualisation.memorySize = 2048;
+
       services.xserver.videoDrivers      = lib.mkForce [ "virtio" ];
       hardware.nvidia.modesetting.enable = lib.mkForce false;
       hardware.nvidia.open               = lib.mkForce false;

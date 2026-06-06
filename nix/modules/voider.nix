@@ -13,7 +13,8 @@ let
     monitor = ,preferred,auto,1
 
     # Launch the layer-shell host (which spawns voider-py)
-    exec-once = voider-shell
+    # Log output to /tmp so we can diagnose failures
+    exec-once = bash -c 'voider-shell > /tmp/voider-shell.log 2>&1'
 
     # ── Voider window rules ───────────────────────────────────────────────────
     windowrulev2 = fullscreen,          class:voider-py
