@@ -61,6 +61,21 @@ pub fn draw_frame(buf: &mut [u8], cache: &mut GlyphCache, ui: &UiState, width: u
         View::Book  => draw_book (buf, cache, ui, width, height, fs),
         View::Vault => draw_vault(buf, cache, ui, width, height, fs),
     }
+
+    // TAB status overlay
+    if ui.show_overlay {
+        draw_overlay(buf, cache, ui, width, height, fs);
+    }
+
+    // Apply global opacity (multiply all RGB by opacity)
+    if ui.opacity < 0.999 {
+        let scale = ui.opacity;
+        for chunk in buf.chunks_exact_mut(4) {
+            chunk[0] = (chunk[0] as f32 * scale) as u8;
+            chunk[1] = (chunk[1] as f32 * scale) as u8;
+            chunk[2] = (chunk[2] as f32 * scale) as u8;
+        }
+    }
 }
 
 // ── F1: Write ─────────────────────────────────────────────────────────────────
@@ -298,6 +313,60 @@ fn draw_text_color(
             }
         }
         x += metrics.advance_width as i32;
+    }
+}
+
+// ── TAB status overlay ────────────────────────────────────────────────────────
+
+fn draw_overlay(buf: &mut [u8], cache: &mut GlyphCache, ui: &UiState, width: u32, height: u32, fs: f32) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let secs  = now % 60;
+    let mins  = (now / 60) % 60;
+    let hours = (now / 3600) % 24;
+
+    let file  = ui.active_file.file_name()
+        .unwrap_or_default().to_string_lossy().to_string();
+    let n_lines = ui.ring.lines().iter()
+        .filter(|l| l.trim() != "." && !l.is_empty()).count();
+    let view_name = match ui.view {
+        crate::input::View::Write => "F1 write",
+        crate::input::View::Doc   => "F2 doc",
+        crate::input::View::Book  => "F3 book",
+        crate::input::View::Vault => "F4 vault",
+    };
+
+    let lines = [
+        format!("{:02}:{:02}:{:02}", hours, mins, secs),
+        format!("{file}  ·  {n_lines} lines"),
+        view_name.to_string(),
+    ];
+
+    let box_w = 260i32;
+    let line_h = (fs * 1.6) as i32;
+    let box_h  = line_h * lines.len() as i32 + 20;
+    let bx = width as i32 - box_w - 20;
+    let by = height as i32 - box_h - 20;
+
+    // Background box (semi-transparent black)
+    for row in by..(by + box_h) {
+        for col in bx..(bx + box_w) {
+            if col < 0 || row < 0 || col >= width as i32 || row >= height as i32 { continue; }
+            let off = ((row * width as i32 + col) * 4) as usize;
+            buf[off]   = (buf[off]   as f32 * 0.2) as u8;
+            buf[off+1] = (buf[off+1] as f32 * 0.2) as u8;
+            buf[off+2] = (buf[off+2] as f32 * 0.2) as u8;
+        }
+    }
+
+    // Text lines
+    for (i, line) in lines.iter().enumerate() {
+        let text_y = by + 12 + (i as i32) * line_h + line_h / 2;
+        let cx     = bx + box_w / 2;
+        let alpha  = if i == 0 { 0.95 } else { 0.65 };
+        draw_text_centered(buf, cache, line, cx, text_y, fs, alpha, width, height);
     }
 }
 

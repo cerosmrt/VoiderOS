@@ -38,6 +38,16 @@ use crate::{
     text::{parse_line, LineAction},
 };
 
+fn random_pick<'a>(items: &'a [String]) -> &'a str {
+    if items.is_empty() { return ""; }
+    let mut seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0xcafebabe);
+    seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17;
+    &items[(seed as usize) % items.len()]
+}
+
 // ── F2 mode ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -748,6 +758,7 @@ impl UiState {
     }
 
     fn swap_paragraphs(&mut self, direction: isize) {
+
         let n = self.ring.len();
         let lines = self.ring.lines().to_vec();
         let mut paras: Vec<(usize, Vec<usize>)> = Vec::new();
@@ -940,6 +951,7 @@ impl App {
             vault_ring,
             blink_tick: 0,
             opacity: 1.0,
+            show_overlay: false,
         };
 
         Ok(Self {
