@@ -62,6 +62,19 @@ pub fn append_line(path: &Path, line: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+// Rewrite the whole file atomically (used after editing an existing line).
+pub fn save_file(path: &Path, lines: &[String]) -> anyhow::Result<()> {
+    let mut content = String::new();
+    for line in lines {
+        content.push_str(line);
+        content.push('\n');
+    }
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, &content)?;
+    fs::rename(&tmp, path)?;
+    Ok(())
+}
+
 fn scan(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     scan_recursive(dir, &mut out);

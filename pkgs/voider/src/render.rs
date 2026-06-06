@@ -78,44 +78,76 @@ fn draw_write(
     width:     u32,
     height:    u32,
     font_size: f32,
-    line_h:    i32,
+    _line_h:   i32,
 ) {
     let cx = width as i32 / 2;
     let cy = height as i32 / 2;
 
-    // Lines above center: previously committed lines, fading upward
-    let max_lines = (height as i32 / 2 / line_h) + 2;
+    // White circle — the visual identity of the app
+    let radius = (width.min(height) as i32 / 2 - 35).max(1);
+    draw_circle(buf, cx, cy, radius, 10, width, height);
 
-    for offset in -max_lines..=max_lines {
-        let y_center = cy + offset * line_h;
-        let falloff  = alpha_falloff(y_center, cy, height as i32);
-        if falloff < 0.01 { continue; }
+    // Single centered line: current input with blinking cursor
+    let text = if ui.command_mode {
+        format!("!{}{}", ui.cmd_buffer, if (ui.blink_tick / 30) % 2 == 0 { "▋" } else { "" })
+    } else {
+        format!("{}{}", ui.input, if (ui.blink_tick / 30) % 2 == 0 { "▋" } else { "" })
+    };
+    draw_text_centered(buf, cache, &text, cx, cy, font_size, 1.0, width, height);
 
-        let text = if offset == 0 {
-            // Center line: current input (with cursor)
-            if ui.command_mode {
-                // In command mode, center shows "!" + buffer
-                Some(format!("!{}{}", ui.cmd_buffer, if (ui.blink_tick / 30) % 2 == 0 { "▋" } else { "" }))
-            } else {
-                Some(format!("{}{}", ui.input, if (ui.blink_tick / 30) % 2 == 0 { "▋" } else { "" }))
-            }
-        } else if offset < 0 {
-            // Above center: committed lines (most recent = offset -1)
-            ui.ring.get_from_head((-offset - 1) as isize).map(str::to_owned)
-        } else {
-            None // nothing below the input line
-        };
-
-        if let Some(text) = text {
-            draw_text_centered(buf, cache, &text, cx, y_center, font_size, falloff, width, height);
-        }
-    }
-
-    // Command mode bottom bar
     if ui.command_mode {
         let prompt = format!("  !{}  ", ui.cmd_buffer);
         let bar_y  = height as i32 - (font_size * 2.5) as i32;
         draw_text_centered(buf, cache, &prompt, cx, bar_y, font_size, 1.0, width, height);
+    }
+}
+
+fn draw_circle(
+    buf:       &mut [u8],
+    cx:        i32,
+    cy:        i32,
+    radius:    i32,
+    thickness: i32,
+    width:     u32,
+    height:    u32,
+) {
+    let r      = radius as f32;
+    let half_t = thickness as f32 / 2.0;
+    let r_in   = r - half_t;
+    let r_out  = r + half_t;
+    // Integer squared bounds for fast rejection
+    let sq_in  = ((r_in  - 1.0).max(0.0)).powi(2) as i64;
+    let sq_out = ((r_out + 1.0)).powi(2) as i64;
+    let scan   = (r_out + 1.5) as i32;
+    let w      = width  as i32;
+    let h      = height as i32;
+
+    for dy in -scan..=scan {
+        for dx in -scan..=scan {
+            let dsq = (dx as i64) * (dx as i64) + (dy as i64) * (dy as i64);
+            if dsq < sq_in || dsq > sq_out { continue; }
+
+            let dist  = (dsq as f32).sqrt();
+            let alpha = if dist < r_in {
+                dist - (r_in - 1.0)
+            } else if dist > r_out {
+                (r_out + 1.0) - dist
+            } else {
+                1.0_f32
+            }.clamp(0.0, 1.0);
+
+            if alpha < 0.01 { continue; }
+
+            let px = cx + dx;
+            let py = cy + dy;
+            if px < 0 || py < 0 || px >= w || py >= h { continue; }
+
+            let v   = (alpha * 255.0) as u8;
+            let off = ((py * w + px) * 4) as usize;
+            buf[off]     = v;
+            buf[off + 1] = v;
+            buf[off + 2] = v;
+        }
     }
 }
 

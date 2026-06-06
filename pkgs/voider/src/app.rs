@@ -26,7 +26,7 @@ use wayland_client::{
 
 use crate::{
     config::Config,
-    files::{append_line, read_file, FileIndex},
+    files::{append_line, read_file, save_file, FileIndex},
     input::{self, Action, View},
     render::{self, GlyphCache},
     ring::Ring,
@@ -46,6 +46,7 @@ pub struct UiState {
     pub nav_cursor:   usize,
     pub search_query: String,
     pub blink_tick:   u64,         // incremented per frame for cursor blink
+    pub ring_nav_idx: Option<usize>, // Some(i) = navigating existing ring line i
 }
 
 impl UiState {
@@ -63,9 +64,11 @@ impl UiState {
 
     fn handle_write(&mut self, action: Action) {
         match action {
-            Action::SwitchView(v) => self.view = v,
+            Action::SwitchView(v) => {
+                self.ring_nav_idx = None;
+                self.view = v;
+            }
 
-            // '!' at start of empty line → command mode
             Action::Char('!') if self.input.is_empty() && !self.command_mode => {
                 self.command_mode = true;
             }
@@ -83,18 +86,56 @@ impl UiState {
                 self.command_mode = false;
                 self.cmd_buffer.clear();
             }
+            Action::Escape => {
+                self.ring_nav_idx = None;
+                self.input.clear();
+            }
 
             Action::Enter if self.command_mode => self.exec_command(),
 
             Action::Enter => {
                 let line = std::mem::take(&mut self.input);
                 if !line.is_empty() {
-                    self.ring.push(line.clone());
-                    let _ = append_line(&self.active_file, &line);
+                    if let Some(idx) = self.ring_nav_idx.take() {
+                        self.ring.replace(idx, line);
+                        let _ = save_file(&self.active_file, self.ring.lines());
+                    } else {
+                        self.ring.push(line.clone());
+                        let _ = append_line(&self.active_file, &line);
+                    }
+                } else {
+                    self.ring_nav_idx = None;
+                }
+            }
+
+            // Up: navigate backwards through ring lines, load into input
+            Action::NavUp => {
+                if self.ring.len() > 0 {
+                    let new_idx = match self.ring_nav_idx {
+                        None    => self.ring.head,
+                        Some(i) => i.saturating_sub(1),
+                    };
+                    self.ring_nav_idx = Some(new_idx);
+                    self.input = self.ring.lines()[new_idx].clone();
+                }
+            }
+
+            // Down: navigate forward; past head exits navigation mode
+            Action::NavDown => {
+                if let Some(i) = self.ring_nav_idx {
+                    if i >= self.ring.head {
+                        self.ring_nav_idx = None;
+                        self.input.clear();
+                    } else {
+                        let new_idx = i + 1;
+                        self.ring_nav_idx = Some(new_idx);
+                        self.input = self.ring.lines()[new_idx].clone();
+                    }
                 }
             }
 
             Action::NewFile => {
+                self.ring_nav_idx = None;
                 self.search_query.clear();
                 self.nav_cursor = 0;
                 self.view = View::Navigate;
@@ -267,6 +308,7 @@ impl App {
             nav_cursor: 0,
             search_query: String::new(),
             blink_tick: 0,
+            ring_nav_idx: None,
         };
 
         Ok(Self {

@@ -18,12 +18,6 @@ let
     hide_edge_borders        both
     gaps inner 0
     gaps outer 0
-    titlebar_padding 0
-    titlebar_border_thickness 0
-
-    # No bar
-    bar { }
-
     # Cursor: hidden after 3 seconds of inactivity
     seat seat0 hide_cursor 3000
     seat seat0 xcursor_theme default 1

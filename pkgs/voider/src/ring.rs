@@ -35,6 +35,12 @@ impl Ring {
         }
     }
 
+    pub fn replace(&mut self, idx: usize, line: String) {
+        if idx < self.lines.len() {
+            self.lines[idx] = line;
+        }
+    }
+
     pub fn lines(&self) -> &[String] {
         &self.lines
     }
