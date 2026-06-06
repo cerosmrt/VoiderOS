@@ -4,6 +4,7 @@ mod files;
 mod input;
 mod render;
 mod ring;
+mod text;
 
 use anyhow::Result;
 use smithay_client_toolkit::reexports::calloop::EventLoop;
