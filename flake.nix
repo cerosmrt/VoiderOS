@@ -26,6 +26,11 @@
       hardware.nvidia.open               = lib.mkForce false;
       hardware.nvidia.nvidiaSettings     = lib.mkForce false;
 
+      fileSystems."/" = {
+        device = "/dev/disk/by-label/nixos";
+        fsType = "ext4";
+      };
+
       fileSystems."/mnt/data" = lib.mkForce {
         device  = "none";
         fsType  = "tmpfs";

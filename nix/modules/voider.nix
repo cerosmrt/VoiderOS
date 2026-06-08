@@ -12,6 +12,37 @@ let
   # Hyprland only supports one screen_shader at a time, so this is the only
   # sane approach for independently-toggleable effects.
 
+  # voider-radio: plays random internet radio (jazz, ambient, classical)
+  # First call starts playback, second call stops it.
+  voiderRadio = pkgs.writeShellScriptBin "voider-radio" ''
+    PIDFILE=/tmp/voider-radio.pid
+    
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+      # Radio is running, stop it
+      kill "$(cat "$PIDFILE")" 2>/dev/null
+      rm -f "$PIDFILE"
+      exit 0
+    fi
+    
+    # Radio is not running, start it
+    STATIONS=(
+      "http://audio-edge-es7t4.fra.h.radiomast.io/3c8e82f8-2aa4-4ce3-8e62-9b5b96b38021"  # Jazz FM
+      "http://streamer-dtc-aa05.dtc.arn.net/ambient_low.mp3"                              # Ambient
+      "http://stream.radioparadise.com/aac-320"                                           # Radio Paradise
+      "http://radio.stereoscenic.com/asp-h"                                               # Ambient Sleeping Pill
+      "http://uk2.internet-radio.com:8024/stream"                                         # Ambient Radio
+      "https://classical-high.streamguys1.com/classical"                                  # WQED Classical
+    )
+    
+    STATION_COUNT=''${#STATIONS[@]}
+    RANDOM_INDEX=$((RANDOM % STATION_COUNT))
+    STATION="''${STATIONS[$RANDOM_INDEX]}"
+    
+    # Start mpv in background with no UI
+    ${pkgs.mpv}/bin/mpv --no-video --no-terminal --volume=30 "$STATION" &
+    echo $! > "$PIDFILE"
+  '';
+
   # voider-fx-update: reads /tmp/voider-fx (shell-sourceable key=value pairs),
   # bakes all active effect parameters as GLSL constants, writes a combined
   # shader to /tmp/voider-active.glsl, and loads it via hyprctl.
@@ -32,7 +63,7 @@ let
     # Defaults — must match fx_panel.py PARAM_DEFS defaults
     crt=0;  crt_intensity=0.3000;  crt_thickness=2;    crt_vignette=0.7000
     grain=0; grain_intensity=0.2000; grain_speed=5.0000; grain_size=fine
-    bw=0;   bw_blend=0.0000;       bw_contrast=1.0000
+    bw=1;   bw_blend=0.3000;       bw_contrast=1.0000
 
     [ -f "$STATE" ] && . "$STATE"
 
@@ -150,6 +181,7 @@ let
     bind = SUPER, T, exec, kitty
     bind = SUPER, V, exec, codium
     bind = SUPER, C, exec, kitty --title claude -e claude
+    bind = SUPER, R, exec, voider-radio
     bind = SUPER, Q, killactive,
 
     # ── Visual effect panels (Super+F5/F6/F7) ─────────────────────────────────
@@ -184,6 +216,10 @@ let
       disable_splash_rendering = true
     }
 
+    debug {
+      damage_tracking = false
+    }
+
     # ── Input ─────────────────────────────────────────────────────────────────
     input {
       kb_layout = gb
@@ -212,10 +248,12 @@ in
     voiderPy
     fxUpdate
     fxOpenPanel
+    voiderRadio
     pkgs.kitty
     pkgs.vscodium
     pkgs.claude-code
     pkgs.git
+    pkgs.mpv
   ];
 
   # ── Wayland / environment ─────────────────────────────────────────────────────

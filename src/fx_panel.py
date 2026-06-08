@@ -27,9 +27,9 @@ PARAM_DEFS = {
          'options': ['fine', 'medium', 'coarse'], 'default': 'fine'},
     ],
     'bw': [
-        {'label': 'Enabled',  'key': 'bw',           'type': 'bool',  'default': 0},
+        {'label': 'Enabled',  'key': 'bw',           'type': 'bool',  'default': 1},
         {'label': 'Blend',    'key': 'bw_blend',     'type': 'float',
-         'min': 0.0,  'max': 1.0,  'step': 0.05, 'default': 0.0,  'fmt': '.2f'},
+         'min': 0.0,  'max': 1.0,  'step': 0.05, 'default': 0.3,  'fmt': '.2f'},
         {'label': 'Contrast', 'key': 'bw_contrast',  'type': 'float',
          'min': 0.5,  'max': 2.0,  'step': 0.1,  'default': 1.0,  'fmt': '.1f'},
     ],
@@ -46,10 +46,8 @@ STATE_FILE = '/tmp/voider-fx'
 # Flat map of all parameter defaults (used for initial state)
 _ALL_DEFAULTS: dict = {}
 for _effect, _defs in PARAM_DEFS.items():
-    _ALL_DEFAULTS[_effect] = 0           # all effects off by default
     for _p in _defs:
-        if _p['key'] != _effect:
-            _ALL_DEFAULTS[_p['key']] = _p['default']
+        _ALL_DEFAULTS[_p['key']] = _p['default']
 
 
 # ── State I/O ─────────────────────────────────────────────────────────────────

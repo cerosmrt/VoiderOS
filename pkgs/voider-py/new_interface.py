@@ -8,13 +8,14 @@ import shutil
 from PyQt6.QtWidgets import QApplication, QMainWindow, QStackedWidget, QFileDialog
 from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
 from PyQt6.QtGui import QFont, QCursor, QShortcut, QKeySequence
-from PyQt6.QtCore import Qt, qInstallMessageHandler, QtMsgType
+from PyQt6.QtCore import Qt, QTimer, qInstallMessageHandler, QtMsgType
 
 from files import setup_file_handling, void_line
 from controls import setup_controls
 from line_ring import LineRing
 from circular_view import CircularView
-from widgets import CustomLineEdit
+from widgets import CustomLineEdit, ChannelTransition
+from fx_panel import FxPanel
 from views import NormalView
 
 
@@ -435,6 +436,9 @@ class FullscreenCircleApp(QMainWindow):
     # ── Views ─────────────────────────────────────────────────────────────────
 
     def switch_to_view(self, view_index):
+        if view_index != self.current_view and hasattr(self, '_transition'):
+            self._transition.trigger()
+
         # F3 → F2: activate the highlighted file (same as pressing Enter)
         if self.current_view == 2 and view_index == 1:
             if not self._book_try_rename():
@@ -1814,6 +1818,16 @@ class FullscreenCircleApp(QMainWindow):
         self.showFullScreen()
         self.setCentralWidget(self.stack)
         self._reposition_entry()
+        self._transition = ChannelTransition(self)
+        self._transition.setGeometry(self.rect())
+
+        self._fx_panel = FxPanel(self)
+        self._fx_panel.setGeometry(self.rect())
+
+        # Poll /tmp/voider-fx-panel for open/close requests from Hyprland keybinds
+        self._panel_poll = QTimer(self)
+        self._panel_poll.timeout.connect(self._poll_fx_panel)
+        self._panel_poll.start(100)
 
     def _reposition_entry(self):
         w = self.width()
@@ -1825,9 +1839,31 @@ class FullscreenCircleApp(QMainWindow):
         self.entry.setFixedWidth(entry_width)
         self.entry.move(w // 2 - entry_width // 2, h // 2 - entry_height // 2)
 
+    def _poll_fx_panel(self):
+        path = '/tmp/voider-fx-panel'
+        if not os.path.exists(path):
+            return
+        try:
+            with open(path) as f:
+                effect = f.read().strip()
+            os.unlink(path)
+        except OSError:
+            return
+        if not effect:
+            return
+        panel = self._fx_panel
+        if panel.isVisible() and panel.current_effect == effect:
+            panel.close_panel()
+        else:
+            panel.open_panel(effect)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._reposition_entry()
+        if hasattr(self, '_transition'):
+            self._transition.setGeometry(self.rect())
+        if hasattr(self, '_fx_panel'):
+            self._fx_panel.setGeometry(self.rect())
 
     def leaveEvent(self, event):
         """Restore focus to the active editor when the mouse leaves the window."""
