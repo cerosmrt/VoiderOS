@@ -43,6 +43,89 @@ let
     echo $! > "$PIDFILE"
   '';
 
+  # ── File organiser ───────────────────────────────────────────────────────────
+  # voider-sort [src]: moves every file in <src> (default ~/incoming) into
+  # a ~/folder organised by extension. Text files go into ~/void (the vault).
+  # The operation is idempotent: files with the same name AND size are skipped.
+
+  sortScript = pkgs.writeText "voider-sort.py" ''
+    import os, sys, shutil
+    from pathlib import Path
+
+    DEST = {
+        "txt":"void", "md":"void", "rst":"void", "org":"void",
+        "pdf":"documents", "epub":"documents", "mobi":"documents",
+        "doc":"documents", "docx":"documents", "odt":"documents",
+        "jpg":"images", "jpeg":"images", "png":"images", "gif":"images",
+        "webp":"images", "bmp":"images", "svg":"images", "tiff":"images",
+        "tif":"images", "heic":"images", "raw":"images", "cr2":"images",
+        "mp3":"music", "flac":"music", "ogg":"music", "wav":"music",
+        "aac":"music", "m4a":"music", "opus":"music", "wma":"music",
+        "mp4":"videos", "mkv":"videos", "avi":"videos", "mov":"videos",
+        "webm":"videos", "m4v":"videos", "flv":"videos",
+        "py":"code", "js":"code", "ts":"code", "rs":"code",
+        "c":"code", "cpp":"code", "h":"code", "go":"code",
+        "rb":"code", "sh":"code", "lua":"code", "nix":"code",
+        "zip":"archives", "tar":"archives", "gz":"archives",
+        "7z":"archives", "rar":"archives", "bz2":"archives",
+        "xz":"archives", "zst":"archives",
+    }
+
+    def sort_dir(src):
+        home = Path.home()
+        moved = skipped = 0
+        for file in sorted(src.rglob("*")):
+            if not file.is_file() or file.name.startswith("."):
+                continue
+            ext  = file.suffix.lstrip(".").lower()
+            dest = home / DEST.get(ext, "other")
+            dest.mkdir(parents=True, exist_ok=True)
+            target = dest / file.name
+            if target.exists():
+                if target.stat().st_size == file.stat().st_size:
+                    skipped += 1
+                    continue
+                stem, suf = file.stem, file.suffix
+                n = 1
+                while target.exists():
+                    target = dest / f"{stem}_{n}{suf}"
+                    n += 1
+            shutil.move(str(file), str(target))
+            print(f"  -> {dest.name}/{target.name}")
+            moved += 1
+        print(f"voider-sort: {moved} moved, {skipped} skipped ({src})")
+
+    src = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.home() / "incoming"
+    if not src.is_dir():
+        print(f"voider-sort: not a directory: {src}")
+        sys.exit(1)
+    sort_dir(src)
+  '';
+
+  voiderSort = pkgs.writeShellScriptBin "voider-sort" ''
+    exec ${pkgs.python3}/bin/python3 ${sortScript} "$@"
+  '';
+
+  # voider-usb-sort: called by the systemd path unit when /run/media/federico
+  # changes (USB mounted). Sorts everything in all currently-mounted volumes.
+  voiderUsbSort = pkgs.writeShellScriptBin "voider-usb-sort" ''
+    for d in /run/media/federico/*/; do
+      [ -d "$d" ] && voider-sort "$d"
+    done
+  '';
+
+  # voider-inbox-watch: inotify loop; runs voider-sort whenever files land in
+  # ~/incoming. Runs as a systemd user service so it restarts on failure.
+  voiderInboxWatch = pkgs.writeShellScriptBin "voider-inbox-watch" ''
+    mkdir -p "$HOME/incoming"
+    ${pkgs.inotify-tools}/bin/inotifywait \
+      -m -q -e close_write -e moved_to "$HOME/incoming" \
+      --format '%f' |
+    while IFS= read -r _f; do
+      voider-sort "$HOME/incoming"
+    done
+  '';
+
   # voider-fx-update: reads /tmp/voider-fx (shell-sourceable key=value pairs),
   # bakes all active effect parameters as GLSL constants, writes a combined
   # shader to /tmp/voider-active.glsl, and loads it via hyprctl.
@@ -52,9 +135,11 @@ let
     SHADER=/tmp/voider-active.glsl
     HYPRCTL=${pkgs.hyprland}/bin/hyprctl
 
-    # Propagate HYPRLAND_INSTANCE_SIGNATURE if the caller didn't inherit it
+    # Propagate HYPRLAND_INSTANCE_SIGNATURE if the caller didn't inherit it.
+    # Hyprland 0.34+ places the socket under $XDG_RUNTIME_DIR/hypr/ (not /tmp/hypr/).
     if [ -z "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
-      for _d in /tmp/hypr/*/; do
+      _rt="''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+      for _d in "$_rt/hypr/"*/; do
         [ -d "$_d" ] && HYPRLAND_INSTANCE_SIGNATURE=$(basename "$_d") && break
       done
       export HYPRLAND_INSTANCE_SIGNATURE
@@ -162,6 +247,10 @@ let
     # Launch the layer-shell host (which spawns voider-py)
     # Log output to /tmp so we can diagnose failures
     exec-once = bash -c 'voider-shell > /tmp/voider-shell.log 2>&1'
+    # Apply default shaders (B&W on by default) as soon as Hyprland is ready
+    exec-once = voider-fx-update
+    # USB automount (connects to udisks2 over D-Bus)
+    exec-once = ${pkgs.udiskie}/bin/udiskie --automount --no-notify
 
     # ── Voider window rules ───────────────────────────────────────────────────
     # voider-py tiles normally (fills workspace as sole tiled window).
@@ -182,6 +271,7 @@ let
     bind = SUPER, V, exec, codium
     bind = SUPER, C, exec, kitty --title claude -e claude
     bind = SUPER, R, exec, voider-radio
+    bind = SUPER, I, exec, kitty --working-directory ~/incoming
     bind = SUPER, Q, killactive,
 
     # ── Visual effect panels (Super+F5/F6/F7) ─────────────────────────────────
@@ -242,6 +332,15 @@ in
     };
   };
 
+  # ── USB automount (udisks2 is the daemon; udiskie is the session client) ──────
+  services.udisks2.enable = true;
+
+  # Ensure /run/media/federico exists so the systemd path unit can watch it
+  # before the first USB is ever inserted.
+  systemd.tmpfiles.rules = [
+    "d /run/media/federico 0755 federico users -"
+  ];
+
   # ── Packages ──────────────────────────────────────────────────────────────────
   environment.systemPackages = [
     voiderShell
@@ -249,11 +348,17 @@ in
     fxUpdate
     fxOpenPanel
     voiderRadio
+    voiderSort
+    voiderUsbSort
+    voiderInboxWatch
     pkgs.kitty
     pkgs.vscodium
     pkgs.claude-code
     pkgs.git
     pkgs.mpv
+    pkgs.ffmpeg
+    pkgs.udiskie
+    pkgs.inotify-tools
   ];
 
   # ── Wayland / environment ─────────────────────────────────────────────────────
@@ -270,7 +375,35 @@ in
   systemd.user.tmpfiles.rules = [
     "d %h/void             0755 - - -"
     "d %h/.config/voideros 0755 - - -"
+    "d %h/incoming         0755 - - -"
   ];
+
+  # ── Inbox watcher: auto-sorts ~/incoming when files land there ────────────────
+  systemd.user.services.voider-inbox = {
+    description = "VoiderOS ~/incoming auto-sort";
+    after    = [ "graphical-session.target" ];
+    wantedBy = [ "graphical-session.target" ];
+    serviceConfig = {
+      ExecStart = "${voiderInboxWatch}/bin/voider-inbox-watch";
+      Restart    = "on-failure";
+      RestartSec = "5";
+    };
+  };
+
+  # ── USB watcher: sort file when a USB is mounted ──────────────────────────────
+  systemd.user.paths.voider-usb = {
+    description = "Watch for USB mounts under /run/media/federico";
+    pathConfig.PathChanged = "/run/media/federico";
+    wantedBy = [ "default.target" ];
+  };
+
+  systemd.user.services.voider-usb = {
+    description = "Sort files from newly mounted USB";
+    serviceConfig = {
+      Type      = "oneshot";
+      ExecStart = "${voiderUsbSort}/bin/voider-usb-sort";
+    };
+  };
 
   # ── Security: polkit for privileged operations ───────────────────────────────
   security.polkit.enable = true;

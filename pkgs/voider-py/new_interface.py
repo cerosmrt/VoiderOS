@@ -5,6 +5,7 @@ import json
 import random
 import datetime
 import shutil
+import subprocess
 from PyQt6.QtWidgets import QApplication, QMainWindow, QStackedWidget, QFileDialog
 from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
 from PyQt6.QtGui import QFont, QCursor, QShortcut, QKeySequence
@@ -17,6 +18,9 @@ from circular_view import CircularView
 from widgets import CustomLineEdit, ChannelTransition
 from fx_panel import FxPanel
 from views import NormalView
+from oracle_view import OracleView
+from metronome_view import MetronomeView
+from help_overlay import HelpOverlay, RecBadge
 
 
 def _qt_msg_handler(msg_type, context, message):
@@ -43,6 +47,11 @@ DEFAULT_CONFIG = {
         "view_f2": "F2",
         "view_f3": "F3",
         "view_f4": "F4",
+        "view_f5": "F5",
+        "view_f6": "F6",
+        "help": "F8",
+        "record_mic": "Ctrl+M",
+        "record_cam": "Ctrl+K",
         "quit": "Escape",
         "rebase": "Ctrl+0",
         "reshuffle": "Ctrl+R",
@@ -73,10 +82,10 @@ _KEY_MAP = {
     'Enter': Qt.Key.Key_Return, 'Space': Qt.Key.Key_Space,
     'F1': Qt.Key.Key_F1, 'F2': Qt.Key.Key_F2, 'F3': Qt.Key.Key_F3,
     'F4': Qt.Key.Key_F4, 'F5': Qt.Key.Key_F5, 'F6': Qt.Key.Key_F6,
-    'F12': Qt.Key.Key_F12,
+    'F7': Qt.Key.Key_F7, 'F8': Qt.Key.Key_F8, 'F12': Qt.Key.Key_F12,
     'PageUp': Qt.Key.Key_PageUp, 'PageDown': Qt.Key.Key_PageDown,
     '0': Qt.Key.Key_0, '9': Qt.Key.Key_9, 'R': Qt.Key.Key_R, 'P': Qt.Key.Key_P,
-    'F': Qt.Key.Key_F, 'B': Qt.Key.Key_B,
+    'F': Qt.Key.Key_F, 'B': Qt.Key.Key_B, 'M': Qt.Key.Key_M, 'K': Qt.Key.Key_K,
     '.': Qt.Key.Key_Period, '*': Qt.Key.Key_Asterisk,
     'Plus': Qt.Key.Key_Plus, 'Minus': Qt.Key.Key_Minus,
     'S': Qt.Key.Key_S,
@@ -202,7 +211,7 @@ class FullscreenCircleApp(QMainWindow):
         self._setup_opacity_shortcuts()
         self.txt_files = []
         self.current_file_index = 0
-        self.current_view = 0  # 0=F1, 1=F2, 2=F3(book), 3=F4(vault)
+        self.current_view = 0  # 0=F1, 1=F2, 2=F3(book), 3=F4(vault), 4=F5(oracle), 5=F6(metronome)
         self.use_spacebar_for_void = self.config.get('void_key', 'enter') == 'space'
         self._pending_vault_remove = False  # True when staging a vault line in F1
         self._para_focus = False            # True when in paragraph focus mode
@@ -245,7 +254,13 @@ class FullscreenCircleApp(QMainWindow):
         self.circular_view = None   # F2: CircularView over doc ring
         self.book_view = None       # F3: CircularView over book_ring (filenames)
         self.vault_view = None      # F4: CircularView over vault ring
+        self.oracle_view = None     # F5: OracleView
+        self.metronome_view = None  # F6: MetronomeView
         self.stack.addWidget(self.normal_view)
+
+        # Recording state
+        self._mic_proc: subprocess.Popen | None = None
+        self._cam_proc: subprocess.Popen | None = None
 
         # File setup — active file is configurable (defaults to book_dir/0.txt)
         self.current_file_path = active_file
@@ -542,6 +557,27 @@ class FullscreenCircleApp(QMainWindow):
             self.entry.hide()
             self.vault_view.update()
             self._vault_show_editor()
+
+        elif view_index == 4:  # F5 — oracle vault
+            if not self.oracle_view:
+                self.oracle_view = OracleView(self)
+                self.oracle_view.setFont(self._app_font)
+                self.stack.addWidget(self.oracle_view)
+            vault_lines = [l for l in self.vault_ring.lines if l and l != '.']
+            self.oracle_view.load(vault_lines)
+            self.stack.setCurrentWidget(self.oracle_view)
+            self.entry.hide()
+            self.oracle_view.setFocus()
+
+        elif view_index == 5:  # F6 — metronome
+            if not self.metronome_view:
+                self.metronome_view = MetronomeView(self)
+                self.stack.addWidget(self.metronome_view)
+            else:
+                self.metronome_view.activate()
+            self.stack.setCurrentWidget(self.metronome_view)
+            self.entry.hide()
+            self.metronome_view.activate()
 
     def auto_save_circular(self):
         """Save doc ring state to active file (atomic write)."""
@@ -1824,6 +1860,11 @@ class FullscreenCircleApp(QMainWindow):
         self._fx_panel = FxPanel(self)
         self._fx_panel.setGeometry(self.rect())
 
+        self._help_overlay = HelpOverlay(self)
+        self._help_overlay.setGeometry(self.rect())
+
+        self._rec_badge = RecBadge(self)
+
         # Poll /tmp/voider-fx-panel for open/close requests from Hyprland keybinds
         self._panel_poll = QTimer(self)
         self._panel_poll.timeout.connect(self._poll_fx_panel)
@@ -1864,6 +1905,10 @@ class FullscreenCircleApp(QMainWindow):
             self._transition.setGeometry(self.rect())
         if hasattr(self, '_fx_panel'):
             self._fx_panel.setGeometry(self.rect())
+        if hasattr(self, '_help_overlay'):
+            self._help_overlay.setGeometry(self.rect())
+        if hasattr(self, '_rec_badge'):
+            self._rec_badge._reposition()
 
     def leaveEvent(self, event):
         """Restore focus to the active editor when the mouse leaves the window."""
@@ -1891,6 +1936,10 @@ class FullscreenCircleApp(QMainWindow):
             self.book_view.editor.setFocus()
         elif self.current_view == 3 and self.vault_view:
             self.vault_view.editor.setFocus()
+        elif self.current_view == 4 and self.oracle_view:
+            self.oracle_view.setFocus()
+        elif self.current_view == 5 and self.metronome_view:
+            self.metronome_view.setFocus()
 
     # ── Key routing ───────────────────────────────────────────────────────────
 
@@ -1907,6 +1956,18 @@ class FullscreenCircleApp(QMainWindow):
             self.switch_to_view(2); event.accept(); return
         if self._matches(key, mods, 'view_f4'):
             self.switch_to_view(3); event.accept(); return
+        if self._matches(key, mods, 'view_f5'):
+            self.switch_to_view(4); event.accept(); return
+        if self._matches(key, mods, 'view_f6'):
+            self.switch_to_view(5); event.accept(); return
+
+        # Global: help / recording
+        if self._matches(key, mods, 'help'):
+            self._help_overlay.toggle(); event.accept(); return
+        if self._matches(key, mods, 'record_mic'):
+            self._toggle_mic_recording(); event.accept(); return
+        if self._matches(key, mods, 'record_cam'):
+            self._toggle_cam_recording(); event.accept(); return
 
         # Global: rebase (F2 only, enforced inside; F3 handled view-specifically)
         if self._matches(key, mods, 'rebase') and self.current_view != 2:
@@ -2054,6 +2115,74 @@ class FullscreenCircleApp(QMainWindow):
             self.switch_to_view(0)
         elif self._matches(key, mods, 'quit'):
             self.close()
+
+    # ── Oracle ────────────────────────────────────────────────────────────────
+
+    def _oracle_pull(self, text: str) -> None:
+        """Insert an oracle line into the doc ring after the current position."""
+        insert_pos = self.line_ring.index + 1
+        self.line_ring.lines.insert(insert_pos, text)
+        self.line_ring.index = insert_pos
+        self.auto_save_circular()
+        print(f"✅ Oracle→Doc[{insert_pos}]: '{text[:60]}'")
+
+    # ── Recording ─────────────────────────────────────────────────────────────
+
+    def _toggle_mic_recording(self) -> None:
+        if self._mic_proc and self._mic_proc.poll() is None:
+            self._mic_proc.terminate()
+            self._mic_proc = None
+            print("🎙 Mic recording stopped")
+        else:
+            rec_dir = os.path.join(self.void_dir, 'recordings')
+            os.makedirs(rec_dir, exist_ok=True)
+            fname = datetime.datetime.now().strftime("mic_%Y%m%d_%H%M%S.mp3")
+            path = os.path.join(rec_dir, fname)
+            try:
+                self._mic_proc = subprocess.Popen(
+                    ['ffmpeg', '-y', '-f', 'pulse', '-i', 'default',
+                     '-c:a', 'libmp3lame', '-b:a', '96k', '-ar', '44100', path],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                print(f"🎙 Mic recording → {fname}")
+            except OSError as e:
+                print(f"⚠️ Mic recording failed: {e}")
+                self._mic_proc = None
+        self._update_rec_badge()
+
+    def _toggle_cam_recording(self) -> None:
+        if self._cam_proc and self._cam_proc.poll() is None:
+            self._cam_proc.terminate()
+            self._cam_proc = None
+            print("📷 Camera recording stopped")
+        else:
+            rec_dir = os.path.join(self.void_dir, 'recordings')
+            os.makedirs(rec_dir, exist_ok=True)
+            fname = datetime.datetime.now().strftime("cam_%Y%m%d_%H%M%S.mp4")
+            path = os.path.join(rec_dir, fname)
+            try:
+                self._cam_proc = subprocess.Popen(
+                    ['ffmpeg', '-y',
+                     '-f', 'v4l2', '-framerate', '15',
+                     '-video_size', '640x480', '-i', '/dev/video0',
+                     '-f', 'pulse', '-i', 'default',
+                     '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '35',
+                     '-c:a', 'aac', '-b:a', '64k', path],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                print(f"📷 Camera recording → {fname}")
+            except OSError as e:
+                print(f"⚠️ Camera recording failed: {e}")
+                self._cam_proc = None
+        self._update_rec_badge()
+
+    def _update_rec_badge(self) -> None:
+        mic_on = bool(self._mic_proc and self._mic_proc.poll() is None)
+        cam_on = bool(self._cam_proc and self._cam_proc.poll() is None)
+        if hasattr(self, '_rec_badge'):
+            self._rec_badge.set_state(mic_on, cam_on)
 
 
 if __name__ == '__main__':

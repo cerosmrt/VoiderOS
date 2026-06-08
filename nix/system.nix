@@ -29,7 +29,7 @@
   users.users.federico = {
     isNormalUser  = true;
     description   = "Federico";
-    extraGroups   = [ "networkmanager" "wheel" ];
+    extraGroups   = [ "networkmanager" "wheel" "video" "audio" ];
     packages      = with pkgs; [ git curl nodejs kitty firefox vscodium ntfs3g ];
   };
 
