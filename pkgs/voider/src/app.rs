@@ -95,6 +95,7 @@ pub struct UiState {
     pub blink_tick:      u64,
     pub opacity:         f32,
     pub show_overlay:    bool,
+    pub exit_requested:  bool,
 }
 
 const ANIM_FRAMES: u64 = 11; // ~180ms at 60fps
@@ -383,6 +384,11 @@ impl UiState {
                     let _ = save_file(&self.active_file, self.ring.lines());
                 }
                 self.last_inserted_idx = None;
+            }
+
+            LineAction::Kill => {
+                // Exit VoiderOS
+                self.exit_requested = true;
             }
         }
     }
@@ -952,6 +958,7 @@ impl App {
             blink_tick: 0,
             opacity: 1.0,
             show_overlay: false,
+            exit_requested: false,
         };
 
         Ok(Self {
@@ -1041,6 +1048,9 @@ impl KeyboardHandler for App {
     fn press_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, event: KeyEvent) {
         let action = input::map(event.keysym, event.utf8.as_deref(), &self.modifiers);
         self.ui.apply(action);
+        if self.ui.exit_requested {
+            self.exit = true;
+        }
     }
     fn release_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, _: KeyEvent) {}
     fn update_modifiers(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, modifiers: Modifiers) {

@@ -29,7 +29,7 @@ static PyObject *configure(PyObject *, PyObject *arg) {
     using W = LayerShellQt::Window;
     lw->setLayer(W::LayerBottom);
     lw->setAnchors(W::Anchors(W::AnchorLeft | W::AnchorRight | W::AnchorTop | W::AnchorBottom));
-    lw->setExclusiveZone(-1);
+    lw->setExclusiveZone(0);
     lw->setKeyboardInteractivity(W::KeyboardInteractivityOnDemand);
 
     Py_RETURN_NONE;

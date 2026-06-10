@@ -5,12 +5,18 @@ pub enum LineAction {
     SwitchFile(String),        // //filename
     MoveBlock(String),         // /filename  (move whole paragraph)
     MoveLine(String, String),  // content /filename (move one line)
+    Kill,                      // !kill — exit VoiderOS
     Empty,
 }
 
 pub fn parse_line(raw: &str) -> LineAction {
     let line = raw.trim();
     if line.is_empty() { return LineAction::Empty; }
+
+    // !kill → exit VoiderOS
+    if line == "!kill" {
+        return LineAction::Kill;
+    }
 
     // // → switch file
     if let Some(rest) = line.strip_prefix("//") {

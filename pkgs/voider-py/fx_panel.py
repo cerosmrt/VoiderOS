@@ -9,18 +9,18 @@ from PyQt6.QtCore import Qt, QRect
 
 PARAM_DEFS = {
     'crt': [
-        {'label': 'Enabled',   'key': 'crt',           'type': 'bool',  'default': 0},
+        {'label': 'Enabled',   'key': 'crt',           'type': 'bool',  'default': 1},
         {'label': 'Intensity', 'key': 'crt_intensity',  'type': 'float',
-         'min': 0.0,  'max': 1.0,  'step': 0.05, 'default': 0.3,  'fmt': '.2f'},
+         'min': 0.0,  'max': 1.0,  'step': 0.05, 'default': 0.6,  'fmt': '.2f'},
         {'label': 'Scanlines', 'key': 'crt_thickness',  'type': 'int',
          'min': 1,    'max': 4,    'step': 1,    'default': 2,    'suffix': 'px'},
         {'label': 'Vignette',  'key': 'crt_vignette',   'type': 'float',
          'min': 0.0,  'max': 1.0,  'step': 0.05, 'default': 0.7,  'fmt': '.2f'},
     ],
     'grain': [
-        {'label': 'Enabled',   'key': 'grain',           'type': 'bool',  'default': 0},
+        {'label': 'Enabled',   'key': 'grain',           'type': 'bool',  'default': 1},
         {'label': 'Intensity', 'key': 'grain_intensity',  'type': 'float',
-         'min': 0.0,  'max': 1.0,  'step': 0.05, 'default': 0.2,  'fmt': '.2f'},
+         'min': 0.0,  'max': 1.0,  'step': 0.05, 'default': 0.4,  'fmt': '.2f'},
         {'label': 'Speed',     'key': 'grain_speed',      'type': 'float',
          'min': 1.0,  'max': 20.0, 'step': 1.0,  'default': 5.0,  'fmt': '.0f', 'suffix': 'x'},
         {'label': 'Size',      'key': 'grain_size',       'type': 'enum',
@@ -29,9 +29,9 @@ PARAM_DEFS = {
     'bw': [
         {'label': 'Enabled',  'key': 'bw',           'type': 'bool',  'default': 1},
         {'label': 'Blend',    'key': 'bw_blend',     'type': 'float',
-         'min': 0.0,  'max': 1.0,  'step': 0.05, 'default': 0.3,  'fmt': '.2f'},
+         'min': 0.0,  'max': 1.0,  'step': 0.05, 'default': 1.0,  'fmt': '.2f'},
         {'label': 'Contrast', 'key': 'bw_contrast',  'type': 'float',
-         'min': 0.5,  'max': 2.0,  'step': 0.1,  'default': 1.0,  'fmt': '.1f'},
+         'min': 0.5,  'max': 2.0,  'step': 0.1,  'default': 1.2,  'fmt': '.1f'},
     ],
 }
 

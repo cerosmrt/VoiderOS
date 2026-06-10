@@ -169,9 +169,10 @@ class FullscreenCircleApp(QMainWindow):
     F4: vault browser — browse shuffled lines from void folder, pick into active file
     """
 
-    def __init__(self):
+    def __init__(self, on_lock=None):
         super().__init__()
 
+        self._on_lock = on_lock
         self.config = _load_config()
         self._kb = {
             action: _parse_keybinding(ks)
@@ -226,6 +227,8 @@ class FullscreenCircleApp(QMainWindow):
         # Window setup
         self.setWindowTitle("Voider")
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        # Remove any always-on-top behavior, allow other windows to appear above
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setCursor(QCursor(Qt.CursorShape.BlankCursor))
         self.setStyleSheet("background-color: black; color: white;")
 
@@ -425,7 +428,12 @@ class FullscreenCircleApp(QMainWindow):
         if text.startswith('!'):
             cmd = text[1:].strip()
             if cmd:
-                subprocess.Popen(cmd, shell=True)
+                print(f"🚀 Executing command: {cmd}")
+                try:
+                    proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    print(f"📋 Process started with PID: {proc.pid}")
+                except Exception as e:
+                    print(f"❌ Error executing command: {e}")
                 self.entry.clear()
             return
         void_line(self)
@@ -1858,7 +1866,7 @@ class FullscreenCircleApp(QMainWindow):
     # ── UI init ───────────────────────────────────────────────────────────────
 
     def init_ui(self):
-        self.show()
+        self.showFullScreen()
         self.setCentralWidget(self.stack)
         self._reposition_entry()
         self._transition = ChannelTransition(self)
@@ -1967,6 +1975,10 @@ class FullscreenCircleApp(QMainWindow):
             self.switch_to_view(4); event.accept(); return
         if self._matches(key, mods, 'view_f6'):
             self.switch_to_view(5); event.accept(); return
+
+        # Global: lock screen
+        if key == Qt.Key.Key_Escape and self._on_lock:
+            self._on_lock(); event.accept(); return
 
         # Global: help / recording
         if self._matches(key, mods, 'help'):
