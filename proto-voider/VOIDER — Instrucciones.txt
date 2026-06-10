@@ -1,0 +1,170 @@
+
+╔══════════════════════════════════════════════════════════════════╗
+║                         V O I D E R                             ║
+║                    manual de uso completo                        ║
+╚══════════════════════════════════════════════════════════════════╝
+
+
+────────────────────────────────────────────────────────────────────
+  QUÉ ES
+────────────────────────────────────────────────────────────────────
+
+Voider es un editor de texto minimalista de pantalla completa.
+Fondo negro. Sin distracciones. Pensado para escribir, revisar y
+organizar notas, ideas o fragmentos de texto.
+
+El texto se guarda en archivos .txt organizados en una carpeta
+llamada "vault" (bóveda). Los archivos se pueden agrupar como
+capítulos de un libro.
+
+El formato interno es simple: cada línea es una unidad de texto.
+El carácter "." (punto solo en una línea) actúa como separador
+de párrafos.
+
+
+────────────────────────────────────────────────────────────────────
+  LAS 4 VISTAS
+────────────────────────────────────────────────────────────────────
+
+  F1  ·  ESCRITURA
+        Vista principal. Círculo blanco sobre negro.
+        Escribís en el centro de la pantalla.
+
+  F2  ·  DOCUMENTO
+        Vista circular. Muestra el archivo activo como un anillo
+        de líneas centradas. Podés navegar y editar.
+
+  F3  ·  LIBRO
+        Lista de archivos del libro. Navegás capítulos,
+        los reordenás y los renombrás.
+
+  F4  ·  VAULT
+        Líneas aleatorias de todos tus archivos mezcladas.
+        Las podés enviar al documento activo con Enter.
+
+  Cambiás de vista en cualquier momento con F1 / F2 / F3 / F4.
+
+
+────────────────────────────────────────────────────────────────────
+  CONTROLES GLOBALES  (funcionan en cualquier vista)
+────────────────────────────────────────────────────────────────────
+
+  F1 / F2 / F3 / F4     cambiar vista
+  Escape                 volver a F1 (desde F2, F3, F4)
+  Ctrl + Up              aumentar opacidad de la ventana
+  Ctrl + Down            disminuir opacidad de la ventana
+  Ctrl + R               mezclar vault (nuevo orden aleatorio)
+  Ctrl + B               backup manual del vault
+  Ctrl + F2              elegir archivo activo
+  Ctrl + F3              elegir carpeta de libro
+  Ctrl + F4              elegir carpeta de vault
+  F12                    captura de pantalla
+  Ctrl + F12             abrir carpeta de capturas
+
+
+────────────────────────────────────────────────────────────────────
+  F1 — ESCRITURA
+────────────────────────────────────────────────────────────────────
+
+  Enter                  guardar línea y vaciar el campo
+  Up                     línea anterior del archivo activo
+  Down                   línea siguiente del archivo activo
+  Alt + Up               archivo anterior del vault
+  Alt + Down             archivo siguiente del vault
+  PageUp                 saltar al párrafo anterior (dot .)
+  PageDown               saltar al párrafo siguiente (dot .)
+  Ctrl + 0               rebase: rotar el párrafo actual para que
+                         la línea seleccionada quede primera
+  Escape                 cerrar el programa
+
+
+────────────────────────────────────────────────────────────────────
+  F2 — DOCUMENTO
+────────────────────────────────────────────────────────────────────
+
+  Up / Down              navegar líneas
+  Enter                  confirmar edición de la línea actual
+  Ctrl + Enter           partir la línea en el cursor
+  Backspace (al inicio)  unir la línea con la anterior
+  Alt + Up               subir línea (o subir párrafo si estás en .)
+  Alt + Down             bajar línea (o bajar párrafo si estás en .)
+  PageUp                 saltar al párrafo anterior
+  PageDown               saltar al párrafo siguiente
+  Ctrl + 0               rebase del documento
+  Ctrl + P               imprimir archivo activo
+  Ctrl + Shift + F       reformatear texto raw en formato Voider
+                         (si ya está en formato Voider: colapsa
+                         puntos duplicados/incorrectos)
+  Escape                 volver a F1
+
+
+────────────────────────────────────────────────────────────────────
+  F3 — LIBRO
+────────────────────────────────────────────────────────────────────
+
+  Up / Down              navegar capítulos
+  Enter                  activar capítulo (abre en F2)
+  Alt + Up               mover capítulo hacia arriba en la lista
+  Alt + Down             mover capítulo hacia abajo en la lista
+  Ctrl + 0               rebase: el capítulo actual queda primero
+  Ctrl + P               imprimir el libro completo (todos los
+                         capítulos en orden, excluyendo 0.txt)
+  Escape                 volver a F1
+
+
+────────────────────────────────────────────────────────────────────
+  F4 — VAULT
+────────────────────────────────────────────────────────────────────
+
+  Up / Down              navegar líneas del vault
+  Enter                  enviar línea al documento activo
+  Ctrl + R               volver a mezclar el vault
+  Escape                 volver a F1
+
+
+────────────────────────────────────────────────────────────────────
+  EL FORMATO DE ARCHIVO
+────────────────────────────────────────────────────────────────────
+
+Los archivos son .txt simples. El separador de párrafos es una
+línea con un solo punto:
+
+    Primera oración del párrafo uno.
+    Segunda oración del párrafo uno.
+    .
+    Primera oración del párrafo dos.
+    .
+    Párrafo tres.
+
+Ctrl+Shift+F convierte texto crudo (pegado desde otro lado)
+al formato Voider: detecta límites de oraciones y agrega los
+separadores automáticamente.
+
+
+────────────────────────────────────────────────────────────────────
+  CONFIGURACIÓN
+────────────────────────────────────────────────────────────────────
+
+El archivo config.json (en la misma carpeta que el exe) guarda:
+
+  · vault_dir    carpeta del vault (archivos de escritura)
+  · book_dir     carpeta del libro (capítulos)
+  · active_file  último archivo activo
+  · font_family  fuente (por defecto: Consolas)
+  · font_size    tamaño de fuente (por defecto: 11)
+  · keybindings  todos los atajos son reconfigurables aquí
+
+Si no existe config.json, se crea automáticamente al iniciar.
+
+
+────────────────────────────────────────────────────────────────────
+  BACKUPS
+────────────────────────────────────────────────────────────────────
+
+Voider hace backups automáticos al guardar y al iniciar.
+También podés hacer uno manual con Ctrl+B.
+Los backups se guardan en la subcarpeta "backups" dentro del vault.
+
+
+────────────────────────────────────────────────────────────────────
+

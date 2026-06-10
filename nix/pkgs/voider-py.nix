@@ -8,6 +8,7 @@ let
     pyqt6
     numpy
     pyaudio
+    watchdog
   ]);
 
   qtwayland = pkgs.qt6.qtwayland;

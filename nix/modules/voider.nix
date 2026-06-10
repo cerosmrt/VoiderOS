@@ -6,6 +6,11 @@ let
   voiderShell = pkgs.callPackage ../pkgs/voider-shell.nix { inherit pkgs lib; };
   voiderPy    = pkgs.callPackage ../pkgs/voider-py.nix    { inherit pkgs lib; };
 
+  # Shared Python env — used by both voider-py and voider-proto
+  voiderPython = pkgs.python3.withPackages (ps: with ps; [
+    pyqt6 numpy pyaudio watchdog
+  ]);
+
   # Voider ring cursor — white circle with black fill, matches the app logo
   voiderCursor = pkgs.stdenv.mkDerivation {
     name = "voider-cursor";
@@ -95,6 +100,16 @@ THEME
   # regenerated on each toggle. State lives in /tmp/voider-fx as shell vars.
   # Hyprland only supports one screen_shader at a time, so this is the only
   # sane approach for independently-toggleable effects.
+
+  # voider-proto: dev sandbox — runs proto-voider/watch.py with auto-reload.
+  # Edit any .py in proto-voider/, save, app restarts instantly.
+  voiderProto = pkgs.writeShellScriptBin "voider-proto" ''
+    cd /home/federico/VoiderOS/proto-voider
+    export QT_QPA_PLATFORM=wayland
+    export QT_PLUGIN_PATH=${pkgs.qt6.qtwayland}/lib/qt-6/plugins''${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}
+    export WAYLAND_DISPLAY=''${WAYLAND_DISPLAY:-wayland-1}
+    exec ${voiderPython}/bin/python3 watch.py
+  '';
 
   # voider-radio: plays random internet radio (jazz, ambient, classical)
   # First call starts playback, second call stops it.
@@ -461,6 +476,7 @@ THEME
     bind = SUPER, I, exec, kitty --working-directory ~/incoming
     bind = SUPER, B, exec, firefox
     bind = SUPER, A, exec, pavucontrol
+    bind = SUPER, P, exec, kitty --title voider-proto -e voider-proto
     bind = SUPER, Q, killactive,
     bind = SUPER, F, togglefloating, active
     bind = SUPER, TAB, cyclenext,
@@ -559,6 +575,7 @@ in
   environment.systemPackages = [
     voiderShell
     voiderPy
+    voiderProto
     voiderCursor
     fxUpdate
     fxOpenPanel
