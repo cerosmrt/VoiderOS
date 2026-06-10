@@ -81,9 +81,9 @@ class NormalView(QWidget):
     """F1 view: minimal white circle with centered text entry"""
 
     _BREATH_PERIOD_MS = 7000   # primary breath — slow, lung-like
-    _BREATH_AMPLITUDE = 0.04   # primary ±4%
-    _BREATH_AMP2      = 0.020  # secondary ±2%  (golden-ratio period — never syncs)
-    _BREATH_AMP3      = 0.008  # tertiary ±0.8% (e-ratio period  — perpetual tremor)
+    _BREATH_AMPLITUDE = 0.08   # primary ±8%
+    _BREATH_AMP2      = 0.030  # secondary ±3%  (golden-ratio period — never syncs)
+    _BREATH_AMP3      = 0.012  # tertiary ±1.2% (e-ratio period  — perpetual tremor)
     _AUDIO_MAX_SCALE  = 0.20   # audio pulse capped at +20%
     _TICK_MS = 33
 
@@ -142,6 +142,7 @@ class NormalView(QWidget):
             + self._BREATH_AMP3      * math.sin(self._breath_phase3))
         audio_scale = 1.0 + self._AUDIO_MAX_SCALE * self._audio_smooth
         scale  = max(breath_scale, audio_scale)
-        radius = min(int(base_radius * scale), base_radius - 5)
+        max_radius = min(w, h) // 2 - 10
+        radius = min(int(base_radius * scale), max_radius)
 
         painter.drawEllipse(center_x - radius, center_y - radius, radius * 2, radius * 2)

@@ -11,7 +11,7 @@ let
   ]);
 
   qtwayland = pkgs.qt6.qtwayland;
-  src = toString ../../pkgs/voider-py;
+  src = ../../pkgs/voider-py;
 in
 pkgs.writeShellScriptBin "voider-py" ''
   # Config lives in the user's home so it's writable
