@@ -6,6 +6,42 @@ let
   voiderShell = pkgs.callPackage ../pkgs/voider-shell.nix { inherit pkgs lib; };
   voiderPy    = pkgs.callPackage ../pkgs/voider-py.nix    { inherit pkgs lib; };
 
+  # Simple dot cursor theme
+  dotCursor = pkgs.stdenv.mkDerivation rec {
+    name = "dot-cursor";
+    src = pkgs.writeTextDir "dummy" "";
+    buildInputs = [ pkgs.xorg.xcursorgen ];
+    buildCommand = ''
+      mkdir -p $out/share/icons/dot/cursors
+
+      # Create PNG for dots
+      ${pkgs.imagemagick}/bin/magick -size 8x8 xc:transparent -fill black -draw "circle 4,4 4,2" dot8.png
+      ${pkgs.imagemagick}/bin/magick -size 16x16 xc:transparent -fill black -draw "circle 8,8 8,4" dot16.png  
+      ${pkgs.imagemagick}/bin/magick -size 24x24 xc:transparent -fill black -draw "circle 12,12 12,6" dot24.png
+      ${pkgs.imagemagick}/bin/magick -size 32x32 xc:transparent -fill black -draw "circle 16,16 16,8" dot32.png
+
+      # Create cursor config
+      cat > cursor.config << 'EOF'
+      8 4 4 dot8.png
+      16 8 8 dot16.png
+      24 12 12 dot24.png
+      32 16 16 dot32.png
+      EOF
+
+      # Generate cursor files
+      ${pkgs.xorg.xcursorgen}/bin/xcursorgen cursor.config $out/share/icons/dot/cursors/default
+      ${pkgs.xorg.xcursorgen}/bin/xcursorgen cursor.config $out/share/icons/dot/cursors/left_ptr
+      ${pkgs.xorg.xcursorgen}/bin/xcursorgen cursor.config $out/share/icons/dot/cursors/arrow
+
+      # Create index.theme
+      cat > $out/share/icons/dot/index.theme << 'EOF'
+      [Icon Theme]
+      Name=Dot
+      Comment=Simple dot cursor theme
+      EOF
+    '';
+  };
+
   # ── Monitor configuration: clock positions ────────────────────────────────────
   # Clock positions relative to primary monitor:
   #     12
@@ -322,6 +358,19 @@ let
     monitor = ${monitorConfig.primary.name}, ${monitorConfig.primary.resolution}, ${monitorConfig.primary.position}, 1
     monitor = ${monitorConfig.secondary.name}, ${monitorConfig.secondary.resolution}, ${getMonitorPosition monitorConfig.secondary.clockPosition}, 1
 
+    # ── Layout: split side-by-side ────────────────────────────────────────────
+    general {
+        layout = dwindle
+        resize_on_border = true
+    }
+    
+    dwindle {
+        preserve_split = true
+        smart_split = false
+        smart_resizing = true
+        default_split_ratio = 1.0
+    }
+
     # ── Cursor: minimal dot ───────────────────────────────────────────────────
     cursor {
         no_hardware_cursors = false
@@ -332,8 +381,8 @@ let
         hide_on_touch = false
     }
     
-    env = XCURSOR_SIZE, 12
-    env = XCURSOR_THEME, Adwaita
+    env = XCURSOR_SIZE, 8
+    env = XCURSOR_THEME, dot
 
     # Launch the layer-shell host (which spawns voider-py)
     # Log output to /tmp so we can diagnose failures
@@ -355,16 +404,20 @@ let
     windowrulev2 = suppressevent maximize, class:voider-py
 
     # ── App window rules ──────────────────────────────────────────────────────
-    # Default: tiled (split with voider), Super+F toggles to fullscreen float
-    # Apps start tiled and focus on new window
+    # Default: TILED (side by side with voider)  
+    # Super+F: toggles to FLOAT fullscreen (these rules apply when floating)
     
-    # When floating (after Super+F): fullscreen
     windowrulev2 = size 100% 100%, floating:1, class:kitty
     windowrulev2 = move 0 0, floating:1, class:kitty
-    windowrulev2 = size 100% 100%, floating:1, class:VSCodium
+    windowrulev2 = center, floating:1, class:kitty
+    
+    windowrulev2 = size 100% 100%, floating:1, class:VSCodium  
     windowrulev2 = move 0 0, floating:1, class:VSCodium
+    windowrulev2 = center, floating:1, class:VSCodium
+    
     windowrulev2 = size 100% 100%, floating:1, class:firefox
-    windowrulev2 = move 0 0, floating:1, class:firefox
+    windowrulev2 = move 0 0, floating:1, class:firefox  
+    windowrulev2 = center, floating:1, class:firefox
 
     # ── Launch apps ───────────────────────────────────────────────────────────
     bind = SUPER, T, exec, kitty
@@ -375,7 +428,7 @@ let
     bind = SUPER, B, exec, firefox
     bind = SUPER, A, exec, pavucontrol
     bind = SUPER, Q, killactive,
-    bind = SUPER, F, togglefloating,
+    bind = SUPER, F, togglefloating, active
     bind = SUPER, TAB, cyclenext,
 
     # ── Focus navigation (with hidden cursor) ────────────────────────────────
@@ -465,6 +518,7 @@ in
   environment.systemPackages = [
     voiderShell
     voiderPy
+    dotCursor
     fxUpdate
     fxOpenPanel
     voiderNav

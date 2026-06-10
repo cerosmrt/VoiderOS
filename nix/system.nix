@@ -59,40 +59,16 @@
     pulse.enable = true;
     jack.enable  = true;
     wireplumber.enable = true;
-    extraConfig.pipewire."91-bitcrush" = {
-      "context.modules" = [{
-        name = "libpipewire-module-filter-chain";
-        args = {
-          "node.description" = "Bitcrusher";
-          "filter.graph" = {
-            nodes = [{
-              type    = "ladspa";
-              name    = "bitcrush";
-              plugin  = "${pkgs.ladspaPlugins}/lib/ladspa/bitcrush_1413.so";
-              label   = "bitcrush";
-              control = { "Bit depth" = 6; "Sample rate decimation" = 3; };
-            }];
-          };
-          "capture.props" = {
-            "node.name"          = "effect_input.bitcrush";
-            "media.class"        = "Audio/Sink";
-            "priority.session"   = 1000;
-            "node.default-sink"  = true;
-          };
-          "playback.props" = {
-            "node.name"    = "effect_output.bitcrush";
-            "node.passive" = true;
-          };
-        };
-      }];
-    };
   };
   hardware.pulseaudio.enable = false;
   
-  # Auto-start PipeWire user services
+  # Auto-start PipeWire user services  
   systemd.user.services.pipewire.wantedBy = [ "default.target" ];
   systemd.user.services.pipewire-pulse.wantedBy = [ "default.target" ];
   systemd.user.services.wireplumber.wantedBy = [ "default.target" ];
+  
+  # Ensure D-Bus is available for audio services
+  services.dbus.enable = true;
   security.rtkit.enable      = true;
 
   # NTFS data disk
