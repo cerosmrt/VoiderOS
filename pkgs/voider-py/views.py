@@ -37,6 +37,13 @@ class AudioMonitor:
 
     def _find_monitor_index(self, pa):
         """Return the device index of a PipeWire/PulseAudio monitor source, or None."""
+        # First, try to find our virtual mic
+        for i in range(pa.get_device_count()):
+            info = pa.get_device_info_by_index(i)
+            if info['maxInputChannels'] > 0 and 'voider_virtual_mic' in info['name'].lower():
+                return i
+        
+        # Fall back to any monitor source
         for i in range(pa.get_device_count()):
             info = pa.get_device_info_by_index(i)
             if info['maxInputChannels'] > 0 and 'monitor' in info['name'].lower():
@@ -74,8 +81,8 @@ class NormalView(QWidget):
     """F1 view: minimal white circle with centered text entry"""
 
     _BREATH_PERIOD_MS = 4000  # one full breath cycle
-    _BREATH_AMPLITUDE = 0.02  # ±2% → scale 0.98..1.02
-    _AUDIO_MAX_SCALE  = 0.18  # +18% radius at peak audio
+    _BREATH_AMPLITUDE = 0.15  # ±15% → scale 0.85..1.15 (more visible breathing)
+    _AUDIO_MAX_SCALE  = 0.35  # +35% radius at peak audio
     _TICK_MS = 33             # ~30 fps
 
     def __init__(self, parent=None):

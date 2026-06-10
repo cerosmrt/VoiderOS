@@ -325,7 +325,7 @@ let
       sleep 3
       if [ -f "/tmp/voider-nav-active" ]; then
         rm /tmp/voider-nav-active
-        $HYPRCTL setcursor "Adwaita" 4 2>/dev/null || true
+        $HYPRCTL setcursor "dot" 12 2>/dev/null || true
       fi
     ) &
     
@@ -350,6 +350,23 @@ let
     ) &
   '';
 
+  # voider-launch-split: launch app in splitscreen mode
+  voiderLaunchSplit = pkgs.writeShellScriptBin "voider-launch-split" ''
+    HYPRCTL=${pkgs.hyprland}/bin/hyprctl
+    
+    # Launch the application
+    "$@" &
+    
+    # Wait a moment for window to appear
+    sleep 0.5
+    
+    # Ensure splitscreen layout
+    $HYPRCTL dispatch splitratio 0.5
+    
+    # Focus the new window
+    $HYPRCTL dispatch focuscurrentorlast
+  '';
+
   hyprlandConf = pkgs.writeText "hyprland.conf" ''
     # ── VoiderOS Hyprland config ─────────────────────────────────────────────
     # Hyprland is invisible infrastructure. Voider is what the user sees.
@@ -368,7 +385,7 @@ let
         preserve_split = true
         smart_split = false
         smart_resizing = true
-        default_split_ratio = 1.0
+        default_split_ratio = 0.5
     }
 
     # ── Cursor: minimal dot ───────────────────────────────────────────────────
@@ -381,7 +398,7 @@ let
         hide_on_touch = false
     }
     
-    env = XCURSOR_SIZE, 8
+    env = XCURSOR_SIZE, 12
     env = XCURSOR_THEME, dot
 
     # Launch the layer-shell host (which spawns voider-py)
@@ -523,6 +540,7 @@ in
     fxOpenPanel
     voiderNav
     voiderMove
+    voiderLaunchSplit
     voiderRadio
     voiderSort
     voiderUsbSort
@@ -565,6 +583,52 @@ in
     "d %h/.config/voideros 0755 - - -"
     "d %h/incoming         0755 - - -"
   ];
+
+  # ── PipeWire configuration for speaker → mic routing ──────────────────────────
+  systemd.user.services.voider-audio-route = {
+    description = "Route speaker output to virtual microphone for voider";
+    after = [ "pipewire.service" ];
+    wants = [ "pipewire.service" ];
+    wantedBy = [ "graphical-session.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = pkgs.writeShellScript "setup-audio-route" ''
+        # Wait for PipeWire to be ready
+        sleep 2
+        
+        # Create null sink for speaker monitoring
+        ${pkgs.pipewire}/bin/pw-cli create-node adapter '{
+          factory.name=support.null-audio-sink
+          node.name="voider_speaker_monitor"
+          node.description="VoiderOS Speaker Monitor"
+          media.class=Audio/Sink
+          audio.format=F32
+          audio.rate=44100
+          audio.channels=2
+          audio.position=[FL FR]
+        }' || true
+        
+        # Create virtual microphone from the monitor
+        ${pkgs.pipewire}/bin/pw-cli create-node adapter '{
+          factory.name=adapter
+          node.name="voider_virtual_mic"  
+          node.description="VoiderOS Virtual Microphone"
+          media.class=Audio/Source
+          audio.format=F32
+          audio.rate=44100
+          audio.channels=2
+          audio.position=[FL FR]
+          target.object="voider_speaker_monitor"
+        }' || true
+        
+        # Link default sink monitor to our virtual mic
+        sleep 1
+        ${pkgs.pipewire}/bin/pw-link @DEFAULT_AUDIO_SINK@:monitor_FL voider_virtual_mic:input_FL || true
+        ${pkgs.pipewire}/bin/pw-link @DEFAULT_AUDIO_SINK@:monitor_FR voider_virtual_mic:input_FR || true
+      '';
+    };
+  };
 
   # ── Inbox watcher: auto-sorts ~/incoming when files land there ────────────────
   systemd.user.services.voider-inbox = {
