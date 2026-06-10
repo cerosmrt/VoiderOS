@@ -6,39 +6,52 @@ let
   voiderShell = pkgs.callPackage ../pkgs/voider-shell.nix { inherit pkgs lib; };
   voiderPy    = pkgs.callPackage ../pkgs/voider-py.nix    { inherit pkgs lib; };
 
-  # Simple dot cursor theme
-  dotCursor = pkgs.stdenv.mkDerivation rec {
-    name = "dot-cursor";
+  # Voider ring cursor — white circle with black fill, matches the app logo
+  voiderCursor = pkgs.stdenv.mkDerivation {
+    name = "voider-cursor";
     src = pkgs.writeTextDir "dummy" "";
-    buildInputs = [ pkgs.xorg.xcursorgen ];
+    buildInputs = [ pkgs.imagemagick pkgs.xorg.xcursorgen ];
     buildCommand = ''
-      mkdir -p $out/share/icons/dot/cursors
+      mkdir -p $out/share/icons/voider/cursors
 
-      # Create PNG for dots
-      ${pkgs.imagemagick}/bin/magick -size 8x8 xc:transparent -fill black -draw "circle 4,4 4,2" dot8.png
-      ${pkgs.imagemagick}/bin/magick -size 16x16 xc:transparent -fill black -draw "circle 8,8 8,4" dot16.png  
-      ${pkgs.imagemagick}/bin/magick -size 24x24 xc:transparent -fill black -draw "circle 12,12 12,6" dot24.png
-      ${pkgs.imagemagick}/bin/magick -size 32x32 xc:transparent -fill black -draw "circle 16,16 16,8" dot32.png
+      # White ring, black fill, transparent outside — 4 sizes
+      for spec in "16 7 7 2" "24 11 11 2" "32 15 15 3" "48 23 23 4"; do
+        read sz cx cy sw <<< "$spec"
+        r=$((sz / 2 - 1))
+        ${pkgs.imagemagick}/bin/magick \
+          -size ''${sz}x''${sz} xc:transparent \
+          -fill black -stroke white -strokewidth ''${sw} \
+          -draw "circle ''${cx},''${cy} ''${cx},$((cy - r + sw))" \
+          cursor''${sz}.png
+        echo "''${sz} ''${cx} ''${cy} cursor''${sz}.png" >> cursor.cfg
+      done
 
-      # Create cursor config
-      cat > cursor.config << 'EOF'
-      8 4 4 dot8.png
-      16 8 8 dot16.png
-      24 12 12 dot24.png
-      32 16 16 dot32.png
-      EOF
+      ${pkgs.xorg.xcursorgen}/bin/xcursorgen cursor.cfg \
+        $out/share/icons/voider/cursors/default
 
-      # Generate cursor files
-      ${pkgs.xorg.xcursorgen}/bin/xcursorgen cursor.config $out/share/icons/dot/cursors/default
-      ${pkgs.xorg.xcursorgen}/bin/xcursorgen cursor.config $out/share/icons/dot/cursors/left_ptr
-      ${pkgs.xorg.xcursorgen}/bin/xcursorgen cursor.config $out/share/icons/dot/cursors/arrow
+      # Symlink every common name so all apps pick it up
+      cd $out/share/icons/voider/cursors
+      for name in \
+        left_ptr arrow top_left_arrow \
+        pointer hand hand1 hand2 \
+        text xterm ibeam \
+        crosshair cross tcross \
+        move fleur all-scroll \
+        watch wait progress \
+        not-allowed forbidden no-drop \
+        ns-resize ew-resize \
+        nw-resize ne-resize sw-resize se-resize \
+        n-resize s-resize e-resize w-resize \
+        col-resize row-resize \
+        zoom-in zoom-out copy; do
+        ln -sf default "$name"
+      done
 
-      # Create index.theme
-      cat > $out/share/icons/dot/index.theme << 'EOF'
-      [Icon Theme]
-      Name=Dot
-      Comment=Simple dot cursor theme
-      EOF
+      cat > $out/share/icons/voider/index.theme <<'THEME'
+[Icon Theme]
+Name=voider
+Comment=Voider ring cursor
+THEME
     '';
   };
 
@@ -325,7 +338,7 @@ let
       sleep 3
       if [ -f "/tmp/voider-nav-active" ]; then
         rm /tmp/voider-nav-active
-        $HYPRCTL setcursor "dot" 12 2>/dev/null || true
+        $HYPRCTL setcursor "voider" 32 2>/dev/null || true
       fi
     ) &
     
@@ -400,8 +413,8 @@ let
         hide_on_touch = false
     }
     
-    env = XCURSOR_SIZE, 12
-    env = XCURSOR_THEME, dot
+    env = XCURSOR_SIZE, 32
+    env = XCURSOR_THEME, voider
 
     # Launch the layer-shell host (which spawns voider-py)
     # Log output to /tmp so we can diagnose failures
@@ -546,7 +559,7 @@ in
   environment.systemPackages = [
     voiderShell
     voiderPy
-    dotCursor
+    voiderCursor
     fxUpdate
     fxOpenPanel
     voiderNav
