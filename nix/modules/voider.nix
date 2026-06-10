@@ -375,6 +375,11 @@ let
     monitor = ${monitorConfig.primary.name}, ${monitorConfig.primary.resolution}, ${monitorConfig.primary.position}, 1
     monitor = ${monitorConfig.secondary.name}, ${monitorConfig.secondary.resolution}, ${getMonitorPosition monitorConfig.secondary.clockPosition}, 1
 
+    # ── Workspaces ────────────────────────────────────────────────────────────
+    # Workspace 1 = laptop screen (main), workspace 2 = external HDMI
+    workspace = 1, monitor:eDP-1, default:true
+    workspace = 2, monitor:HDMI-A-1, default:true
+
     # ── Layout: split side-by-side ────────────────────────────────────────────
     general {
         layout = dwindle
@@ -382,10 +387,7 @@ let
     }
     
     dwindle {
-        preserve_split = true
-        smart_split = false
-        smart_resizing = true
-        default_split_ratio = 0.5
+        pseudotile = false
     }
 
     # ── Cursor: minimal dot ───────────────────────────────────────────────────
@@ -411,14 +413,16 @@ let
     exec-once = ${pkgs.udiskie}/bin/udiskie --automount --no-notify
 
     # ── Voider window rules ───────────────────────────────────────────────────
-    # voider-py tiles normally (fills workspace as sole tiled window).
-    # nofullscreenrequest blocks the Qt showFullScreen() call so Hyprland
-    # keeps it tiled rather than exclusive-fullscreen. Floating windows
-    # (kitty, codium) are rendered above tiled windows by Hyprland.
-    windowrulev2 = noborder,            class:voider-py
-    windowrulev2 = noanim,              class:voider-py
-    windowrulev2 = nofullscreenrequest, class:voider-py
+    windowrulev2 = noborder,              class:voider-py
+    windowrulev2 = noanim,               class:voider-py
+    windowrulev2 = nofullscreenrequest,  class:voider-py
     windowrulev2 = suppressevent maximize, class:voider-py
+    windowrulev2 = workspace 1,          class:voider-py
+
+    # ── Force all apps to workspace 1 (tiles with voider) ────────────────────
+    windowrulev2 = workspace 1, class:firefox
+    windowrulev2 = workspace 1, class:kitty
+    windowrulev2 = workspace 1, class:VSCodium
 
     # ── App window rules ──────────────────────────────────────────────────────
     # Default: TILED (side by side with voider)  
@@ -447,6 +451,10 @@ let
     bind = SUPER, Q, killactive,
     bind = SUPER, F, togglefloating, active
     bind = SUPER, TAB, cyclenext,
+    bind = SUPER, 1, workspace, 1
+    bind = SUPER, 2, workspace, 2
+    bind = SUPER SHIFT, 1, movetoworkspace, 1
+    bind = SUPER SHIFT, 2, movetoworkspace, 2
 
     # ── Focus navigation (with hidden cursor) ────────────────────────────────
     bind = SUPER, left,  exec, voider-nav l
@@ -468,6 +476,9 @@ let
     bind = SUPER, F5, exec, voider-open-panel crt
     bind = SUPER, F6, exec, voider-open-panel grain
     bind = SUPER, F7, exec, voider-open-panel bw
+
+    # ── Screenshot to clipboard ───────────────────────────────────────────────
+    bind = SUPER, S, exec, grim - | wl-copy
 
     # ── Compositor settings ───────────────────────────────────────────────────
     general {
@@ -565,6 +576,8 @@ in
     pkgs.btop
     pkgs.yt-dlp
     pkgs.hyprlock
+    pkgs.grim
+    pkgs.wl-clipboard
   ];
 
   # ── Wayland / environment ─────────────────────────────────────────────────────

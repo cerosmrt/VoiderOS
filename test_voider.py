@@ -123,8 +123,10 @@ class VoiderTest:
         # Check if the circle parameters were updated for better visibility
         code, output = self.run_cmd("grep '_BREATH_AMPLITUDE.*0\\.15' /nix/store/*/pkgs/voider-py/views.py")
         self.test("Breathing amplitude increased (15%)", code == 0)
-        code, output = self.run_cmd("grep 'circle_radius.*- 100' /nix/store/*/pkgs/voider-py/circular_view.py")
-        self.test("Circle radius adjusted for screen fit", code == 0)
+        code, output = self.run_cmd("grep 'circle_radius.*- 35' /nix/store/*/pkgs/voider-py/circular_view.py")
+        self.test("Circle radius proper for tiled windows", code == 0)
+        code, output = self.run_cmd("grep '_AUDIO_MAX_SCALE.*0\\.35' /nix/store/*/pkgs/voider-py/views.py")
+        self.test("Audio reactivity amplitude increased (35%)", code == 0)
         print()
         
         # Configuration Files
