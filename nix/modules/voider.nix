@@ -332,8 +332,8 @@ let
         hide_on_touch = false
     }
     
-    env = XCURSOR_SIZE, 4
-    env = XCURSOR_THEME, capitaine-cursors
+    env = XCURSOR_SIZE, 12
+    env = XCURSOR_THEME, Adwaita
 
     # Launch the layer-shell host (which spawns voider-py)
     # Log output to /tmp so we can diagnose failures
@@ -355,11 +355,10 @@ let
     windowrulev2 = suppressevent maximize, class:voider-py
 
     # ── App window rules ──────────────────────────────────────────────────────
-    # Float = fullscreen, Tiled = split alongside voider
-    windowrulev2 = float, class:kitty
-    windowrulev2 = float, class:VSCodium  
-    windowrulev2 = float, class:firefox
+    # Default: tiled (split with voider), Super+F toggles to fullscreen float
+    # Apps start tiled and focus on new window
     
+    # When floating (after Super+F): fullscreen
     windowrulev2 = size 100% 100%, floating:1, class:kitty
     windowrulev2 = move 0 0, floating:1, class:kitty
     windowrulev2 = size 100% 100%, floating:1, class:VSCodium
@@ -492,7 +491,6 @@ in
     pkgs.pavucontrol
     pkgs.brightnessctl
     pkgs.btop
-    pkgs.capitaine-cursors
     pkgs.yt-dlp
     pkgs.hyprlock
   ];

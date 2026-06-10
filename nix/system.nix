@@ -58,6 +58,7 @@
     alsa.enable = true;
     pulse.enable = true;
     jack.enable  = true;
+    wireplumber.enable = true;
     extraConfig.pipewire."91-bitcrush" = {
       "context.modules" = [{
         name = "libpipewire-module-filter-chain";
@@ -87,6 +88,11 @@
     };
   };
   hardware.pulseaudio.enable = false;
+  
+  # Auto-start PipeWire user services
+  systemd.user.services.pipewire.wantedBy = [ "default.target" ];
+  systemd.user.services.pipewire-pulse.wantedBy = [ "default.target" ];
+  systemd.user.services.wireplumber.wantedBy = [ "default.target" ];
   security.rtkit.enable      = true;
 
   # NTFS data disk
