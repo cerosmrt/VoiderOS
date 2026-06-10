@@ -80,18 +80,22 @@ class AudioMonitor:
 class NormalView(QWidget):
     """F1 view: minimal white circle with centered text entry"""
 
-    _BREATH_PERIOD_MS = 4000  # one full breath cycle
-    _BREATH_AMPLITUDE = 0.15  # ±15% → scale 0.85..1.15 (more visible breathing)
-    _AUDIO_MAX_SCALE  = 0.35  # +35% radius at peak audio
-    _TICK_MS = 33             # ~30 fps
+    _BREATH_PERIOD_MS = 7000   # primary breath — slow, lung-like
+    _BREATH_AMPLITUDE = 0.04   # primary ±4%
+    _BREATH_AMP2      = 0.020  # secondary ±2%  (golden-ratio period — never syncs)
+    _BREATH_AMP3      = 0.008  # tertiary ±0.8% (e-ratio period  — perpetual tremor)
+    _AUDIO_MAX_SCALE  = 0.20   # audio pulse capped at +20%
+    _TICK_MS = 33
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent_app = parent
         self.setStyleSheet("background: black;")
 
-        self._breath_phase = 0.0
-        self._audio_smooth = 0.0   # exponentially smoothed audio level
+        self._breath_phase  = 0.0
+        self._breath_phase2 = 1.0   # offset so they start at different points
+        self._breath_phase3 = 2.5
+        self._audio_smooth = 0.0
         self._audio = AudioMonitor()
 
         self._breath_timer = QTimer(self)
@@ -99,9 +103,11 @@ class NormalView(QWidget):
         self._breath_timer.start(self._TICK_MS)
 
     def _breath_tick(self):
-        self._breath_phase += 2 * math.pi * self._TICK_MS / self._BREATH_PERIOD_MS
+        dt = 2 * math.pi * self._TICK_MS
+        self._breath_phase  += dt / self._BREATH_PERIOD_MS
+        self._breath_phase2 += dt / (self._BREATH_PERIOD_MS / 1.6180)  # golden ratio
+        self._breath_phase3 += dt / (self._BREATH_PERIOD_MS / 2.7182)  # e
 
-        # Fast attack, slow decay so the circle jumps on beats and fades gently
         raw = self._audio.level
         if raw > self._audio_smooth:
             self._audio_smooth = 0.6 * raw + 0.4 * self._audio_smooth
@@ -130,10 +136,12 @@ class NormalView(QWidget):
         center_y = h // 2
         base_radius = min(w, h) // 2 - 35
 
-        breath_scale = 1.0 + self._BREATH_AMPLITUDE * math.sin(self._breath_phase)
-        audio_scale  = 1.0 + self._AUDIO_MAX_SCALE * self._audio_smooth
-        # Audio overrides breathing when active; breathing takes over in silence
+        breath_scale = (1.0
+            + self._BREATH_AMPLITUDE * math.sin(self._breath_phase)
+            + self._BREATH_AMP2      * math.sin(self._breath_phase2)
+            + self._BREATH_AMP3      * math.sin(self._breath_phase3))
+        audio_scale = 1.0 + self._AUDIO_MAX_SCALE * self._audio_smooth
         scale  = max(breath_scale, audio_scale)
-        radius = int(base_radius * scale)
+        radius = min(int(base_radius * scale), base_radius - 5)
 
         painter.drawEllipse(center_x - radius, center_y - radius, radius * 2, radius * 2)
