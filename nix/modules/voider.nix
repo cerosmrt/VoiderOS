@@ -103,7 +103,7 @@ THEME
 
   # voider-proto: dev sandbox — runs proto-voider/watch.py with auto-reload.
   # Edit any .py in proto-voider/, save, app restarts instantly.
-  voiderProto = pkgs.writeShellScriptBin "voider-proto" ''
+  voiderProto = pkgs.writeShellScriptBin "proto-voider" ''
     cd /home/federico/VoiderOS/proto-voider
     export QT_QPA_PLATFORM=wayland
     export QT_PLUGIN_PATH=${pkgs.qt6.qtwayland}/lib/qt-6/plugins''${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}
@@ -476,7 +476,7 @@ THEME
     bind = SUPER, I, exec, kitty --working-directory ~/incoming
     bind = SUPER, B, exec, firefox
     bind = SUPER, A, exec, pavucontrol
-    bind = SUPER, P, exec, kitty --title voider-proto -e voider-proto
+    bind = SUPER, P, exec, kitty --title proto-voider -e proto-voider
     bind = SUPER, Q, killactive,
     bind = SUPER, F, togglefloating, active
     bind = SUPER, TAB, cyclenext,
