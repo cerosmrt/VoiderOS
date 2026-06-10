@@ -145,9 +145,9 @@ let
     fi
 
     # Defaults — must match fx_panel.py PARAM_DEFS defaults
-    crt=0;  crt_intensity=0.3000;  crt_thickness=2;    crt_vignette=0.7000
-    grain=0; grain_intensity=0.2000; grain_speed=5.0000; grain_size=fine
-    bw=1;   bw_blend=0.3000;       bw_contrast=1.0000
+    crt=1;  crt_intensity=0.6000;  crt_thickness=2;    crt_vignette=0.7000
+    grain=1; grain_intensity=0.4000; grain_speed=5.0000; grain_size=fine
+    bw=1;   bw_blend=1.0000;       bw_contrast=1.2000
 
     [ -f "$STATE" ] && . "$STATE"
 
@@ -264,6 +264,10 @@ let
     bind = SUPER, I, exec, kitty --working-directory ~/incoming
     bind = SUPER, B, exec, firefox
     bind = SUPER, Q, killactive,
+
+    # ── Mouse: move/resize floating windows (Super + drag) ────────────────────
+    bindm = SUPER, mouse:272, movewindow
+    bindm = SUPER, mouse:273, resizewindow
 
     # ── Visual effect panels (Super+F5/F6/F7) ─────────────────────────────────
     bind = SUPER, F5, exec, voider-open-panel crt

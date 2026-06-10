@@ -52,7 +52,7 @@ DEFAULT_CONFIG = {
         "help": "F8",
         "record_mic": "Ctrl+M",
         "record_cam": "Ctrl+K",
-        "quit": "Escape",
+        "quit": "Ctrl+Shift+Q",
         "rebase": "Ctrl+0",
         "reshuffle": "Ctrl+R",
         "opacity_up": "Ctrl+Plus",

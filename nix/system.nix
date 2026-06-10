@@ -30,7 +30,7 @@
     isNormalUser  = true;
     description   = "Federico";
     extraGroups   = [ "networkmanager" "wheel" "video" "audio" ];
-    packages      = with pkgs; [ git curl nodejs kitty firefox vscodium ntfs3g ];
+    packages      = with pkgs; [ git curl nodejs kitty firefox vscodium ntfs3g ladspaPlugins ];
   };
 
   nixpkgs.config.allowUnfree = true;
@@ -58,6 +58,33 @@
     alsa.enable = true;
     pulse.enable = true;
     jack.enable  = true;
+    extraConfig.pipewire."91-bitcrush" = {
+      "context.modules" = [{
+        name = "libpipewire-module-filter-chain";
+        args = {
+          "node.description" = "Bitcrusher";
+          "filter.graph" = {
+            nodes = [{
+              type    = "ladspa";
+              name    = "bitcrush";
+              plugin  = "${pkgs.ladspaPlugins}/lib/ladspa/bitcrush_1413.so";
+              label   = "bitcrush";
+              control = { "Bit depth" = 6; "Sample rate decimation" = 3; };
+            }];
+          };
+          "capture.props" = {
+            "node.name"          = "effect_input.bitcrush";
+            "media.class"        = "Audio/Sink";
+            "priority.session"   = 1000;
+            "node.default-sink"  = true;
+          };
+          "playback.props" = {
+            "node.name"    = "effect_output.bitcrush";
+            "node.passive" = true;
+          };
+        };
+      }];
+    };
   };
   hardware.pulseaudio.enable = false;
   security.rtkit.enable      = true;
