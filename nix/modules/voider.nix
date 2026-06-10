@@ -6,6 +6,41 @@ let
   voiderShell = pkgs.callPackage ../pkgs/voider-shell.nix { inherit pkgs lib; };
   voiderPy    = pkgs.callPackage ../pkgs/voider-py.nix    { inherit pkgs lib; };
 
+  # ── Monitor configuration: clock positions ────────────────────────────────────
+  # Clock positions relative to primary monitor:
+  #     12
+  #  11    1
+  # 9       3  
+  #  10    2
+  #     6
+  # 
+  # Change clockPosition below to move your external monitor:
+  monitorConfig = {
+    primary = {
+      name = "eDP-1";              # laptop screen
+      resolution = "1920x1080@120";
+      position = "0x0";            # always center
+    };
+    secondary = {
+      name = "HDMI-A-1";           # external monitor  
+      resolution = "1920x1080@60"; 
+      clockPosition = 9;           # ← CHANGE THIS: 9=left, 3=right, 12=top, 6=bottom
+    };
+  };
+
+  # Calculate secondary monitor position based on clock position
+  getMonitorPosition = clockPos: 
+    let primaryWidth = 1920; primaryHeight = 1080; in
+    if clockPos == 12 then "0x-${toString primaryHeight}"      # top
+    else if clockPos == 3 then "${toString primaryWidth}x0"    # right  
+    else if clockPos == 6 then "0x${toString primaryHeight}"   # bottom
+    else if clockPos == 9 then "-${toString primaryWidth}x0"   # left
+    else if clockPos == 1 then "${toString (primaryWidth / 2)}x-${toString (primaryHeight / 2)}"  # top-right
+    else if clockPos == 2 then "${toString (primaryWidth / 2)}x-${toString primaryHeight}"        # bottom-right  
+    else if clockPos == 10 then "-${toString (primaryWidth / 2)}x-${toString (primaryHeight / 2)}" # top-left
+    else if clockPos == 11 then "-${toString (primaryWidth / 2)}x${toString primaryHeight}"       # bottom-left
+    else "0x0"; # fallback
+
   # ── Screen effects: shared shader system ─────────────────────────────────────
   # All visual effects (CRT, grain, B&W) share one /tmp shader file that is
   # regenerated on each toggle. State lives in /tmp/voider-fx as shell vars.
@@ -284,20 +319,21 @@ let
     # Hyprland is invisible infrastructure. Voider is what the user sees.
 
     monitor = ,preferred,auto,1
+    monitor = ${monitorConfig.primary.name}, ${monitorConfig.primary.resolution}, ${monitorConfig.primary.position}, 1
+    monitor = ${monitorConfig.secondary.name}, ${monitorConfig.secondary.resolution}, ${getMonitorPosition monitorConfig.secondary.clockPosition}, 1
 
     # ── Cursor: minimal dot ───────────────────────────────────────────────────
     cursor {
-        no_hardware_cursors = true
-        default_monitor = DP-1
+        no_hardware_cursors = false
         zoom_factor = 1.0
         zoom_rigid = false
-        enable_hyprcursor = true
+        enable_hyprcursor = false
         hide_on_key_press = true
         hide_on_touch = false
     }
     
     env = XCURSOR_SIZE, 4
-    env = XCURSOR_THEME, Adwaita
+    env = XCURSOR_THEME, capitaine-cursors
 
     # Launch the layer-shell host (which spawns voider-py)
     # Log output to /tmp so we can diagnose failures
@@ -325,8 +361,11 @@ let
     windowrulev2 = float, class:firefox
     
     windowrulev2 = size 100% 100%, floating:1, class:kitty
+    windowrulev2 = move 0 0, floating:1, class:kitty
     windowrulev2 = size 100% 100%, floating:1, class:VSCodium
+    windowrulev2 = move 0 0, floating:1, class:VSCodium
     windowrulev2 = size 100% 100%, floating:1, class:firefox
+    windowrulev2 = move 0 0, floating:1, class:firefox
 
     # ── Launch apps ───────────────────────────────────────────────────────────
     bind = SUPER, T, exec, kitty
@@ -335,6 +374,7 @@ let
     bind = SUPER, R, exec, voider-radio
     bind = SUPER, I, exec, kitty --working-directory ~/incoming
     bind = SUPER, B, exec, firefox
+    bind = SUPER, A, exec, pavucontrol
     bind = SUPER, Q, killactive,
     bind = SUPER, F, togglefloating,
     bind = SUPER, TAB, cyclenext,
@@ -452,6 +492,7 @@ in
     pkgs.pavucontrol
     pkgs.brightnessctl
     pkgs.btop
+    pkgs.capitaine-cursors
     pkgs.yt-dlp
     pkgs.hyprlock
   ];
