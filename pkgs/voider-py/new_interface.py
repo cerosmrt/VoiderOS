@@ -421,6 +421,13 @@ class FullscreenCircleApp(QMainWindow):
             self._void_enter_connection = self.entry.returnPressed.connect(self._handle_void_line)
 
     def _handle_void_line(self):
+        text = self.entry.text().strip()
+        if text.startswith('!'):
+            cmd = text[1:].strip()
+            if cmd:
+                subprocess.Popen(cmd, shell=True)
+                self.entry.clear()
+            return
         void_line(self)
         # Reload doc ring and position near the just-written line
         self.load_doc_lines()
@@ -1851,7 +1858,7 @@ class FullscreenCircleApp(QMainWindow):
     # ── UI init ───────────────────────────────────────────────────────────────
 
     def init_ui(self):
-        self.showFullScreen()
+        self.show()
         self.setCentralWidget(self.stack)
         self._reposition_entry()
         self._transition = ChannelTransition(self)

@@ -66,7 +66,7 @@
   fileSystems."/mnt/data" = {
     device  = "/dev/disk/by-uuid/F29420EE9420B6CF";
     fsType  = "ntfs3";
-    options = [ "uid=1000" "gid=1000" "umask=0022" "nofail" ];
+    options = [ "uid=1000" "gid=1000" "umask=0022" ];
   };
 
   systemd.services."ModemManager".enable = false;

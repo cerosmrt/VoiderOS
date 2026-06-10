@@ -1,10 +1,9 @@
 # nix/modules/voider.nix
-# VoiderOS desktop: greetd autologin → Hyprland → voider-shell → voider-py
+# VoiderOS desktop: greetd autologin → Hyprland → voider-py (Layer::Bottom)
 { config, pkgs, lib, ... }:
 
 let
-  voiderShell = pkgs.callPackage ../pkgs/voider-shell.nix { inherit pkgs lib; };
-  voiderPy    = pkgs.callPackage ../pkgs/voider-py.nix    { inherit pkgs lib; };
+  voiderPy = pkgs.callPackage ../pkgs/voider-py.nix { inherit pkgs lib; };
 
   # ── Screen effects: shared shader system ─────────────────────────────────────
   # All visual effects (CRT, grain, B&W) share one /tmp shader file that is
@@ -244,27 +243,18 @@ let
 
     monitor = ,preferred,auto,1
 
-    # Launch the layer-shell host (which spawns voider-py)
-    # Log output to /tmp so we can diagnose failures
-    exec-once = bash -c 'voider-shell > /tmp/voider-shell.log 2>&1'
+    # Launch voider-py directly — it is its own Layer::Bottom surface
+    exec-once = bash -c 'voider-py > /tmp/voider-py.log 2>&1'
+    exec-once = ${pkgs.mako}/bin/mako
     # Apply default shaders (B&W on by default) as soon as Hyprland is ready
     exec-once = voider-fx-update
     # USB automount (connects to udisks2 over D-Bus)
     exec-once = ${pkgs.udiskie}/bin/udiskie --automount --no-notify
 
-    # ── Voider window rules ───────────────────────────────────────────────────
-    # voider-py tiles normally (fills workspace as sole tiled window).
-    # nofullscreenrequest blocks the Qt showFullScreen() call so Hyprland
-    # keeps it tiled rather than exclusive-fullscreen. Floating windows
-    # (kitty, codium) are rendered above tiled windows by Hyprland.
-    windowrulev2 = noborder,            class:voider-py
-    windowrulev2 = noanim,              class:voider-py
-    windowrulev2 = nofullscreenrequest, class:voider-py
-    windowrulev2 = suppressevent maximize, class:voider-py
-
-    # ── Apps that open on top of voider ──────────────────────────────────────
+    # ── Apps that open above voider (voider is Layer::Bottom, all XDG windows are above it) ──
     windowrulev2 = float, class:kitty
     windowrulev2 = float, class:VSCodium
+    windowrulev2 = float, class:firefox
 
     # ── Open apps on top with Super shortcuts ─────────────────────────────────
     bind = SUPER, T, exec, kitty
@@ -272,6 +262,7 @@ let
     bind = SUPER, C, exec, kitty --title claude -e claude
     bind = SUPER, R, exec, voider-radio
     bind = SUPER, I, exec, kitty --working-directory ~/incoming
+    bind = SUPER, B, exec, firefox
     bind = SUPER, Q, killactive,
 
     # ── Visual effect panels (Super+F5/F6/F7) ─────────────────────────────────
@@ -343,7 +334,6 @@ in
 
   # ── Packages ──────────────────────────────────────────────────────────────────
   environment.systemPackages = [
-    voiderShell
     voiderPy
     fxUpdate
     fxOpenPanel
@@ -359,6 +349,18 @@ in
     pkgs.ffmpeg
     pkgs.udiskie
     pkgs.inotify-tools
+    pkgs.wl-clipboard
+    pkgs.mako
+    pkgs.grim
+    pkgs.slurp
+    pkgs.xdg-utils
+    pkgs.zathura
+    pkgs.imv
+    pkgs.pavucontrol
+    pkgs.brightnessctl
+    pkgs.btop
+    pkgs.yt-dlp
+    pkgs.hyprlock
   ];
 
   # ── Wayland / environment ─────────────────────────────────────────────────────

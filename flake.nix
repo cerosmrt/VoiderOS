@@ -1,5 +1,5 @@
 # flake.nix — VoiderOS system definition
-# Real machine:  sudo nixos-rebuild switch --flake /mnt/z/programming/VoiderOS#voider
+# Real machine:  sudo nixos-rebuild switch --flake /home/federico/VoiderOS#voider
 # Test VM:       nixos-rebuild build-vm --flake .#voider-vm
 #                QEMU_OPTS="-display vnc=0.0.0.0:0" ./result/bin/run-nixos-vm
 #                Connect VNC viewer to <host>:5900
