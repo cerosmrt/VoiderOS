@@ -1,6 +1,6 @@
 # views.py
 from PyQt6.QtWidgets import QWidget
-from PyQt6.QtGui import QColor, QPainter, QPen
+from PyQt6.QtGui import QColor, QPainter, QPen, QFont
 from PyQt6.QtCore import Qt
 
 
@@ -33,3 +33,8 @@ class NormalView(QWidget):
         radius = min(w, h) // 2 - 35
 
         painter.drawEllipse(center_x - radius, center_y - radius, radius * 2, radius * 2)
+
+        font = QFont("Consolas", 72, QFont.Weight.Bold)
+        painter.setFont(font)
+        painter.setPen(QColor(255, 255, 255, 40))
+        painter.drawText(0, 0, w, h // 4, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter, "PROTO")
