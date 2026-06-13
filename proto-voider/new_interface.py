@@ -1520,6 +1520,7 @@ class FullscreenCircleApp(QMainWindow):
         for rel in self.o_browser_files:
             entries.extend(['.', rel])
         self.o_browser_ring = LineRing(entries or ['.'])
+        self.o_browser_ring.index = 1 if len(self.o_browser_ring.lines) > 1 else 0
         if self.o_browser_view:
             self.o_browser_view.ring = self.o_browser_ring
             self.o_browser_view._offset = 0.0
@@ -1533,7 +1534,10 @@ class FullscreenCircleApp(QMainWindow):
         view.editor.move((view.width() - editor_width) // 2,
                          center_y - view.editor.sizeHint().height() // 2)
         cur = self.o_browser_ring.current()
-        view.editor.setText(cur if cur != '.' else '')
+        while cur == '.' and len(self.o_browser_ring.lines) > 1:
+            self.o_browser_ring.move(1)
+            cur = self.o_browser_ring.current()
+        view.editor.setText(cur)
         view.editor.setCursorPosition(0)
         view.editor.show()
         view.editor.setFocus()
