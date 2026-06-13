@@ -425,11 +425,35 @@ class FullscreenCircleApp(QMainWindow):
             self._void_enter_connection = self.entry.returnPressed.connect(self._handle_void_line)
 
     def _handle_void_line(self):
+        if self.current_view == 4:
+            self._f5_fork()
+            return
         void_line(self)
-        # Reload doc ring and position near the just-written line
         self.load_doc_lines()
         if hasattr(self, 'last_inserted_index') and self.last_inserted_index is not None:
             self.line_ring.index = min(self.last_inserted_index, len(self.line_ring.lines) - 1)
+
+    def _f5_fork(self):
+        text = self.entry.text().strip()
+        if not text:
+            return
+        insert_pos = self.line_ring.index + 1
+        self.line_ring.lines.insert(insert_pos, text)
+        self.line_ring.index = insert_pos
+        self.auto_save_circular()
+        self.o_reader_ring.move(1)
+        while self.o_reader_ring.current() in ('.', ''):
+            self.o_reader_ring.move(1)
+        self.entry.setText(self.o_reader_ring.current())
+        self.entry.setCursorPosition(len(self.entry.text()))
+        print(f"✅ F5 fork→I/[{insert_pos}]: '{text}'")
+
+    def _f5_navigate(self, delta):
+        self.o_reader_ring.move(delta)
+        while self.o_reader_ring.current() in ('.', ''):
+            self.o_reader_ring.move(delta)
+        self.entry.setText(self.o_reader_ring.current())
+        self.entry.setCursorPosition(len(self.entry.text()))
 
     def _disconnect_void_key(self):
         if self._void_enter_connection:
@@ -560,22 +584,14 @@ class FullscreenCircleApp(QMainWindow):
             self.vault_view.update()
             self._vault_show_editor()
 
-        elif view_index == 4:  # F5 — transform: editable O/ line → append to I/
-            if not self.transform_view:
-                self.transform_view = CircularView(self.o_reader_ring, self)
-                self.transform_view.setFont(self._app_font)
-                self.transform_view.editor.returnPressed.disconnect()
-                self.transform_view.editor.returnPressed.connect(self._transform_confirm)
-                self.transform_view.editor.upPressed.connect(lambda: self._transform_navigate(-1))
-                self.transform_view.editor.downPressed.connect(lambda: self._transform_navigate(1))
-                self.stack.addWidget(self.transform_view)
-            else:
-                self.transform_view.ring = self.o_reader_ring
-                self.transform_view._offset = 0.0
-            self.stack.setCurrentWidget(self.transform_view)
-            self.entry.hide()
-            self.transform_view.update()
-            self._transform_show_editor()
+        elif view_index == 4:  # F5 — mirrors F1 but for O/: edit a forked line, Enter → I/
+            self.stack.setCurrentWidget(self.normal_view)
+            self.entry.show()
+            self.entry.raise_()
+            cur = self.o_reader_ring.current()
+            self.entry.setText('' if not cur or cur == '.' else cur)
+            self.entry.setCursorPosition(len(self.entry.text()))
+            self.entry.setFocus()
 
         elif view_index == 5:  # F6 — reader: circular view of O/ book (read-only)
             if not self.o_reader_view:
@@ -1476,9 +1492,9 @@ class FullscreenCircleApp(QMainWindow):
         view.editor.move((view.width() - editor_width) // 2,
                          center_y - view.editor.sizeHint().height() // 2)
         view.editor.setText(self.oracle_o_ring.current())
-        view.editor.setCursorPosition(0)
         view.editor.show()
         view.editor.setFocus()
+        view.editor.setCursorPosition(0)
         view.update()
 
     def _oracle_o_navigate(self, delta):
@@ -1489,21 +1505,14 @@ class FullscreenCircleApp(QMainWindow):
         self.oracle_o_view.update()
 
     def _oracle_o_confirm(self):
-        view = self.oracle_o_view
-        new_text = view.editor.text().strip()
+        new_text = self.oracle_o_view.editor.text().strip()
         if not new_text:
             return
-        insert_pos = self.line_ring.index + 1
-        self.line_ring.lines.insert(insert_pos, new_text)
-        self.line_ring.index = insert_pos
-        self.auto_save_circular()
-        self._refresh_oracle_o()
-        view._offset = 0.0
-        view.update()
-        view.editor.setText(self.oracle_o_ring.current())
-        view.editor.setCursorPosition(0)
-        view.editor.setFocus()
-        print(f"✅ OracleO→Doc[{insert_pos}]: '{new_text}'")
+        self.o_reader_ring = LineRing(['.', new_text])
+        self.o_reader_ring.index = 1
+        if self.transform_view:
+            self.transform_view.ring = self.o_reader_ring
+        self.switch_to_view(4)
 
     # ── F7: O/ book browser ───────────────────────────────────────────────────
 
@@ -1569,13 +1578,14 @@ class FullscreenCircleApp(QMainWindow):
         """Load an O/ book into the reader ring."""
         try:
             with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
-                lines = [l.rstrip('\n') for l in f]
+                lines = [l.strip() for l in f if l.strip()]
         except Exception as e:
             print(f"⚠️ Cannot open {fpath}: {e}")
             return
         if not lines or lines[0] != '.':
             lines.insert(0, '.')
         self.o_reader_ring = LineRing(lines)
+        self.o_reader_ring.index = 1  # skip leading dot
         self.o_reader_file = fpath
         if self.o_reader_view:
             self.o_reader_view.ring = self.o_reader_ring
@@ -2237,7 +2247,16 @@ class FullscreenCircleApp(QMainWindow):
             self._handle_f3_keys(key, mods, event)
         elif self.current_view == 3:
             self._handle_f4_keys(key, mods, event)
-        elif self.current_view in (4, 5, 6, 7):
+        elif self.current_view == 4:
+            if key == Qt.Key.Key_Escape:
+                self.switch_to_view(0); event.accept()
+            elif self._matches(key, mods, 'quit'):
+                self.close(); event.accept()
+            elif key == Qt.Key.Key_Up and mods == Qt.KeyboardModifier.NoModifier:
+                self._f5_navigate(-1); event.accept()
+            elif key == Qt.Key.Key_Down and mods == Qt.KeyboardModifier.NoModifier:
+                self._f5_navigate(1); event.accept()
+        elif self.current_view in (5, 6, 7):
             if key == Qt.Key.Key_Escape:
                 self.switch_to_view(0); event.accept()
             elif self._matches(key, mods, 'quit'):
