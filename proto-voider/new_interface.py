@@ -355,30 +355,39 @@ class FullscreenCircleApp(QMainWindow):
             self.circular_view._offset = 0.0
         print(f"📄 {len(lines)} lines loaded from {os.path.basename(doc_path)}")
 
-    def load_vault_lines(self):
-        """Load all .txt files except 0.txt into vault ring (shuffled)."""
-        all_lines = []
-        for root, _, files in os.walk(self.void_dir):
-            for fname in sorted(files):
-                if fname.lower().endswith('.txt') and fname.lower() != '0.txt':
-                    fpath = os.path.join(root, fname)
-                    try:
-                        with open(fpath, 'r', encoding='utf-8') as f:
-                            for raw in f:
-                                s = raw.strip()
-                                if s and s != '.':
-                                    all_lines.append(s)
-                    except Exception as e:
-                        print(f"⚠️ Error reading {fpath}: {e}")
-        if not all_lines:
-            all_lines = [""]
-        else:
-            random.shuffle(all_lines)
-        self.vault_ring = LineRing(all_lines)
+    def _pick_oracle_line(self, source_dir):
+        """Pick one random non-empty, non-dot line from source_dir."""
+        txt_files = []
+        for root, _, files in os.walk(source_dir):
+            for f in files:
+                if f.lower().endswith('.txt') and f.lower() != '0.txt':
+                    txt_files.append(os.path.join(root, f))
+        if not txt_files:
+            return "..."
+        for _ in range(20):
+            fpath = random.choice(txt_files)
+            try:
+                with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                    lines = [l.strip() for l in f if l.strip() and l.strip() != '.']
+                if lines:
+                    return random.choice(lines)
+            except Exception:
+                continue
+        return "..."
+
+    def _refresh_oracle(self):
+        """Pick a fresh oracle line from I/ and update the vault ring."""
+        source = os.path.join(self.void_dir, 'I')
+        line = self._pick_oracle_line(source)
+        self.vault_ring = LineRing(['.', line])
+        self.vault_ring.index = 1
         if self.vault_view:
             self.vault_view.ring = self.vault_ring
             self.vault_view._offset = 0.0
-        print(f"🔀 {len(all_lines)} vault lines loaded (shuffled)")
+        print(f"🔮 Oracle: '{line[:80]}'")
+
+    def load_vault_lines(self):
+        self._refresh_oracle()
 
     # ── Config / keybinding helpers ───────────────────────────────────────────
 
@@ -515,7 +524,8 @@ class FullscreenCircleApp(QMainWindow):
             self.book_view.update()
             self._book_show_editor()
 
-        elif view_index == 3:  # F4 — vault browser
+        elif view_index == 3:  # F4 — oracle (lazy, picks from I/)
+            self._refresh_oracle()
             if not self.vault_view:
                 self.vault_view = CircularView(self.vault_ring, self)
                 self.vault_view.setFont(self._app_font)
@@ -1330,15 +1340,15 @@ class FullscreenCircleApp(QMainWindow):
         self._send_to_printer(printer, full_html)
 
     def _vault_navigate(self, delta):
-        """Move vault ring and update inline editor text."""
-        self.vault_ring.move(delta)
+        """Pick a fresh oracle line on each navigation."""
+        self._refresh_oracle()
         self.vault_view._offset = 0.0
         self.vault_view.editor.setText(self.vault_ring.current())
         self.vault_view.editor.setCursorPosition(0)
         self.vault_view.update()
 
     def _vault_confirm_edit(self):
-        """Send editor text to doc ring, remove vault line, load next into editor."""
+        """Append editor text to doc ring, then pick a fresh oracle line."""
         view = self.vault_view
         new_text = view.editor.text().strip()
         if not new_text:
@@ -1346,19 +1356,14 @@ class FullscreenCircleApp(QMainWindow):
         insert_pos = self.line_ring.index + 1
         self.line_ring.lines.insert(insert_pos, new_text)
         self.line_ring.index = insert_pos
-        self.vault_ring.remove_current()
         self.auto_save_circular()
+        self._refresh_oracle()
         view._offset = 0.0
         view.update()
-        print(f"✅ Vault→Doc[{insert_pos}]: '{new_text}'")
-        # Load next vault line into editor (or hide if vault empty)
-        if self.vault_ring.lines and self.vault_ring.current():
-            view.editor.setText(self.vault_ring.current())
-            view.editor.setCursorPosition(0)
-            view.editor.setFocus()
-        else:
-            view.editor.hide()
-            view.edit_mode = False
+        view.editor.setText(self.vault_ring.current())
+        view.editor.setCursorPosition(0)
+        view.editor.setFocus()
+        print(f"✅ Oracle→Doc[{insert_pos}]: '{new_text}'")
 
     def take_screenshot(self):
         """F12: Capture the full screen and save to void_dir/screenshots/."""
