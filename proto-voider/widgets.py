@@ -1,5 +1,5 @@
 # widgets.py - Widgets reutilizables
-import numpy as np
+import random
 from PyQt6.QtWidgets import QLineEdit, QWidget
 from PyQt6.QtGui import QPainter, QPixmap, QImage
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
@@ -73,9 +73,8 @@ class NoiseOverlay(QWidget):
             return
             
         h_blocks, w_blocks = h // block_size, w // block_size
-        noise_gray = np.random.randint(0, 256, (h_blocks, w_blocks), dtype=np.uint8)
-        
-        image = QImage(noise_gray.data, w_blocks, h_blocks, w_blocks, 
+        noise_bytes = bytes(random.getrandbits(8) for _ in range(h_blocks * w_blocks))
+        image = QImage(noise_bytes, w_blocks, h_blocks, w_blocks,
                       QImage.Format.Format_Grayscale8)
         image = image.scaled(w, h, 
                            Qt.AspectRatioMode.IgnoreAspectRatio, 

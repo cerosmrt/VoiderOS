@@ -41,6 +41,10 @@ DEFAULT_CONFIG = {
         "view_f2": "F2",
         "view_f3": "F3",
         "view_f4": "F4",
+        "view_f5": "F5",
+        "view_f6": "F6",
+        "view_f7": "F7",
+        "view_f8": "F8",
         "quit": "Escape",
         "rebase": "Ctrl+0",
         "reshuffle": "Ctrl+R",
@@ -232,12 +236,25 @@ class FullscreenCircleApp(QMainWindow):
         self.line_ring = LineRing()
         self.vault_ring = LineRing()
 
+        # O/ state — F5/F6/F7/F8
+        self.o_dir = os.path.join(self.void_dir, 'O')
+        self.o_browser_files = []   # relative paths to .txt files in O/
+        self.o_browser_ring = LineRing(['.'])
+        self.o_reader_ring = LineRing(['.'])
+        self.o_reader_file = None   # currently open O/ book path
+        self.o_reader_line_idx = 0  # line index forked into F5
+        self.oracle_o_ring = LineRing(['.', '...'])
+
         # View stack
         self.stack = QStackedWidget()
         self.normal_view = NormalView(self)
         self.circular_view = None   # F2: CircularView over doc ring
         self.book_view = None       # F3: CircularView over book_ring (filenames)
-        self.vault_view = None      # F4: CircularView over vault ring
+        self.vault_view = None      # F4: Oracle from I/
+        self.transform_view = None  # F5: Transform — editable O/ line → I/
+        self.o_reader_view = None   # F6: Reader — circular view of O/ book
+        self.o_browser_view = None  # F7: Book browser for O/
+        self.oracle_o_view = None   # F8: Oracle from O/
         self.stack.addWidget(self.normal_view)
 
         # File setup — active file is configurable (defaults to book_dir/0.txt)
@@ -542,6 +559,76 @@ class FullscreenCircleApp(QMainWindow):
             self.entry.hide()
             self.vault_view.update()
             self._vault_show_editor()
+
+        elif view_index == 4:  # F5 — transform: editable O/ line → append to I/
+            if not self.transform_view:
+                self.transform_view = CircularView(self.o_reader_ring, self)
+                self.transform_view.setFont(self._app_font)
+                self.transform_view.editor.returnPressed.disconnect()
+                self.transform_view.editor.returnPressed.connect(self._transform_confirm)
+                self.transform_view.editor.upPressed.connect(lambda: self._transform_navigate(-1))
+                self.transform_view.editor.downPressed.connect(lambda: self._transform_navigate(1))
+                self.stack.addWidget(self.transform_view)
+            else:
+                self.transform_view.ring = self.o_reader_ring
+                self.transform_view._offset = 0.0
+            self.stack.setCurrentWidget(self.transform_view)
+            self.entry.hide()
+            self.transform_view.update()
+            self._transform_show_editor()
+
+        elif view_index == 5:  # F6 — reader: circular view of O/ book (read-only)
+            if not self.o_reader_view:
+                self.o_reader_view = CircularView(self.o_reader_ring, self)
+                self.o_reader_view.setFont(self._app_font)
+                self.o_reader_view.editor.returnPressed.disconnect()
+                self.o_reader_view.editor.returnPressed.connect(self._reader_fork_to_transform)
+                self.o_reader_view.editor.upPressed.connect(lambda: self._reader_navigate(-1))
+                self.o_reader_view.editor.downPressed.connect(lambda: self._reader_navigate(1))
+                self.stack.addWidget(self.o_reader_view)
+            else:
+                self.o_reader_view.ring = self.o_reader_ring
+                self.o_reader_view._offset = 0.0
+            self.stack.setCurrentWidget(self.o_reader_view)
+            self.entry.hide()
+            self.o_reader_view.update()
+            self._reader_show_editor()
+
+        elif view_index == 6:  # F7 — O/ book browser
+            self._load_o_browser()
+            if not self.o_browser_view:
+                self.o_browser_view = CircularView(self.o_browser_ring, self)
+                self.o_browser_view.setFont(self._app_font)
+                self.o_browser_view.editor.returnPressed.disconnect()
+                self.o_browser_view.editor.returnPressed.connect(self._o_browser_open)
+                self.o_browser_view.editor.upPressed.connect(lambda: self._o_browser_navigate(-1))
+                self.o_browser_view.editor.downPressed.connect(lambda: self._o_browser_navigate(1))
+                self.stack.addWidget(self.o_browser_view)
+            else:
+                self.o_browser_view.ring = self.o_browser_ring
+                self.o_browser_view._offset = 0.0
+            self.stack.setCurrentWidget(self.o_browser_view)
+            self.entry.hide()
+            self.o_browser_view.update()
+            self._o_browser_show_editor()
+
+        elif view_index == 7:  # F8 — oracle from O/ (lazy)
+            self._refresh_oracle_o()
+            if not self.oracle_o_view:
+                self.oracle_o_view = CircularView(self.oracle_o_ring, self)
+                self.oracle_o_view.setFont(self._app_font)
+                self.oracle_o_view.editor.returnPressed.disconnect()
+                self.oracle_o_view.editor.returnPressed.connect(self._oracle_o_confirm)
+                self.oracle_o_view.editor.upPressed.connect(lambda: self._oracle_o_navigate(-1))
+                self.oracle_o_view.editor.downPressed.connect(lambda: self._oracle_o_navigate(1))
+                self.stack.addWidget(self.oracle_o_view)
+            else:
+                self.oracle_o_view.ring = self.oracle_o_ring
+                self.oracle_o_view._offset = 0.0
+            self.stack.setCurrentWidget(self.oracle_o_view)
+            self.entry.hide()
+            self.oracle_o_view.update()
+            self._oracle_o_show_editor()
 
     def auto_save_circular(self):
         """Save doc ring state to active file (atomic write)."""
@@ -1365,6 +1452,216 @@ class FullscreenCircleApp(QMainWindow):
         view.editor.setFocus()
         print(f"✅ Oracle→Doc[{insert_pos}]: '{new_text}'")
 
+    # ── F8: Oracle from O/ ────────────────────────────────────────────────────
+
+    def _refresh_oracle_o(self):
+        line = self._pick_oracle_line(self.o_dir)
+        self.oracle_o_ring = LineRing(['.', line])
+        self.oracle_o_ring.index = 1
+        if self.oracle_o_view:
+            self.oracle_o_view.ring = self.oracle_o_ring
+            self.oracle_o_view._offset = 0.0
+        print(f"🔮 Oracle O/: '{line[:80]}'")
+
+    def _oracle_o_show_editor(self):
+        view = self.oracle_o_view
+        view.edit_mode = True
+        center_y = view.height() // 2
+        editor_width = min(view.width() - 100, 800)
+        view.editor.setFixedWidth(editor_width)
+        view.editor.move((view.width() - editor_width) // 2,
+                         center_y - view.editor.sizeHint().height() // 2)
+        view.editor.setText(self.oracle_o_ring.current())
+        view.editor.setCursorPosition(0)
+        view.editor.show()
+        view.editor.setFocus()
+        view.update()
+
+    def _oracle_o_navigate(self, delta):
+        self._refresh_oracle_o()
+        self.oracle_o_view._offset = 0.0
+        self.oracle_o_view.editor.setText(self.oracle_o_ring.current())
+        self.oracle_o_view.editor.setCursorPosition(0)
+        self.oracle_o_view.update()
+
+    def _oracle_o_confirm(self):
+        view = self.oracle_o_view
+        new_text = view.editor.text().strip()
+        if not new_text:
+            return
+        insert_pos = self.line_ring.index + 1
+        self.line_ring.lines.insert(insert_pos, new_text)
+        self.line_ring.index = insert_pos
+        self.auto_save_circular()
+        self._refresh_oracle_o()
+        view._offset = 0.0
+        view.update()
+        view.editor.setText(self.oracle_o_ring.current())
+        view.editor.setCursorPosition(0)
+        view.editor.setFocus()
+        print(f"✅ OracleO→Doc[{insert_pos}]: '{new_text}'")
+
+    # ── F7: O/ book browser ───────────────────────────────────────────────────
+
+    def _load_o_browser(self):
+        """Scan O/ recursively for .txt files and build browser ring."""
+        files = []
+        for root, _, fnames in os.walk(self.o_dir):
+            for f in sorted(fnames):
+                if f.lower().endswith('.txt') and f.lower() != '0.txt':
+                    rel = os.path.relpath(os.path.join(root, f), self.o_dir)
+                    files.append(rel)
+        self.o_browser_files = sorted(files)
+        entries = []
+        for rel in self.o_browser_files:
+            entries.extend(['.', rel])
+        self.o_browser_ring = LineRing(entries or ['.'])
+        if self.o_browser_view:
+            self.o_browser_view.ring = self.o_browser_ring
+            self.o_browser_view._offset = 0.0
+
+    def _o_browser_show_editor(self):
+        view = self.o_browser_view
+        view.edit_mode = True
+        center_y = view.height() // 2
+        editor_width = min(view.width() - 100, 800)
+        view.editor.setFixedWidth(editor_width)
+        view.editor.move((view.width() - editor_width) // 2,
+                         center_y - view.editor.sizeHint().height() // 2)
+        cur = self.o_browser_ring.current()
+        view.editor.setText(cur if cur != '.' else '')
+        view.editor.setCursorPosition(0)
+        view.editor.show()
+        view.editor.setFocus()
+        view.update()
+
+    def _o_browser_navigate(self, delta):
+        self.o_browser_ring.move(delta)
+        while self.o_browser_ring.current() == '.':
+            self.o_browser_ring.move(delta)
+        self.o_browser_view._offset = 0.0
+        self.o_browser_view.editor.setText(self.o_browser_ring.current())
+        self.o_browser_view.editor.setCursorPosition(0)
+        self.o_browser_view.update()
+
+    def _o_browser_open(self):
+        """Open selected O/ file in F6 reader."""
+        cur = self.o_browser_ring.current()
+        if not cur or cur == '.':
+            return
+        fpath = os.path.join(self.o_dir, cur)
+        if not os.path.exists(fpath):
+            return
+        self._load_o_reader(fpath)
+        self.switch_to_view(5)
+
+    # ── F6: O/ reader ─────────────────────────────────────────────────────────
+
+    def _load_o_reader(self, fpath):
+        """Load an O/ book into the reader ring."""
+        try:
+            with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                lines = [l.rstrip('\n') for l in f]
+        except Exception as e:
+            print(f"⚠️ Cannot open {fpath}: {e}")
+            return
+        if not lines or lines[0] != '.':
+            lines.insert(0, '.')
+        self.o_reader_ring = LineRing(lines)
+        self.o_reader_file = fpath
+        if self.o_reader_view:
+            self.o_reader_view.ring = self.o_reader_ring
+            self.o_reader_view._offset = 0.0
+        if self.transform_view:
+            self.transform_view.ring = self.o_reader_ring
+            self.transform_view._offset = 0.0
+        print(f"📖 Opened: {os.path.basename(fpath)} ({len(lines)} lines)")
+
+    def _reader_show_editor(self):
+        view = self.o_reader_view
+        view.edit_mode = True
+        center_y = view.height() // 2
+        editor_width = min(view.width() - 100, 800)
+        view.editor.setFixedWidth(editor_width)
+        view.editor.move((view.width() - editor_width) // 2,
+                         center_y - view.editor.sizeHint().height() // 2)
+        cur = self.o_reader_ring.current()
+        view.editor.setText(cur if cur != '.' else '')
+        view.editor.setReadOnly(True)
+        view.editor.setCursorPosition(0)
+        view.editor.show()
+        view.editor.setFocus()
+        view.update()
+
+    def _reader_navigate(self, delta):
+        self.o_reader_ring.move(delta)
+        while self.o_reader_ring.current() == '.':
+            self.o_reader_ring.move(delta)
+        self.o_reader_view._offset = 0.0
+        cur = self.o_reader_ring.current()
+        self.o_reader_view.editor.setText(cur)
+        self.o_reader_view.editor.setCursorPosition(0)
+        self.o_reader_view.update()
+
+    def _reader_fork_to_transform(self):
+        """Fork current reader line into F5 transform view."""
+        cur = self.o_reader_ring.current()
+        if not cur or cur == '.':
+            return
+        self.o_reader_line_idx = self.o_reader_ring.index
+        self.switch_to_view(4)
+
+    # ── F5: Transform ─────────────────────────────────────────────────────────
+
+    def _transform_show_editor(self):
+        view = self.transform_view
+        view.edit_mode = True
+        center_y = view.height() // 2
+        editor_width = min(view.width() - 100, 800)
+        view.editor.setFixedWidth(editor_width)
+        view.editor.move((view.width() - editor_width) // 2,
+                         center_y - view.editor.sizeHint().height() // 2)
+        cur = self.o_reader_ring.current()
+        view.editor.setReadOnly(False)
+        view.editor.setText(cur if cur != '.' else '')
+        view.editor.setCursorPosition(len(view.editor.text()))
+        view.editor.show()
+        view.editor.setFocus()
+        view.update()
+
+    def _transform_navigate(self, delta):
+        """Advance the reader position and load next line into transform."""
+        self.o_reader_ring.move(delta)
+        while self.o_reader_ring.current() == '.':
+            self.o_reader_ring.move(delta)
+        self.transform_view._offset = 0.0
+        cur = self.o_reader_ring.current()
+        self.transform_view.editor.setText(cur)
+        self.transform_view.editor.setCursorPosition(len(cur))
+        self.transform_view.update()
+
+    def _transform_confirm(self):
+        """Append edited line to active I/ doc, advance to next reader line."""
+        view = self.transform_view
+        new_text = view.editor.text().strip()
+        if not new_text:
+            return
+        insert_pos = self.line_ring.index + 1
+        self.line_ring.lines.insert(insert_pos, new_text)
+        self.line_ring.index = insert_pos
+        self.auto_save_circular()
+        # Advance reader to next non-dot line
+        self.o_reader_ring.move(1)
+        while self.o_reader_ring.current() == '.':
+            self.o_reader_ring.move(1)
+        self.transform_view._offset = 0.0
+        self.transform_view.update()
+        cur = self.o_reader_ring.current()
+        view.editor.setText(cur)
+        view.editor.setCursorPosition(len(cur))
+        view.editor.setFocus()
+        print(f"✅ Transform→Doc[{insert_pos}]: '{new_text}'")
+
     def take_screenshot(self):
         """F12: Capture the full screen and save to void_dir/screenshots/."""
         screen = self.screen()
@@ -1870,6 +2167,14 @@ class FullscreenCircleApp(QMainWindow):
             self.switch_to_view(2); event.accept(); return
         if self._matches(key, mods, 'view_f4'):
             self.switch_to_view(3); event.accept(); return
+        if self._matches(key, mods, 'view_f5'):
+            self.switch_to_view(4); event.accept(); return
+        if self._matches(key, mods, 'view_f6'):
+            self.switch_to_view(5); event.accept(); return
+        if self._matches(key, mods, 'view_f7'):
+            self.switch_to_view(6); event.accept(); return
+        if self._matches(key, mods, 'view_f8'):
+            self.switch_to_view(7); event.accept(); return
 
         # Global: rebase (F2 only, enforced inside; F3 handled view-specifically)
         if self._matches(key, mods, 'rebase') and self.current_view != 2:
