@@ -75,7 +75,7 @@ _KEY_MAP = {
     'Enter': Qt.Key.Key_Return, 'Space': Qt.Key.Key_Space,
     'F1': Qt.Key.Key_F1, 'F2': Qt.Key.Key_F2, 'F3': Qt.Key.Key_F3,
     'F4': Qt.Key.Key_F4, 'F5': Qt.Key.Key_F5, 'F6': Qt.Key.Key_F6,
-    'F12': Qt.Key.Key_F12,
+    'F7': Qt.Key.Key_F7, 'F8': Qt.Key.Key_F8, 'F12': Qt.Key.Key_F12,
     'PageUp': Qt.Key.Key_PageUp, 'PageDown': Qt.Key.Key_PageDown,
     '0': Qt.Key.Key_0, '9': Qt.Key.Key_9, 'R': Qt.Key.Key_R, 'P': Qt.Key.Key_P,
     'F': Qt.Key.Key_F, 'B': Qt.Key.Key_B,
@@ -2237,6 +2237,11 @@ class FullscreenCircleApp(QMainWindow):
             self._handle_f3_keys(key, mods, event)
         elif self.current_view == 3:
             self._handle_f4_keys(key, mods, event)
+        elif self.current_view in (4, 5, 6, 7):
+            if key == Qt.Key.Key_Escape:
+                self.switch_to_view(0); event.accept()
+            elif self._matches(key, mods, 'quit'):
+                self.close(); event.accept()
 
     def _handle_f1_keys(self, key, mods):
         if self._matches(key, mods, 'quit'):
