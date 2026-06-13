@@ -816,8 +816,12 @@ class FullscreenCircleApp(QMainWindow):
         """Load ordered file list from _book_order.json, appending any unlisted files."""
         order_path = os.path.join(self.book_dir, '_book_order.json')
         try:
-            actual = sorted(f for f in os.listdir(self.book_dir)
-                            if f.lower().endswith('.txt'))
+            actual = sorted(
+                os.path.relpath(os.path.join(root, f), self.book_dir)
+                for root, _, files in os.walk(self.book_dir)
+                for f in files
+                if f.lower().endswith('.txt') and f not in ('_book_order.json',)
+            )
         except Exception:
             actual = []
         actual_set = set(actual)
@@ -1733,11 +1737,12 @@ class FullscreenCircleApp(QMainWindow):
     # ── File navigation ───────────────────────────────────────────────────────
 
     def scan_txt_files(self):
-        dir_path = self.void_dir
+        """Scan book_dir recursively for .txt files."""
         self.txt_files = sorted(
-            os.path.join(dir_path, f)
-            for f in os.listdir(dir_path)
-            if f.lower().endswith('.txt') and os.path.isfile(os.path.join(dir_path, f))
+            os.path.join(root, f)
+            for root, _, files in os.walk(self.book_dir)
+            for f in files
+            if f.lower().endswith('.txt')
         )
         if self.current_file_path not in self.txt_files:
             self.txt_files.append(self.current_file_path)
