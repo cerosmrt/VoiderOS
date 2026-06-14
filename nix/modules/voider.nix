@@ -8,7 +8,7 @@ let
 
   # Shared Python env — used by both voider-py and voider-proto
   voiderPython = pkgs.python3.withPackages (ps: with ps; [
-    pyqt6 numpy pyaudio watchdog
+    pyqt6 numpy pyaudio watchdog langdetect
   ]);
 
   # Voider ring cursor — white circle with black fill, matches the app logo
@@ -606,6 +606,8 @@ in
     pkgs.btop
     pkgs.yt-dlp
     pkgs.hyprlock
+    pkgs.piper-tts
+    pkgs.alsa-utils
     pkgs.grim
     pkgs.wl-clipboard
   ];
