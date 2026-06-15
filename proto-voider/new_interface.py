@@ -40,6 +40,7 @@ DEFAULT_CONFIG = {
     "font_family": "Consolas",
     "font_size": 11,
     "text_color": "#ffffff",
+    "working_set_size": 100,
     "keybindings": {
         "view_f1": "F1",
         "view_f2": "F2",
@@ -260,6 +261,10 @@ class FullscreenCircleApp(QMainWindow):
         self.o_reader_file = None   # currently open O/ book path
         self.o_reader_line_idx = 0  # line index forked into F5
         self.oracle_o_ring = LineRing(['.', '...'])
+        # Working set: 100-book window, persisted across sessions
+        self._ws_loaded = False
+        self._ws_locked = []    # [{"path": str, "position": int}, ...]
+        self._ws_unlocked = []  # same structure; refreshed each boot
 
         # View stack
         self.stack = QStackedWidget()
@@ -508,6 +513,9 @@ class FullscreenCircleApp(QMainWindow):
         # Save last line when leaving F2
         if self.current_view == 1:
             self._save_last_line()
+        # Save reading position when leaving F6
+        if self.current_view == 5:
+            self._ws_save_position()
         # Cancel staged vault line if user navigates away without voiding
         if view_index == 3:
             self._pending_vault_remove = False
@@ -1542,25 +1550,113 @@ class FullscreenCircleApp(QMainWindow):
             self.transform_view.ring = self.o_reader_ring
         self.switch_to_view(4)
 
-    # ── F7: O/ book browser ───────────────────────────────────────────────────
+    # ── F7: O/ book browser — working set ────────────────────────────────────
 
-    def _load_o_browser(self):
-        """Scan O/ recursively for .txt files and build browser ring."""
-        files = []
-        for root, _, fnames in os.walk(self.o_dir):
-            for f in sorted(fnames):
-                if f.lower().endswith('.txt') and f.lower() != '0.txt':
-                    rel = os.path.relpath(os.path.join(root, f), self.o_dir)
-                    files.append(rel)
-        self.o_browser_files = sorted(files)
+    _WS_FILE = '.working_set.json'
+
+    def _ws_json_path(self):
+        return os.path.join(self.o_dir, self._WS_FILE)
+
+    def _load_working_set(self):
+        """Load locked/unlocked lists from JSON, fill unlocked with random books."""
+        locked, unlocked = [], []
+        path = self._ws_json_path()
+        if os.path.exists(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                locked = [e for e in data.get('locked', [])
+                          if os.path.exists(os.path.join(self.o_dir, e['path']))]
+                unlocked = [e for e in data.get('unlocked', [])
+                            if os.path.exists(os.path.join(self.o_dir, e['path']))]
+            except Exception:
+                pass
+        used = {e['path'] for e in locked} | {e['path'] for e in unlocked}
+        ws_size = int(self.config.get('working_set_size', 100))
+        capacity = ws_size - len(locked)
+        if len(unlocked) < capacity:
+            try:
+                candidates = [
+                    f for f in os.listdir(self.o_dir)
+                    if f.lower().endswith('.txt') and not f.startswith('.') and f not in used
+                ]
+                random.shuffle(candidates)
+                for f in candidates[:capacity - len(unlocked)]:
+                    unlocked.append({'path': f, 'position': 0})
+            except Exception:
+                pass
+        self._ws_locked = locked
+        self._ws_unlocked = unlocked
+        self._ws_loaded = True
+
+    def _save_working_set(self):
+        try:
+            with open(self._ws_json_path(), 'w', encoding='utf-8') as f:
+                json.dump({'locked': self._ws_locked, 'unlocked': self._ws_unlocked}, f, indent=2)
+        except Exception as e:
+            print(f"⚠️ Could not save working set: {e}")
+
+    def _ws_save_position(self):
+        if not self.o_reader_file:
+            return
+        fname = os.path.basename(self.o_reader_file)
+        idx = self.o_reader_ring.index
+        for e in self._ws_locked + self._ws_unlocked:
+            if e['path'] == fname:
+                e['position'] = idx
+                break
+        self._save_working_set()
+
+    def _ws_is_locked(self, fname):
+        return any(e['path'] == fname for e in self._ws_locked)
+
+    def _ws_fname_from_display(self, display):
+        """Strip ★ prefix to get raw filename."""
+        return display.lstrip('★').strip()
+
+    def _ws_build_browser_ring(self):
         entries = []
-        for rel in self.o_browser_files:
-            entries.extend(['.', rel])
+        for e in self._ws_locked:
+            entries.extend(['.', '★ ' + e['path']])
+        for e in self._ws_unlocked:
+            entries.extend(['.', e['path']])
         self.o_browser_ring = LineRing(entries or ['.'])
         self.o_browser_ring.index = 1 if len(self.o_browser_ring.lines) > 1 else 0
         if self.o_browser_view:
             self.o_browser_view.ring = self.o_browser_ring
             self.o_browser_view._offset = 0.0
+
+    def _ws_toggle_lock(self):
+        """Ctrl+L in F7: lock/unlock the current book."""
+        cur = self.o_browser_ring.current()
+        if not cur or cur == '.':
+            return
+        fname = self._ws_fname_from_display(cur)
+        if self._ws_is_locked(fname):
+            entry = next((e for e in self._ws_locked if e['path'] == fname), None)
+            if entry:
+                self._ws_locked.remove(entry)
+                self._ws_unlocked.insert(0, entry)
+        else:
+            entry = next((e for e in self._ws_unlocked if e['path'] == fname), None)
+            if entry:
+                self._ws_unlocked.remove(entry)
+                self._ws_locked.append(entry)
+        self._save_working_set()
+        new_display = ('★ ' + fname) if self._ws_is_locked(fname) else fname
+        self._ws_build_browser_ring()
+        for i, line in enumerate(self.o_browser_ring.lines):
+            if line == new_display:
+                self.o_browser_ring.index = i
+                break
+        if self.o_browser_view:
+            self.o_browser_view.editor.setText(self.o_browser_ring.current())
+            self.o_browser_view.update()
+
+    def _load_o_browser(self):
+        if not self._ws_loaded:
+            self._load_working_set()
+        self._ws_build_browser_ring()
 
     def _o_browser_show_editor(self):
         view = self.o_browser_view
@@ -1594,7 +1690,8 @@ class FullscreenCircleApp(QMainWindow):
         cur = self.o_browser_ring.current()
         if not cur or cur == '.':
             return
-        fpath = os.path.join(self.o_dir, cur)
+        fname = self._ws_fname_from_display(cur)
+        fpath = os.path.join(self.o_dir, fname)
         if not os.path.exists(fpath):
             return
         self._load_o_reader(fpath)
@@ -1613,8 +1710,14 @@ class FullscreenCircleApp(QMainWindow):
         if not lines or lines[0] != '.':
             lines.insert(0, '.')
         self.o_reader_ring = LineRing(lines)
-        self.o_reader_ring.index = 1  # skip leading dot
         self.o_reader_file = fpath
+        # Restore saved position, or start at 1 (skip leading dot)
+        fname = os.path.basename(fpath)
+        saved_pos = next(
+            (e.get('position', 1) for e in self._ws_locked + self._ws_unlocked
+             if e['path'] == fname), 1
+        )
+        self.o_reader_ring.index = min(max(saved_pos, 1), len(lines) - 1)
         if self.o_reader_view:
             self.o_reader_view.ring = self.o_reader_ring
             self.o_reader_view._offset = 0.0
@@ -2349,6 +2452,11 @@ class FullscreenCircleApp(QMainWindow):
         self.entry.setFixedWidth(entry_width)
         self.entry.move(w // 2 - entry_width // 2, h // 2 - entry_height // 2)
 
+    def closeEvent(self, event):
+        self._ws_save_position()
+        self._save_working_set()
+        super().closeEvent(event)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._reposition_entry()
@@ -2479,6 +2587,8 @@ class FullscreenCircleApp(QMainWindow):
                 self.switch_to_view(0); event.accept()
             elif self._matches(key, mods, 'quit'):
                 self.close(); event.accept()
+            elif self.current_view == 6 and key == Qt.Key.Key_L and mods == Qt.KeyboardModifier.ControlModifier:
+                self._ws_toggle_lock(); event.accept()
 
     def _handle_f1_keys(self, key, mods):
         if self._matches(key, mods, 'quit'):
