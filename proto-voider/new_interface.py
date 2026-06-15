@@ -18,6 +18,8 @@ from line_ring import LineRing
 from circular_view import CircularView
 from widgets import CustomLineEdit
 from views import NormalView
+from metronome_view import MetronomeView
+from help_overlay import HelpOverlay
 
 
 def _qt_msg_handler(msg_type, context, message):
@@ -47,6 +49,8 @@ DEFAULT_CONFIG = {
         "view_f6": "F6",
         "view_f7": "F7",
         "view_f8": "F8",
+        "view_f9": "F9",
+        "help": "F11",
         "quit": "Escape",
         "rebase": "Ctrl+0",
         "reshuffle": "Ctrl+R",
@@ -78,7 +82,8 @@ _KEY_MAP = {
     'Enter': Qt.Key.Key_Return, 'Space': Qt.Key.Key_Space,
     'F1': Qt.Key.Key_F1, 'F2': Qt.Key.Key_F2, 'F3': Qt.Key.Key_F3,
     'F4': Qt.Key.Key_F4, 'F5': Qt.Key.Key_F5, 'F6': Qt.Key.Key_F6,
-    'F7': Qt.Key.Key_F7, 'F8': Qt.Key.Key_F8, 'F12': Qt.Key.Key_F12,
+    'F7': Qt.Key.Key_F7, 'F8': Qt.Key.Key_F8, 'F9': Qt.Key.Key_F9,
+    'F11': Qt.Key.Key_F11, 'F12': Qt.Key.Key_F12,
     'PageUp': Qt.Key.Key_PageUp, 'PageDown': Qt.Key.Key_PageDown,
     '0': Qt.Key.Key_0, '9': Qt.Key.Key_9, 'R': Qt.Key.Key_R, 'P': Qt.Key.Key_P,
     'F': Qt.Key.Key_F, 'B': Qt.Key.Key_B, 'T': Qt.Key.Key_T,
@@ -266,6 +271,8 @@ class FullscreenCircleApp(QMainWindow):
         self.o_reader_view = None   # F6: Reader — circular view of O/ book
         self.o_browser_view = None  # F7: Book browser for O/
         self.oracle_o_view = None   # F8: Oracle from O/
+        self.metronome_view = None  # F9: Metronome/tempo
+        self._help_overlay = None   # F11: Help/instructions
         self.stack.addWidget(self.normal_view)
 
         # File setup — active file is configurable (defaults to book_dir/0.txt)
@@ -656,6 +663,14 @@ class FullscreenCircleApp(QMainWindow):
             self.entry.hide()
             self.oracle_o_view.update()
             self._oracle_o_show_editor()
+
+        elif view_index == 8:  # F9 — metronome
+            if not self.metronome_view:
+                self.metronome_view = MetronomeView(self)
+                self.stack.addWidget(self.metronome_view)
+            self.stack.setCurrentWidget(self.metronome_view)
+            self.entry.hide()
+            self.metronome_view.activate()
 
         self._tts_on_view(view_index)
 
@@ -1720,12 +1735,19 @@ class FullscreenCircleApp(QMainWindow):
                     ['aplay', '-r', '22050', '-f', 'S16_LE', '-t', 'raw', '-'],
                     stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
                 )
-                aplay.stdin.write(self._tts_prefetch_data)
-                aplay.stdin.close()
-                self._tts_process = aplay
-                self._tts_piper = None
+                data = self._tts_prefetch_data
                 self._tts_prefetch_data = None
                 self._tts_prefetch_text = None
+                # Write in background — pipe buffer blocks main thread otherwise
+                def _pipe(proc, buf):
+                    try:
+                        proc.stdin.write(buf)
+                        proc.stdin.close()
+                    except Exception:
+                        pass
+                threading.Thread(target=_pipe, args=(aplay, data), daemon=True).start()
+                self._tts_process = aplay
+                self._tts_piper = None
                 return
             except Exception:
                 pass
@@ -1927,7 +1949,13 @@ class FullscreenCircleApp(QMainWindow):
         """Ctrl+F12: Open the screenshots folder in the system file explorer."""
         screenshots_dir = os.path.join(self.void_dir, 'screenshots')
         os.makedirs(screenshots_dir, exist_ok=True)
-        os.startfile(screenshots_dir)
+        subprocess.Popen(['xdg-open', screenshots_dir])
+
+    def _toggle_help(self):
+        if not self._help_overlay:
+            self._help_overlay = HelpOverlay(self)
+            self._help_overlay.setGeometry(self.rect())
+        self._help_overlay.toggle()
 
     # ── File navigation ───────────────────────────────────────────────────────
 
@@ -2324,6 +2352,8 @@ class FullscreenCircleApp(QMainWindow):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._reposition_entry()
+        if self._help_overlay:
+            self._help_overlay.setGeometry(self.rect())
 
     def leaveEvent(self, event):
         """Restore focus to the active editor when the mouse leaves the window."""
@@ -2375,6 +2405,10 @@ class FullscreenCircleApp(QMainWindow):
             self.switch_to_view(6); event.accept(); return
         if self._matches(key, mods, 'view_f8'):
             self.switch_to_view(7); event.accept(); return
+        if self._matches(key, mods, 'view_f9'):
+            self.switch_to_view(8); event.accept(); return
+        if self._matches(key, mods, 'help'):
+            self._toggle_help(); event.accept(); return
 
         # Global: rebase (F2 only, enforced inside; F3 handled view-specifically)
         if self._matches(key, mods, 'rebase') and self.current_view != 2:
