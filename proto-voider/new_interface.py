@@ -266,6 +266,7 @@ class FullscreenCircleApp(QMainWindow):
         # Working set: 100-book window, persisted across sessions
         self._ws_loaded = False
         self._ws_books = []  # [{"path": str, "position": int}, ...]
+        self._ws_browser_index = 1  # last highlighted position in F7 browser
 
         # View stack
         self.stack = QStackedWidget()
@@ -523,6 +524,18 @@ class FullscreenCircleApp(QMainWindow):
         # Save reading position when leaving F6
         if self.current_view == 5:
             self._ws_save_position()
+        # F7 → F6: load the highlighted book into the reader on demand
+        if self.current_view == 6 and view_index == 5:
+            cur = self.o_browser_ring.current()
+            if cur and cur != '.':
+                fname = self._ws_fname_from_display(cur)
+                fpath = os.path.join(self.o_dir, fname)
+                if os.path.exists(fpath):
+                    self._load_o_reader(fpath)
+        # Save F7 browser position when leaving F7
+        if self.current_view == 6:
+            self._ws_browser_index = self.o_browser_ring.index
+            self._save_working_set()
         # Cancel staged vault line if user navigates away without voiding
         if view_index == 3:
             self._pending_vault_remove = False
@@ -530,7 +543,13 @@ class FullscreenCircleApp(QMainWindow):
         self.current_view = view_index
         print(f"📍 F{old_view+1} → F{view_index+1} | Index: {self.line_ring.index} | Line: '{self.line_ring.current()}'")
 
-        if view_index == 0:  # F1 — write/navigate active file (always 0.txt)
+        if view_index == 0:  # F1 — always 0.txt, entry starts blank
+            # Capture F2's selected line BEFORE reloading (fork-to-F1 pattern)
+            fork_line = None
+            if old_view == 1:
+                cur = self.line_ring.current()
+                if cur and cur != '.':
+                    fork_line = cur
             if self.current_file_path != self.f1_file:
                 self.current_file_path = self.f1_file
                 self.load_doc_lines()
@@ -543,12 +562,12 @@ class FullscreenCircleApp(QMainWindow):
             self.stack.setCurrentWidget(self.normal_view)
             self.entry.show()
             self.entry.raise_()
-            # Anchor F1 to the line currently selected in F2
-            if old_view == 1 and self.line_ring.current() != '.':
-                self.current_active_line_index = self.line_ring.index
-                self.last_inserted_index = self.line_ring.index
-            self.entry.setText(self.line_ring.current())
-            self.entry.setCursorPosition(len(self.entry.text()))
+            if fork_line:
+                # Pre-fill with the F2 line so user can edit and re-void it
+                self.entry.setText(fork_line)
+                self.entry.selectAll()
+            else:
+                self.entry.clear()
             self.entry.setFocus()
 
         elif view_index == 1:  # F2 — circular doc view (follows F3 selection)
@@ -654,6 +673,13 @@ class FullscreenCircleApp(QMainWindow):
 
         elif view_index == 6:  # F7 — O/ book browser
             self._load_o_browser()
+            # Restore last cursor position in the browser
+            n = len(self.o_browser_ring.lines)
+            idx = self._ws_browser_index
+            if 0 < idx < n:
+                self.o_browser_ring.index = idx
+                if self.o_browser_ring.current() == '.':
+                    self.o_browser_ring.move(1)
             if not self.o_browser_view:
                 self.o_browser_view = CircularView(self.o_browser_ring, self)
                 self.o_browser_view.setFont(self._app_font)
@@ -1618,6 +1644,7 @@ class FullscreenCircleApp(QMainWindow):
                     books = data.get('locked', []) + data.get('unlocked', [])
                 books = [e for e in books
                          if os.path.exists(os.path.join(self.o_dir, e['path']))]
+                self._ws_browser_index = data.get('browser_index', 1)
             except Exception:
                 pass
         ws_size = int(self.config.get('working_set_size', 100))
@@ -1639,7 +1666,10 @@ class FullscreenCircleApp(QMainWindow):
     def _save_working_set(self):
         try:
             with open(self._ws_json_path(), 'w', encoding='utf-8') as f:
-                json.dump({'books': self._ws_books}, f, indent=2)
+                json.dump({
+                    'books': self._ws_books,
+                    'browser_index': self._ws_browser_index,
+                }, f, indent=2)
         except Exception as e:
             print(f"⚠️ Could not save working set: {e}")
 
@@ -1728,11 +1758,6 @@ class FullscreenCircleApp(QMainWindow):
         self.o_browser_view.editor.setText(self.o_browser_ring.current())
         self.o_browser_view.editor.setCursorPosition(0)
         self.o_browser_view.update()
-        # Pre-load into F6 so pressing F6 immediately shows the highlighted book
-        fname = self._ws_fname_from_display(self.o_browser_ring.current())
-        fpath = os.path.join(self.o_dir, fname)
-        if os.path.exists(fpath):
-            self._load_o_reader(fpath)
 
     def _o_browser_open(self):
         """Open selected O/ file in F6 reader."""
