@@ -267,6 +267,7 @@ class FullscreenCircleApp(QMainWindow):
         self._ws_loaded = False
         self._ws_books = []  # [{"path": str, "position": int}, ...]
         self._ws_browser_index = 1  # last highlighted position in F7 browser
+        self._ws_all_o_files = []   # full O/ file list, cached in bg on F7 entry
 
         # View stack
         self.stack = QStackedWidget()
@@ -673,6 +674,7 @@ class FullscreenCircleApp(QMainWindow):
 
         elif view_index == 6:  # F7 — O/ book browser
             self._load_o_browser()
+            self._ws_prefetch_o_files()  # cache O/ listing in background for fast *
             # Restore last cursor position in the browser
             n = len(self.o_browser_ring.lines)
             idx = self._ws_browser_index
@@ -1707,13 +1709,7 @@ class FullscreenCircleApp(QMainWindow):
         if idx is None:
             return
         used = {e['path'] for e in self._ws_books}
-        try:
-            candidates = [
-                f for f in os.listdir(self.o_dir)
-                if f.lower().endswith('.txt') and not f.startswith('.') and f not in used
-            ]
-        except Exception:
-            candidates = []
+        candidates = [f for f in self._ws_all_o_files if f not in used]
         if candidates:
             self._ws_books[idx] = {'path': random.choice(candidates), 'position': 0}
         self._save_working_set()
@@ -1731,6 +1727,20 @@ class FullscreenCircleApp(QMainWindow):
         if not self._ws_loaded:
             self._load_working_set()
         self._ws_build_browser_ring()
+
+    def _ws_prefetch_o_files(self):
+        """Background: scan O/ once on F7 entry so * randomization is instant."""
+        self._ws_all_o_files = []
+        def _scan():
+            try:
+                files = [
+                    f for f in os.listdir(self.o_dir)
+                    if f.lower().endswith('.txt') and not f.startswith('.')
+                ]
+                self._ws_all_o_files = files
+            except Exception:
+                pass
+        threading.Thread(target=_scan, daemon=True).start()
 
     def _o_browser_show_editor(self):
         view = self.o_browser_view
