@@ -304,6 +304,8 @@ class FullscreenCircleApp(QMainWindow):
         # Load O/ file list from disk cache, then rebuild in background to catch new books
         self._ws_load_o_files_cache()
         self._ws_rebuild_o_files_cache()
+        # Absorb any stray 0.txt files in I/ into the root scratch file
+        threading.Thread(target=lambda: self._merge_zero_files(silent=True), daemon=True).start()
 
         # Void key connection
         self._print_void_mode_status()
@@ -753,6 +755,59 @@ class FullscreenCircleApp(QMainWindow):
             print(f"❌ Save error: {e}")
 
     # ── Reformat ─────────────────────────────────────────────────────────────
+
+    def _merge_zero_files(self, silent=True):
+        """Absorb every I/ subdirectory 0.txt into ~/void/I/0.txt.
+
+        Runs at startup (silent, background) and on Ctrl+Shift+F in F3
+        (explicit, refreshes the view after merging).
+        """
+        root_zero = self.f1_file
+        i_dir = os.path.join(self.void_dir, 'I')
+        absorbed = []
+
+        for dirpath, _, filenames in os.walk(i_dir):
+            for fname in filenames:
+                if fname.lower() != '0.txt':
+                    continue
+                fpath = os.path.join(dirpath, fname)
+                if os.path.abspath(fpath) == os.path.abspath(root_zero):
+                    continue
+                try:
+                    with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                        lines = [l.rstrip('\n') for l in f if l.strip()]
+                except Exception as e:
+                    print(f"⚠️ Cannot read {fpath}: {e}")
+                    continue
+                try:
+                    with open(root_zero, 'a', encoding='utf-8') as f:
+                        f.write('\n.\n')
+                        if lines:
+                            f.write('\n'.join(lines) + '\n')
+                    os.remove(fpath)
+                    absorbed.append(fpath)
+                    parent = os.path.dirname(fpath)
+                    if os.path.abspath(parent) != os.path.abspath(i_dir):
+                        try:
+                            if not os.listdir(parent):
+                                os.rmdir(parent)
+                        except Exception:
+                            pass
+                except Exception as e:
+                    print(f"⚠️ Cannot merge {fpath}: {e}")
+
+        if absorbed:
+            print(f"🌀 {'Merged' if not silent else 'Startup merged'} {len(absorbed)} 0.txt file(s) into root")
+        elif not silent:
+            print("✓ No stray 0.txt files found")
+
+        if not silent and absorbed:
+            # Reload 0.txt content and refresh F3
+            if self.current_file_path == self.f1_file:
+                self.load_doc_lines()
+            self._save_library()
+            self._generate_library(self._library_path())
+            self.switch_to_view(2)
 
     def reformat_active_file(self):
         """Ctrl+Shift+F: split raw pasted text into one sentence per line.
@@ -2752,7 +2807,10 @@ class FullscreenCircleApp(QMainWindow):
             self._doc_show_editor()
             event.accept()
         elif self._matches(key, mods, 'reformat_file'):
-            self.reformat_active_file()
+            if self.current_view == 2:  # F3: merge all stray 0.txt into root
+                self._merge_zero_files(silent=False)
+            else:
+                self.reformat_active_file()
             event.accept()
         elif (mods & Qt.KeyboardModifier.ControlModifier) and key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             editor = self.circular_view.editor
