@@ -267,7 +267,7 @@ class FullscreenCircleApp(QMainWindow):
         self._ws_loaded = False
         self._ws_books = []  # [{"path": str, "position": int}, ...]
         self._ws_browser_index = 1  # last highlighted position in F7 browser
-        self._ws_all_o_files = []   # full O/ file list, cached in bg on F7 entry
+        self._ws_all_o_files = []   # full O/ file list, loaded from cache at startup
 
         # View stack
         self.stack = QStackedWidget()
@@ -301,6 +301,9 @@ class FullscreenCircleApp(QMainWindow):
 
         self.load_doc_lines()
         self.load_vault_lines()
+        # Load O/ file list from disk cache, then rebuild in background to catch new books
+        self._ws_load_o_files_cache()
+        self._ws_rebuild_o_files_cache()
 
         # Void key connection
         self._print_void_mode_status()
@@ -545,10 +548,14 @@ class FullscreenCircleApp(QMainWindow):
         print(f"📍 F{old_view+1} → F{view_index+1} | Index: {self.line_ring.index} | Line: '{self.line_ring.current()}'")
 
         if view_index == 0:  # F1 — always 0.txt, entry starts blank
-            # Capture F2's selected line BEFORE reloading (fork-to-F1 pattern)
+            # Capture source line BEFORE reloading — fork-to-F1 from F2 or F6
             fork_line = None
-            if old_view == 1:
+            if old_view == 1:  # from F2: grab line_ring before it reloads to 0.txt
                 cur = self.line_ring.current()
+                if cur and cur != '.':
+                    fork_line = cur
+            elif old_view == 5:  # from F6: grab current O/ reader line
+                cur = self.o_reader_ring.current()
                 if cur and cur != '.':
                     fork_line = cur
             if self.current_file_path != self.f1_file:
@@ -660,7 +667,7 @@ class FullscreenCircleApp(QMainWindow):
                 self.o_reader_view = CircularView(self.o_reader_ring, self)
                 self.o_reader_view.setFont(self._app_font)
                 self.o_reader_view.editor.returnPressed.disconnect()
-                self.o_reader_view.editor.returnPressed.connect(self._reader_fork_to_transform)
+                self.o_reader_view.editor.returnPressed.connect(lambda: self.switch_to_view(0))
                 self.o_reader_view.editor.upPressed.connect(lambda: self._reader_navigate(-1))
                 self.o_reader_view.editor.downPressed.connect(lambda: self._reader_navigate(1))
                 self.stack.addWidget(self.o_reader_view)
@@ -674,7 +681,6 @@ class FullscreenCircleApp(QMainWindow):
 
         elif view_index == 6:  # F7 — O/ book browser
             self._load_o_browser()
-            self._ws_prefetch_o_files()  # cache O/ listing in background for fast *
             # Restore last cursor position in the browser
             n = len(self.o_browser_ring.lines)
             idx = self._ws_browser_index
@@ -1728,18 +1734,35 @@ class FullscreenCircleApp(QMainWindow):
             self._load_working_set()
         self._ws_build_browser_ring()
 
-    def _ws_prefetch_o_files(self):
-        """Background: scan O/ once on F7 entry so * randomization is instant."""
-        self._ws_all_o_files = []
+    def _ws_cache_path(self):
+        return os.path.join(self.void_dir, '.o_files_cache.txt')
+
+    def _ws_load_o_files_cache(self):
+        """Load persisted O/ file list from disk into memory (instant)."""
+        path = self._ws_cache_path()
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                self._ws_all_o_files = [l.rstrip('\n') for l in f if l.strip()]
+            print(f"📚 O/ cache: {len(self._ws_all_o_files)} files loaded")
+        except FileNotFoundError:
+            pass  # first launch — rebuild will create it
+        except Exception as e:
+            print(f"⚠️ Could not read O/ cache: {e}")
+
+    def _ws_rebuild_o_files_cache(self):
+        """Background: re-scan O/ and overwrite the cache file. Catches new books."""
         def _scan():
             try:
-                files = [
+                files = sorted(
                     f for f in os.listdir(self.o_dir)
                     if f.lower().endswith('.txt') and not f.startswith('.')
-                ]
+                )
                 self._ws_all_o_files = files
-            except Exception:
-                pass
+                with open(self._ws_cache_path(), 'w', encoding='utf-8') as f:
+                    f.write('\n'.join(files))
+                print(f"📚 O/ cache rebuilt: {len(files)} files")
+            except Exception as e:
+                print(f"⚠️ O/ cache rebuild failed: {e}")
         threading.Thread(target=_scan, daemon=True).start()
 
     def _o_browser_show_editor(self):
