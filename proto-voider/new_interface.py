@@ -273,6 +273,8 @@ class FullscreenCircleApp(QMainWindow):
         self.stack = QStackedWidget()
         self.normal_view = NormalView(self)
         self.circular_view = None   # F2: CircularView over doc ring
+        self.scratch_view = None    # F1 Tab: CircularView of 0.txt scratch pool
+        self._f1_scratch_mode = False
         self.book_view = None       # F3: CircularView over book_ring (filenames)
         self.vault_view = None      # F4: Oracle from I/
         self.transform_view = None  # F5: Transform — editable O/ line → I/
@@ -312,6 +314,7 @@ class FullscreenCircleApp(QMainWindow):
         self._void_enter_connection = None
         self._void_space_connection = None
         self._connect_void_key()
+        self.entry.tabPressed.connect(self._f1_tab_toggle)
 
         self.init_ui()
         self.switch_to_view(0)
@@ -545,18 +548,20 @@ class FullscreenCircleApp(QMainWindow):
         # Cancel staged vault line if user navigates away without voiding
         if view_index == 3:
             self._pending_vault_remove = False
+        # Reset F1 scratch mode when leaving F1
+        if self.current_view == 0 and self._f1_scratch_mode and view_index != 0:
+            self._f1_scratch_mode = False
+            if self.scratch_view:
+                self.scratch_view.edit_mode = False
+                self.scratch_view.editor.hide()
         old_view = self.current_view
         self.current_view = view_index
         print(f"📍 F{old_view+1} → F{view_index+1} | Index: {self.line_ring.index} | Line: '{self.line_ring.current()}'")
 
         if view_index == 0:  # F1 — always 0.txt, entry starts blank
-            # Capture source line BEFORE reloading — fork-to-F1 from F2 or F6
+            # Fork only from F6 (O/ reader) — F2 fork is handled explicitly by _doc_confirm_edit
             fork_line = None
-            if old_view == 1:  # from F2: grab line_ring before it reloads to 0.txt
-                cur = self.line_ring.current()
-                if cur and cur != '.':
-                    fork_line = cur
-            elif old_view == 5:  # from F6: grab current O/ reader line
+            if old_view == 5:
                 cur = self.o_reader_ring.current()
                 if cur and cur != '.':
                     fork_line = cur
@@ -569,6 +574,10 @@ class FullscreenCircleApp(QMainWindow):
             if self.book_view:
                 self.book_view.edit_mode = False
                 self.book_view.editor.hide()
+            self._f1_scratch_mode = False
+            if self.scratch_view:
+                self.scratch_view.edit_mode = False
+                self.scratch_view.editor.hide()
             self.stack.setCurrentWidget(self.normal_view)
             self.entry.show()
             self.entry.raise_()
@@ -581,7 +590,11 @@ class FullscreenCircleApp(QMainWindow):
             self.entry.setFocus()
 
         elif view_index == 1:  # F2 — circular doc view (follows F3 selection)
-            if self.current_file_path != self.f2_file:
+            if getattr(self, '_f2_peek_0', False):
+                self._f2_peek_0 = False
+                self.current_file_path = self.f1_file
+                self.load_doc_lines()
+            elif self.current_file_path != self.f2_file:
                 self.current_file_path = self.f2_file
                 self.load_doc_lines()
             if not self.circular_view:
@@ -624,13 +637,14 @@ class FullscreenCircleApp(QMainWindow):
             else:
                 self.book_view.ring = self.book_ring
                 self.book_view._offset = 0.0
-            # Sync cursor to active file
-            active_fname = os.path.basename(self.current_file_path)
-            try:
-                idx = self._library_lines.index(active_fname)
-                self.book_ring.index = idx
-            except ValueError:
-                pass
+            # Sync cursor to active book (never sync to 0.txt — that's the scratch file)
+            active_fname = os.path.basename(self.f2_file)
+            if active_fname != os.path.basename(self.f1_file):
+                try:
+                    idx = self._library_lines.index(active_fname)
+                    self.book_ring.index = idx
+                except ValueError:
+                    pass
             self.stack.setCurrentWidget(self.book_view)
             self.entry.hide()
             self.book_view.update()
@@ -765,48 +779,72 @@ class FullscreenCircleApp(QMainWindow):
         root_zero = self.f1_file
         i_dir = os.path.join(self.void_dir, 'I')
         absorbed = []
+        deleted_empty = []
 
         for dirpath, _, filenames in os.walk(i_dir):
             for fname in filenames:
-                if fname.lower() != '0.txt':
+                if not fname.lower().endswith('.txt'):
                     continue
                 fpath = os.path.join(dirpath, fname)
-                if os.path.abspath(fpath) == os.path.abspath(root_zero):
-                    continue
-                try:
-                    with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
-                        lines = [l.rstrip('\n') for l in f if l.strip()]
-                except Exception as e:
-                    print(f"⚠️ Cannot read {fpath}: {e}")
-                    continue
-                try:
-                    with open(root_zero, 'a', encoding='utf-8') as f:
-                        f.write('\n.\n')
-                        if lines:
-                            f.write('\n'.join(lines) + '\n')
-                    os.remove(fpath)
-                    absorbed.append(fpath)
-                    parent = os.path.dirname(fpath)
-                    if os.path.abspath(parent) != os.path.abspath(i_dir):
-                        try:
-                            if not os.listdir(parent):
-                                os.rmdir(parent)
-                        except Exception:
-                            pass
-                except Exception as e:
-                    print(f"⚠️ Cannot merge {fpath}: {e}")
+                is_root_zero = os.path.abspath(fpath) == os.path.abspath(root_zero)
 
+                if fname.lower() == '0.txt' and not is_root_zero:
+                    # Absorb stray 0.txt into root scratch
+                    try:
+                        with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                            lines = [l.rstrip('\n') for l in f if l.strip()]
+                    except Exception as e:
+                        print(f"⚠️ Cannot read {fpath}: {e}")
+                        continue
+                    try:
+                        with open(root_zero, 'a', encoding='utf-8') as f:
+                            f.write('\n.\n')
+                            if lines:
+                                f.write('\n'.join(lines) + '\n')
+                        os.remove(fpath)
+                        absorbed.append(fpath)
+                    except Exception as e:
+                        print(f"⚠️ Cannot merge {fpath}: {e}")
+                        continue
+
+                elif not is_root_zero:
+                    # Delete any .txt that has no real content (only dots/blank lines)
+                    try:
+                        with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                            has_content = any(l.strip() and l.strip() != '.' for l in f)
+                    except Exception:
+                        continue
+                    if not has_content:
+                        try:
+                            os.remove(fpath)
+                            deleted_empty.append(fpath)
+                        except Exception as e:
+                            print(f"⚠️ Cannot delete {fpath}: {e}")
+                            continue
+
+                # Remove now-empty parent directories
+                parent = os.path.dirname(fpath)
+                if os.path.abspath(parent) != os.path.abspath(i_dir):
+                    try:
+                        if not os.listdir(parent):
+                            os.rmdir(parent)
+                    except Exception:
+                        pass
+
+        changed = absorbed or deleted_empty
         if absorbed:
             print(f"🌀 {'Merged' if not silent else 'Startup merged'} {len(absorbed)} 0.txt file(s) into root")
-        elif not silent:
-            print("✓ No stray 0.txt files found")
+        if deleted_empty:
+            print(f"🗑️ Deleted {len(deleted_empty)} empty document(s)")
+        if not silent and not changed:
+            print("✓ Nothing to clean up")
 
-        if not silent and absorbed:
-            # Reload 0.txt content and refresh F3
+        if changed:
+            self._generate_library(self._library_path())
+
+        if not silent and changed:
             if self.current_file_path == self.f1_file:
                 self.load_doc_lines()
-            self._save_library()
-            self._generate_library(self._library_path())
             self.switch_to_view(2)
 
     def reformat_active_file(self):
@@ -1313,17 +1351,19 @@ class FullscreenCircleApp(QMainWindow):
             self.circular_view.update()
 
     def _doc_confirm_edit(self):
-        """Enter in F2: focus mode on dot, go to F1 anchored on text line."""
+        """Enter in F2: focus mode on dot; on text line fork to F1 pre-filled."""
         if self.line_ring.current() == '.' and not self._para_focus:
             self._enter_para_focus()
         else:
-            # Switch to F1 empty, anchor insertions below current line
+            fork_line = self.line_ring.current()
             idx = self.line_ring.index
             self._exit_para_focus() if self._para_focus else None
             self.current_active_line_index = None
             self.last_inserted_index = idx
             self.switch_to_view(0)
-            self.entry.clear()
+            if fork_line and fork_line != '.':
+                self.entry.setText(fork_line)
+                self.entry.setCursorPosition(0)
 
     def _enter_para_focus(self):
         ring = self.line_ring
@@ -1394,6 +1434,115 @@ class FullscreenCircleApp(QMainWindow):
         view.editor.show()
         view.editor.setFocus()
         view.update()
+
+    # ── F1 scratch mode (Tab toggle) ──────────────────────────────────────────
+
+    def _f1_tab_toggle(self):
+        """Tab in F1: toggle between write entry and 0.txt scratch circular view."""
+        if self.current_view != 0:
+            return
+        if not self._f1_scratch_mode:
+            self._enter_f1_scratch()
+        else:
+            self._exit_f1_scratch()
+
+    def _enter_f1_scratch(self):
+        self._f1_scratch_mode = True
+        if not self.scratch_view:
+            self.scratch_view = CircularView(self.line_ring, self)
+            self.scratch_view.zero_marker = True
+            self.scratch_view.setFont(self._app_font)
+            self.scratch_view.editor.returnPressed.disconnect()
+            self.scratch_view.editor.returnPressed.connect(self._scratch_enter)
+            self.scratch_view.editor.textEdited.connect(self._scratch_live_save)
+            self.scratch_view.editor.upPressed.connect(lambda: self._scratch_navigate(-1))
+            self.scratch_view.editor.downPressed.connect(lambda: self._scratch_navigate(1))
+            self.scratch_view.editor.deleteLineToZero.connect(self._scratch_delete_line)
+            self.scratch_view.editor.tabPressed.connect(self._f1_tab_toggle)
+            self.stack.addWidget(self.scratch_view)
+        else:
+            self.scratch_view.ring = self.line_ring
+            self.scratch_view._offset = 0.0
+        self.stack.setCurrentWidget(self.scratch_view)
+        self.entry.hide()
+        self.scratch_view.update()
+        self._scratch_show_editor()
+
+    def _exit_f1_scratch(self, fork_line=None):
+        self._f1_scratch_mode = False
+        if self.scratch_view:
+            self.scratch_view.edit_mode = False
+            self.scratch_view.editor.hide()
+        self.stack.setCurrentWidget(self.normal_view)
+        self.entry.show()
+        self.entry.raise_()
+        if fork_line:
+            self.entry.setText(fork_line)
+            self.entry.selectAll()
+        else:
+            self.entry.clear()
+        self.entry.setFocus()
+
+    def _scratch_show_editor(self):
+        view = self.scratch_view
+        view.edit_mode = True
+        center_y = view.height() // 2
+        editor_width = min(view.width() - 100, 800)
+        view.editor.setFixedWidth(editor_width)
+        view.editor.move(
+            (view.width() - editor_width) // 2,
+            center_y - view.editor.sizeHint().height() // 2
+        )
+        view.editor.setText(self.line_ring.current())
+        view.editor.setCursorPosition(0)
+        is_zero_dot = view.zero_marker and self.line_ring.index == 0
+        self._apply_editor_style(view.editor, red=is_zero_dot)
+        view.editor.setReadOnly(self.line_ring.current() == '.')
+        view.editor.show()
+        view.editor.setFocus()
+        view.update()
+
+    def _scratch_navigate(self, delta):
+        self._save_last_line()
+        self.line_ring.move(delta)
+        self.scratch_view._offset = 0.0
+        self.scratch_view.editor.setText(self.line_ring.current())
+        self.scratch_view.editor.setCursorPosition(0)
+        is_zero_dot = self.scratch_view.zero_marker and self.line_ring.index == 0
+        self._apply_editor_style(self.scratch_view.editor, red=is_zero_dot)
+        self.scratch_view.editor.setReadOnly(self.line_ring.current() == '.')
+        self.scratch_view.update()
+
+    def _scratch_live_save(self, text):
+        if text.strip():
+            self.line_ring.lines[self.line_ring.index] = text
+            self.auto_save_circular()
+            self.scratch_view.update()
+
+    def _scratch_enter(self):
+        """Enter in F1 scratch: fork current line to entry and return to write mode."""
+        cur = self.line_ring.current()
+        fork_line = cur if cur and cur != '.' else None
+        self._exit_f1_scratch(fork_line=fork_line)
+
+    def _scratch_delete_line(self):
+        """Ctrl+Delete in F1 scratch: permanently delete (already in 0.txt)."""
+        lines = self.line_ring.lines
+        n = len(lines)
+        cur = self.line_ring.index
+        if n <= 1:
+            return
+        line = lines[cur]
+        new_lines = [l for i, l in enumerate(lines) if i != cur]
+        new_index = min(cur, len(new_lines) - 1)
+        self.line_ring.lines = new_lines
+        self.line_ring.index = new_index
+        self.auto_save_circular()
+        self.scratch_view._offset = 0.0
+        self.scratch_view.editor.setText(self.line_ring.current())
+        self.scratch_view.editor.setCursorPosition(0)
+        self.scratch_view.update()
+        print(f"🗑️ Scratch deleted: {line[:60]}")
 
     # ── Book browser (F3) ─────────────────────────────────────────────────────
 
@@ -2647,7 +2796,10 @@ class FullscreenCircleApp(QMainWindow):
 
     def _refocus_active_editor(self):
         if self.current_view == 0:
-            self.entry.setFocus()
+            if self._f1_scratch_mode and self.scratch_view:
+                self.scratch_view.editor.setFocus()
+            else:
+                self.entry.setFocus()
         elif self.current_view == 1 and self.circular_view:
             self.circular_view.editor.setFocus()
         elif self.current_view == 2 and self.book_view:
@@ -2683,10 +2835,10 @@ class FullscreenCircleApp(QMainWindow):
         if self._matches(key, mods, 'help'):
             self._toggle_help(); event.accept(); return
 
-        # F1: Ctrl+Enter → open 0.txt in F2
+        # F1: Ctrl+Enter → temporary peek at 0.txt in F2 (doesn't change f2_file)
         if self.current_view == 0 and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and \
                 (mods & Qt.KeyboardModifier.ControlModifier):
-            self._set_f2_file(self.f1_file)
+            self._f2_peek_0 = True
             self.switch_to_view(1)
             event.accept()
             return
@@ -2762,6 +2914,9 @@ class FullscreenCircleApp(QMainWindow):
                 self.close(); event.accept()
 
     def _handle_f1_keys(self, key, mods):
+        if self._f1_scratch_mode and key == Qt.Key.Key_Escape:
+            self._exit_f1_scratch()
+            return
         if self._matches(key, mods, 'quit'):
             self.close()
         elif self._matches(key, mods, 'file_prev'):
@@ -2818,10 +2973,7 @@ class FullscreenCircleApp(QMainWindow):
             self._doc_show_editor()
             event.accept()
         elif self._matches(key, mods, 'reformat_file'):
-            if self.current_view == 2:  # F3: merge all stray 0.txt into root
-                self._merge_zero_files(silent=False)
-            else:
-                self.reformat_active_file()
+            self.reformat_active_file()
             event.accept()
         elif (mods & Qt.KeyboardModifier.ControlModifier) and key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             editor = self.circular_view.editor
@@ -2846,6 +2998,8 @@ class FullscreenCircleApp(QMainWindow):
             self._book_swap_down(); event.accept()
         elif self._matches(key, mods, 'rebase'):
             self._book_rebase(); event.accept()
+        elif self._matches(key, mods, 'reformat_file'):
+            self._merge_zero_files(silent=False); event.accept()
         elif self._matches(key, mods, 'quit'):
             self.close()
 
