@@ -201,8 +201,10 @@ class FullscreenCircleApp(QMainWindow):
         active_file = self.config.get('active_file', '')
         if not active_file or not os.path.isfile(active_file):
             active_file = os.path.join(self.book_dir, '0.txt')
-        self.book_files = []    # ordered list of .txt filenames in book_dir
+        self.book_files = []      # kept for compatibility
         self.book_ring = LineRing()
+        self._library_lines = []  # raw lines from library.txt (filenames + '.')
+        self._library_path_cache = {}  # filename → absolute path
 
         self.tts_active = False
         self._tts_process = None
@@ -263,8 +265,7 @@ class FullscreenCircleApp(QMainWindow):
         self.oracle_o_ring = LineRing(['.', '...'])
         # Working set: 100-book window, persisted across sessions
         self._ws_loaded = False
-        self._ws_locked = []    # [{"path": str, "position": int}, ...]
-        self._ws_unlocked = []  # same structure; refreshed each boot
+        self._ws_books = []  # [{"path": str, "position": int}, ...]
 
         # View stack
         self.stack = QStackedWidget()
@@ -280,12 +281,17 @@ class FullscreenCircleApp(QMainWindow):
         self._help_overlay = None   # F11: Help/instructions
         self.stack.addWidget(self.normal_view)
 
-        # File setup — active file is configurable (defaults to book_dir/0.txt)
-        self.current_file_path = active_file
-        self.void_file_path = os.path.join(self.void_dir, '0.txt')  # fallback for file commands
+        # File setup — F1 is always 0.txt; F2 follows F3 selection
+        self.f1_file = os.path.join(self.void_dir, 'I', '0.txt')
+        os.makedirs(os.path.join(self.void_dir, 'I'), exist_ok=True)
+        if not os.path.exists(self.f1_file):
+            open(self.f1_file, 'w', encoding='utf-8').close()
+        self.f2_file = active_file if active_file and os.path.isfile(active_file) else self.f1_file
+        self.current_file_path = self.f1_file  # F1 starts on 0.txt
+        self.void_file_path = self.f1_file     # fallback when a file is emptied/deleted
         os.makedirs(self.book_dir, exist_ok=True)
-        if not os.path.exists(self.current_file_path):
-            open(self.current_file_path, 'w', encoding='utf-8').close()
+        if not os.path.exists(self.f2_file):
+            open(self.f2_file, 'w', encoding='utf-8').close()
 
         self.scan_txt_files()
         setup_file_handling(self)
@@ -293,7 +299,6 @@ class FullscreenCircleApp(QMainWindow):
 
         self.load_doc_lines()
         self.load_vault_lines()
-        self._load_book_order()
 
         # Void key connection
         self._print_void_mode_status()
@@ -321,7 +326,8 @@ class FullscreenCircleApp(QMainWindow):
         if not new_dir or new_dir == self.void_dir:
             return
         self.void_dir = new_dir
-        self.void_file_path = os.path.join(self.void_dir, '0.txt')
+        self.f1_file = os.path.join(new_dir, 'I', '0.txt')
+        self.void_file_path = self.f1_file
         self.config['void_dir'] = new_dir
         _save_config(self.config)
         os.makedirs(self.void_dir, exist_ok=True)
@@ -502,14 +508,15 @@ class FullscreenCircleApp(QMainWindow):
     # ── Views ─────────────────────────────────────────────────────────────────
 
     def switch_to_view(self, view_index):
-        # F3 → F2: activate the highlighted file (same as pressing Enter)
+        # F3 → F2: point F2 at the highlighted book then load it
         if self.current_view == 2 and view_index == 1:
             if not self._book_try_rename():
                 return
-            if self.book_ring.current() != '.':
-                fidx = self._book_file_idx()
-                if fidx < len(self.book_files):
-                    self._set_active_file(os.path.join(self.book_dir, self.book_files[fidx]))
+            fname = self._library_current_fname()
+            if fname:
+                fpath = self._library_path_cache.get(fname)
+                if fpath:
+                    self._set_f2_file(fpath)
         # Save last line when leaving F2
         if self.current_view == 1:
             self._save_last_line()
@@ -523,7 +530,10 @@ class FullscreenCircleApp(QMainWindow):
         self.current_view = view_index
         print(f"📍 F{old_view+1} → F{view_index+1} | Index: {self.line_ring.index} | Line: '{self.line_ring.current()}'")
 
-        if view_index == 0:  # F1 — write/navigate active file
+        if view_index == 0:  # F1 — write/navigate active file (always 0.txt)
+            if self.current_file_path != self.f1_file:
+                self.current_file_path = self.f1_file
+                self.load_doc_lines()
             if self.circular_view:
                 self.circular_view.edit_mode = False
                 self.circular_view.editor.hide()
@@ -541,7 +551,10 @@ class FullscreenCircleApp(QMainWindow):
             self.entry.setCursorPosition(len(self.entry.text()))
             self.entry.setFocus()
 
-        elif view_index == 1:  # F2 — circular doc view
+        elif view_index == 1:  # F2 — circular doc view (follows F3 selection)
+            if self.current_file_path != self.f2_file:
+                self.current_file_path = self.f2_file
+                self.load_doc_lines()
             if not self.circular_view:
                 self.circular_view = CircularView(self.line_ring, self)
                 self.circular_view.zero_marker = True
@@ -567,11 +580,11 @@ class FullscreenCircleApp(QMainWindow):
             self.circular_view.update()
             self._doc_show_editor()
 
-        elif view_index == 2:  # F3 — book browser
-            self._load_book_order()
+        elif view_index == 2:  # F3 — book browser (library.txt)
+            self._load_library()
             if not self.book_view:
                 self.book_view = CircularView(self.book_ring, self)
-                self.book_view.zero_marker = True
+                self.book_view.zero_marker = False
                 self.book_view.setFont(self._app_font)
                 self.book_view.editor.returnPressed.disconnect()
                 self.book_view.editor.returnPressed.connect(self._book_confirm_edit)
@@ -582,10 +595,13 @@ class FullscreenCircleApp(QMainWindow):
             else:
                 self.book_view.ring = self.book_ring
                 self.book_view._offset = 0.0
-            # Sync cursor to active file (ring layout: ['.', name0, '.', name1, ...])
+            # Sync cursor to active file
             active_fname = os.path.basename(self.current_file_path)
-            if active_fname in self.book_files:
-                self.book_ring.index = self.book_files.index(active_fname) * 2 + 1
+            try:
+                idx = self._library_lines.index(active_fname)
+                self.book_ring.index = idx
+            except ValueError:
+                pass
             self.stack.setCurrentWidget(self.book_view)
             self.entry.hide()
             self.book_view.update()
@@ -645,6 +661,7 @@ class FullscreenCircleApp(QMainWindow):
                 self.o_browser_view.editor.returnPressed.connect(self._o_browser_open)
                 self.o_browser_view.editor.upPressed.connect(lambda: self._o_browser_navigate(-1))
                 self.o_browser_view.editor.downPressed.connect(lambda: self._o_browser_navigate(1))
+                self.o_browser_view.editor.tabPressed.connect(self._ws_tab_randomize)
                 self.stack.addWidget(self.o_browser_view)
             else:
                 self.o_browser_view.ring = self.o_browser_ring
@@ -864,32 +881,89 @@ class FullscreenCircleApp(QMainWindow):
 
     # ── Book order ────────────────────────────────────────────────────────────
 
-    def _load_book_order(self):
-        """Load ordered file list from _book_order.json, appending any unlisted files."""
-        order_path = os.path.join(self.book_dir, '_book_order.json')
+    def _library_path(self):
+        return os.path.join(self.void_dir, 'library.txt')
+
+    def _load_library(self):
+        """Load ~/void/library.txt into book_ring. Auto-generates on first use."""
+        lib_path = self._library_path()
+        if not os.path.exists(lib_path):
+            self._generate_library(lib_path)
         try:
-            actual = sorted(
-                os.path.relpath(os.path.join(root, f), self.book_dir)
-                for root, _, files in os.walk(self.book_dir)
-                for f in files
-                if f.lower().endswith('.txt') and f not in ('_book_order.json',)
-            )
+            with open(lib_path, 'r', encoding='utf-8') as f:
+                raw_lines = [l.rstrip('\n') for l in f]
         except Exception:
-            actual = []
-        actual_set = set(actual)
-        if os.path.exists(order_path):
-            try:
-                with open(order_path, 'r', encoding='utf-8') as f:
-                    saved = json.load(f)
-                ordered = [f for f in saved if f in actual_set]
-                remaining = [f for f in actual if f not in set(ordered)]
-                self.book_files = ordered + remaining
-            except Exception:
-                self.book_files = actual
-        else:
-            self.book_files = actual
-        self._rebuild_book_ring()
-        print(f"📚 Book: {len(self.book_files)} files in {os.path.basename(self.book_dir)}")
+            raw_lines = []
+        # Build parallel structures
+        self._library_lines = []
+        ring_lines = []
+        for raw in raw_lines:
+            s = raw.strip()
+            if s == '.':
+                self._library_lines.append('.')
+                ring_lines.append('.')
+            elif s:
+                self._library_lines.append(s)
+                ring_lines.append(os.path.splitext(s)[0])
+        if not ring_lines:
+            self._library_lines = ['.']
+            ring_lines = ['.']
+        self.book_ring = LineRing(ring_lines)
+        for i, l in enumerate(ring_lines):
+            if l != '.':
+                self.book_ring.index = i
+                break
+        if self.book_view:
+            self.book_view.ring = self.book_ring
+            self.book_view._offset = 0.0
+        self._build_library_path_cache()
+        n_books = sum(1 for l in self._library_lines if l != '.')
+        print(f"📚 Library: {n_books} books")
+
+    def _generate_library(self, lib_path):
+        """Scan I/ and write all .txt filenames to library.txt."""
+        i_dir = os.path.join(self.void_dir, 'I')
+        files = []
+        try:
+            for root, _, fnames in os.walk(i_dir):
+                for f in sorted(fnames):
+                    if f.lower().endswith('.txt'):
+                        files.append(f)
+        except Exception:
+            pass
+        files.sort()
+        try:
+            with open(lib_path, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(files))
+        except Exception as e:
+            print(f"⚠️ Could not generate library.txt: {e}")
+
+    def _build_library_path_cache(self):
+        """Map filename → absolute path by scanning I/ recursively."""
+        self._library_path_cache = {}
+        i_dir = os.path.join(self.void_dir, 'I')
+        try:
+            for root, _, fnames in os.walk(i_dir):
+                for f in fnames:
+                    if f.lower().endswith('.txt'):
+                        self._library_path_cache[f] = os.path.join(root, f)
+        except Exception:
+            pass
+
+    def _save_library(self):
+        try:
+            with open(self._library_path(), 'w', encoding='utf-8') as f:
+                f.write('\n'.join(self._library_lines))
+        except Exception as e:
+            print(f"⚠️ Could not save library.txt: {e}")
+
+    def _library_current_fname(self):
+        """Return the filename.txt at the current ring position, or None."""
+        idx = self.book_ring.index
+        if idx >= len(self._library_lines):
+            return None
+        raw = self._library_lines[idx]
+        return None if raw == '.' else raw
 
     def _last_lines_path(self):
         return os.path.join(self.book_dir, '_last_lines.json')
@@ -924,29 +998,6 @@ class FullscreenCircleApp(QMainWindow):
         except Exception:
             pass  # no saved state yet, stay at 0
 
-    def _save_book_order(self):
-        order_path = os.path.join(self.book_dir, '_book_order.json')
-        try:
-            with open(order_path, 'w', encoding='utf-8') as f:
-                json.dump(self.book_files, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            print(f"⚠️ Error saving book order: {e}")
-
-    def _rebuild_book_ring(self):
-        """Build book ring as: ['.', name1, '.', name2, ...] — dots are decorative."""
-        display = [os.path.splitext(f)[0] for f in self.book_files]
-        if not display:
-            self.book_ring = LineRing(['.', '(empty)'])
-        else:
-            lines = []
-            for name in display:
-                lines.append('.')
-                lines.append(name)
-            self.book_ring = LineRing(lines)
-            self.book_ring.index = 1  # start on first filename, not the dot
-        if self.book_view:
-            self.book_view.ring = self.book_ring
-            self.book_view._offset = 0.0
 
     def _set_active_file(self, path):
         """Change active file (and book_dir if it changed), reload doc ring."""
@@ -955,7 +1006,6 @@ class FullscreenCircleApp(QMainWindow):
         if new_book_dir != self.book_dir:
             self.book_dir = new_book_dir
             self.config['book_dir'] = new_book_dir
-            self._load_book_order()
         self.config['active_file'] = path
         _save_config(self.config)
         os.makedirs(self.book_dir, exist_ok=True)
@@ -966,6 +1016,21 @@ class FullscreenCircleApp(QMainWindow):
         self.current_active_line_index = None
         self.last_inserted_index = None
         print(f"📄 Active: {os.path.basename(path)}")
+
+    def _set_f2_file(self, path):
+        """Set which file F2 shows. switch_to_view(1) will reload if needed."""
+        new_book_dir = os.path.dirname(os.path.abspath(path))
+        if new_book_dir != self.book_dir:
+            self.book_dir = new_book_dir
+            self.config['book_dir'] = new_book_dir
+        self.f2_file = path
+        self.config['active_file'] = path
+        _save_config(self.config)
+        if not os.path.exists(path):
+            open(path, 'w', encoding='utf-8').close()
+        self.current_active_line_index = None
+        self.last_inserted_index = None
+        print(f"📄 F2 → {os.path.basename(path)}")
 
     # ── Book directory / file pickers ─────────────────────────────────────────
 
@@ -978,8 +1043,8 @@ class FullscreenCircleApp(QMainWindow):
         )
         if not path or not os.path.isfile(path):
             return
-        self._set_active_file(path)
-        self.switch_to_view(self.current_view)
+        self._set_f2_file(path)
+        self.switch_to_view(1)
 
     def pick_book_directory(self):
         """Ctrl+F3: pick book folder, switch active file if it's outside new folder."""
@@ -993,18 +1058,6 @@ class FullscreenCircleApp(QMainWindow):
         self.book_dir = path
         self.config['book_dir'] = path
         _save_config(self.config)
-        self._load_book_order()
-        # If active file is outside the new book_dir, switch to first book file
-        norm_path = os.path.normpath(path)
-        norm_active = os.path.normpath(os.path.dirname(self.current_file_path))
-        if norm_active != norm_path:
-            if self.book_files:
-                self._set_active_file(os.path.join(self.book_dir, self.book_files[0]))
-            else:
-                new_active = os.path.join(self.book_dir, '0.txt')
-                open(new_active, 'a', encoding='utf-8').close()
-                self._set_active_file(new_active)
-                self._load_book_order()
         print(f"📁 Book dir: {path}")
         self.switch_to_view(self.current_view)
 
@@ -1275,125 +1328,118 @@ class FullscreenCircleApp(QMainWindow):
         view.editor.setFocus()
         view.update()
 
-    def _book_file_idx(self):
-        """Return the book_files index for the current book_ring position."""
-        # Ring layout: ['.', name0, '.', name1, ...] — names are at odd indices
-        return self.book_ring.index // 2
-
     def _book_navigate(self, delta):
-        """Circular navigation through book files, skipping dots.
-        Auto-saves title edits before moving. Enter activates the file."""
         self._book_try_rename()
-        n = len(self.book_ring.lines)
-        if n < 2:
+        if len(self.book_ring.lines) < 2:
             return
-        new_idx = self.book_ring.index + delta * 2
-        # Wrap circularly (ring layout: ['.', name0, '.', name1, ...] — names at odd indices)
-        last_name_idx = n - 1 if n % 2 == 0 else n - 2
-        if new_idx < 1:
-            new_idx = last_name_idx
-        elif new_idx > last_name_idx:
-            new_idx = 1
-        self.book_ring.index = new_idx
+        self.book_ring.move(delta)
+        while self.book_ring.current() == '.' and len(self.book_ring.lines) > 1:
+            self.book_ring.move(delta)
         self.book_view._offset = 0.0
         self.book_view.editor.setText(self.book_ring.current())
         self.book_view.editor.setCursorPosition(0)
         self.book_view.update()
 
     def _book_try_rename(self):
-        """Rename the current book file if the editor text has changed.
-        Returns False if the name is invalid (caller should abort navigation)."""
-        if self.book_ring.current() == '.':
+        fname = self._library_current_fname()
+        if not fname:
             return True
-        fidx = self._book_file_idx()
-        if fidx >= len(self.book_files):
-            return True
-        new_name = self.book_view.editor.text().strip()
-        if not new_name or new_name.startswith('.'):
-            # Restore original name so the ring stays consistent
+        new_display = self.book_view.editor.text().strip()
+        if not new_display or new_display.startswith('.'):
             self.book_view.editor.setText(self.book_ring.current())
-            return True  # invalid but non-fatal: just keep original
-        old_fname = self.book_files[fidx]
-        new_fname = new_name + '.txt'
-        if new_fname != old_fname:
-            old_path = os.path.join(self.book_dir, old_fname)
-            new_path = os.path.join(self.book_dir, new_fname)
-            try:
-                os.rename(old_path, new_path)
-                if self.current_file_path == old_path:
-                    self.current_file_path = new_path
-                    self.config['active_file'] = new_path
-                    _save_config(self.config)
-                self.book_files[fidx] = new_fname
-                self.book_ring.lines[self.book_ring.index] = new_name
-                self._save_book_order()
-                print(f"📝 Renamed: {old_fname} → {new_fname}")
-            except Exception as e:
-                print(f"⚠️ Rename failed: {e}")
-                return False
+            return True
+        new_fname = new_display + '.txt'
+        if new_fname == fname:
+            return True
+        old_path = self._library_path_cache.get(fname)
+        if not old_path or not os.path.exists(old_path):
+            return True
+        new_path = os.path.join(os.path.dirname(old_path), new_fname)
+        try:
+            os.rename(old_path, new_path)
+            if self.current_file_path == old_path:
+                self.current_file_path = new_path
+                self.config['active_file'] = new_path
+                _save_config(self.config)
+            idx = self.book_ring.index
+            self._library_lines[idx] = new_fname
+            self.book_ring.lines[idx] = new_display
+            del self._library_path_cache[fname]
+            self._library_path_cache[new_fname] = new_path
+            self._save_library()
+            print(f"📝 Renamed: {fname} → {new_fname}")
+        except Exception as e:
+            print(f"⚠️ Rename failed: {e}")
+            return False
         return True
 
     def _book_confirm_edit(self):
-        """Enter in F3: rename file if name changed, activate it, show content (F2)."""
+        """Enter in F3: rename if changed, open selected book in F2."""
         if not self._book_try_rename():
             return
-        if self.book_ring.current() == '.':
+        fname = self._library_current_fname()
+        if not fname:
             return
-        fidx = self._book_file_idx()
-        if fidx >= len(self.book_files):
-            return
-        self._set_active_file(os.path.join(self.book_dir, self.book_files[fidx]))
+        fpath = self._library_path_cache.get(fname)
+        if not fpath:
+            fpath = os.path.join(self.void_dir, 'I', fname)
+        self._set_f2_file(fpath)
         self.switch_to_view(1)
 
     def _book_swap_up(self):
-        """Alt+Up in F3: move current file one position earlier."""
-        fidx = self._book_file_idx()
-        if fidx <= 0:
+        """Alt+Up in F3: swap current title with nearest non-dot above."""
+        idx = self.book_ring.index
+        prev = idx - 1
+        while prev >= 0 and self.book_ring.lines[prev] == '.':
+            prev -= 1
+        if prev < 0 or self.book_ring.lines[prev] == '.':
             return
-        # Swap in book_files
-        self.book_files[fidx], self.book_files[fidx-1] = self.book_files[fidx-1], self.book_files[fidx]
-        # Swap the name entries in the ring (odd positions: fidx*2+1)
-        ri = self.book_ring.index          # current name position
-        ri_prev = ri - 2                   # previous name position
-        self.book_ring.lines[ri], self.book_ring.lines[ri_prev] = \
-            self.book_ring.lines[ri_prev], self.book_ring.lines[ri]
-        self.book_ring.index = ri_prev
-        self._save_book_order()
+        self.book_ring.lines[idx], self.book_ring.lines[prev] = \
+            self.book_ring.lines[prev], self.book_ring.lines[idx]
+        self._library_lines[idx], self._library_lines[prev] = \
+            self._library_lines[prev], self._library_lines[idx]
+        self.book_ring.index = prev
+        self._save_library()
         self.book_view._offset = 0.0
         self.book_view.editor.setText(self.book_ring.current())
         self.book_view.editor.setCursorPosition(0)
         self.book_view.update()
 
     def _book_swap_down(self):
-        """Alt+Down in F3: move current file one position later."""
-        fidx = self._book_file_idx()
-        if fidx >= len(self.book_files) - 1:
+        """Alt+Down in F3: swap current title with nearest non-dot below."""
+        idx = self.book_ring.index
+        n = len(self.book_ring.lines)
+        nxt = idx + 1
+        while nxt < n and self.book_ring.lines[nxt] == '.':
+            nxt += 1
+        if nxt >= n or self.book_ring.lines[nxt] == '.':
             return
-        self.book_files[fidx], self.book_files[fidx+1] = self.book_files[fidx+1], self.book_files[fidx]
-        ri = self.book_ring.index
-        ri_next = ri + 2
-        self.book_ring.lines[ri], self.book_ring.lines[ri_next] = \
-            self.book_ring.lines[ri_next], self.book_ring.lines[ri]
-        self.book_ring.index = ri_next
-        self._save_book_order()
+        self.book_ring.lines[idx], self.book_ring.lines[nxt] = \
+            self.book_ring.lines[nxt], self.book_ring.lines[idx]
+        self._library_lines[idx], self._library_lines[nxt] = \
+            self._library_lines[nxt], self._library_lines[idx]
+        self.book_ring.index = nxt
+        self._save_library()
         self.book_view._offset = 0.0
         self.book_view.editor.setText(self.book_ring.current())
         self.book_view.editor.setCursorPosition(0)
         self.book_view.update()
 
     def _book_rebase(self):
-        """Ctrl+0 in F3: rotate book_files so selected file becomes first."""
-        fidx = self._book_file_idx()
-        if fidx == 0:
+        """Ctrl+0 in F3: rotate ring so current title becomes first."""
+        idx = self.book_ring.index
+        if idx == 0:
             return
-        self.book_files = self.book_files[fidx:] + self.book_files[:fidx]
-        self._rebuild_book_ring()
-        self._save_book_order()
+        self.book_ring.lines = self.book_ring.lines[idx:] + self.book_ring.lines[:idx]
+        self._library_lines = self._library_lines[idx:] + self._library_lines[:idx]
+        self.book_ring.index = 0
+        while self.book_ring.current() == '.' and len(self.book_ring.lines) > 1:
+            self.book_ring.move(1)
+        self._save_library()
         self.book_view._offset = 0.0
         self.book_view.editor.setText(self.book_ring.current())
         self.book_view.editor.setCursorPosition(0)
         self.book_view.update()
-        print(f"📚 Rebase: '{self.book_files[0]}' is now first")
 
     def _build_doc_html(self, lines, title):
         """Build centered HTML from a list of lines (dots become spacers)."""
@@ -1439,10 +1485,10 @@ class FullscreenCircleApp(QMainWindow):
         printer = self._printer_from_dialog()
         if printer is None:
             return
-        printable = [f for f in self.book_files if f != '0.txt']
+        printable = [l for l in self._library_lines if l and l != '.']
         html_parts = []
         for i, fname in enumerate(printable):
-            fpath = os.path.join(self.book_dir, fname)
+            fpath = self._library_path_cache.get(fname, '')
             title = os.path.splitext(fname)[0]
             try:
                 with open(fpath, 'r', encoding='utf-8') as f:
@@ -1458,16 +1504,16 @@ class FullscreenCircleApp(QMainWindow):
         self._send_to_printer(printer, full_html)
 
     def export_book(self):
-        """Ctrl+S in F3: save all chapters as PDF, pre-named after the book folder."""
-        book_name = os.path.basename(os.path.normpath(self.book_dir))
-        default_path = os.path.join(self.book_dir, book_name + '.pdf')
+        """Ctrl+S in F3: save all books from library as PDF."""
+        book_name = os.path.basename(os.path.normpath(self.void_dir))
+        default_path = os.path.join(self.void_dir, book_name + '.pdf')
         printer = self._printer_from_save_dialog(default_path)
         if printer is None:
             return
-        printable = [f for f in self.book_files if f != '0.txt']
+        printable = [l for l in self._library_lines if l and l != '.']
         html_parts = []
         for i, fname in enumerate(printable):
-            fpath = os.path.join(self.book_dir, fname)
+            fpath = self._library_path_cache.get(fname, '')
             title = os.path.splitext(fname)[0]
             try:
                 with open(fpath, 'r', encoding='utf-8') as f:
@@ -1558,41 +1604,42 @@ class FullscreenCircleApp(QMainWindow):
         return os.path.join(self.o_dir, self._WS_FILE)
 
     def _load_working_set(self):
-        """Load locked/unlocked lists from JSON, fill unlocked with random books."""
-        locked, unlocked = [], []
+        """Load book list from JSON; fill empty slots with random books from O/."""
+        books = []
         path = self._ws_json_path()
         if os.path.exists(path):
             try:
                 with open(path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                locked = [e for e in data.get('locked', [])
-                          if os.path.exists(os.path.join(self.o_dir, e['path']))]
-                unlocked = [e for e in data.get('unlocked', [])
-                            if os.path.exists(os.path.join(self.o_dir, e['path']))]
+                # Support old locked/unlocked format for migration
+                if 'books' in data:
+                    books = data['books']
+                else:
+                    books = data.get('locked', []) + data.get('unlocked', [])
+                books = [e for e in books
+                         if os.path.exists(os.path.join(self.o_dir, e['path']))]
             except Exception:
                 pass
-        used = {e['path'] for e in locked} | {e['path'] for e in unlocked}
         ws_size = int(self.config.get('working_set_size', 100))
-        capacity = ws_size - len(locked)
-        if len(unlocked) < capacity:
+        used = {e['path'] for e in books}
+        if len(books) < ws_size:
             try:
                 candidates = [
                     f for f in os.listdir(self.o_dir)
                     if f.lower().endswith('.txt') and not f.startswith('.') and f not in used
                 ]
                 random.shuffle(candidates)
-                for f in candidates[:capacity - len(unlocked)]:
-                    unlocked.append({'path': f, 'position': 0})
+                for f in candidates[:ws_size - len(books)]:
+                    books.append({'path': f, 'position': 0})
             except Exception:
                 pass
-        self._ws_locked = locked
-        self._ws_unlocked = unlocked
+        self._ws_books = books
         self._ws_loaded = True
 
     def _save_working_set(self):
         try:
             with open(self._ws_json_path(), 'w', encoding='utf-8') as f:
-                json.dump({'locked': self._ws_locked, 'unlocked': self._ws_unlocked}, f, indent=2)
+                json.dump({'books': self._ws_books}, f, indent=2)
         except Exception as e:
             print(f"⚠️ Could not save working set: {e}")
 
@@ -1601,24 +1648,18 @@ class FullscreenCircleApp(QMainWindow):
             return
         fname = os.path.basename(self.o_reader_file)
         idx = self.o_reader_ring.index
-        for e in self._ws_locked + self._ws_unlocked:
+        for e in self._ws_books:
             if e['path'] == fname:
                 e['position'] = idx
                 break
         self._save_working_set()
 
-    def _ws_is_locked(self, fname):
-        return any(e['path'] == fname for e in self._ws_locked)
-
     def _ws_fname_from_display(self, display):
-        """Strip ★ prefix to get raw filename."""
-        return display.lstrip('★').strip()
+        return display.strip()
 
     def _ws_build_browser_ring(self):
         entries = []
-        for e in self._ws_locked:
-            entries.extend(['.', '★ ' + e['path']])
-        for e in self._ws_unlocked:
+        for e in self._ws_books:
             entries.extend(['.', e['path']])
         self.o_browser_ring = LineRing(entries or ['.'])
         self.o_browser_ring.index = 1 if len(self.o_browser_ring.lines) > 1 else 0
@@ -1626,32 +1667,35 @@ class FullscreenCircleApp(QMainWindow):
             self.o_browser_view.ring = self.o_browser_ring
             self.o_browser_view._offset = 0.0
 
-    def _ws_toggle_lock(self):
-        """Ctrl+L in F7: lock/unlock the current book."""
+    def _ws_tab_randomize(self):
+        """TAB in F7: replace current book with a random one from O/."""
         cur = self.o_browser_ring.current()
         if not cur or cur == '.':
             return
         fname = self._ws_fname_from_display(cur)
-        if self._ws_is_locked(fname):
-            entry = next((e for e in self._ws_locked if e['path'] == fname), None)
-            if entry:
-                self._ws_locked.remove(entry)
-                self._ws_unlocked.insert(0, entry)
-        else:
-            entry = next((e for e in self._ws_unlocked if e['path'] == fname), None)
-            if entry:
-                self._ws_unlocked.remove(entry)
-                self._ws_locked.append(entry)
+        idx = next((i for i, e in enumerate(self._ws_books) if e['path'] == fname), None)
+        if idx is None:
+            return
+        used = {e['path'] for e in self._ws_books}
+        try:
+            candidates = [
+                f for f in os.listdir(self.o_dir)
+                if f.lower().endswith('.txt') and not f.startswith('.') and f not in used
+            ]
+        except Exception:
+            candidates = []
+        if candidates:
+            self._ws_books[idx] = {'path': random.choice(candidates), 'position': 0}
         self._save_working_set()
-        new_display = ('★ ' + fname) if self._ws_is_locked(fname) else fname
+        ring_idx = self.o_browser_ring.index
         self._ws_build_browser_ring()
-        for i, line in enumerate(self.o_browser_ring.lines):
-            if line == new_display:
-                self.o_browser_ring.index = i
-                break
+        self.o_browser_ring.index = min(ring_idx, len(self.o_browser_ring.lines) - 1)
+        while self.o_browser_ring.current() == '.' and len(self.o_browser_ring.lines) > 1:
+            self.o_browser_ring.move(1)
         if self.o_browser_view:
             self.o_browser_view.editor.setText(self.o_browser_ring.current())
             self.o_browser_view.update()
+        print(f"🔀 TAB: {fname} → {self.o_browser_ring.current()}")
 
     def _load_o_browser(self):
         if not self._ws_loaded:
@@ -1684,6 +1728,11 @@ class FullscreenCircleApp(QMainWindow):
         self.o_browser_view.editor.setText(self.o_browser_ring.current())
         self.o_browser_view.editor.setCursorPosition(0)
         self.o_browser_view.update()
+        # Pre-load into F6 so pressing F6 immediately shows the highlighted book
+        fname = self._ws_fname_from_display(self.o_browser_ring.current())
+        fpath = os.path.join(self.o_dir, fname)
+        if os.path.exists(fpath):
+            self._load_o_reader(fpath)
 
     def _o_browser_open(self):
         """Open selected O/ file in F6 reader."""
@@ -1714,7 +1763,7 @@ class FullscreenCircleApp(QMainWindow):
         # Restore saved position, or start at 1 (skip leading dot)
         fname = os.path.basename(fpath)
         saved_pos = next(
-            (e.get('position', 1) for e in self._ws_locked + self._ws_unlocked
+            (e.get('position', 1) for e in self._ws_books
              if e['path'] == fname), 1
         )
         self.o_reader_ring.index = min(max(saved_pos, 1), len(lines) - 1)
@@ -2587,8 +2636,6 @@ class FullscreenCircleApp(QMainWindow):
                 self.switch_to_view(0); event.accept()
             elif self._matches(key, mods, 'quit'):
                 self.close(); event.accept()
-            elif self.current_view == 6 and key == Qt.Key.Key_L and mods == Qt.KeyboardModifier.ControlModifier:
-                self._ws_toggle_lock(); event.accept()
 
     def _handle_f1_keys(self, key, mods):
         if self._matches(key, mods, 'quit'):

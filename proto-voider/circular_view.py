@@ -252,11 +252,22 @@ class CustomLineEdit(QLineEdit):
     wordSwapRight = pyqtSignal()
     deleteLineToZero = pyqtSignal()
     deleteAtEnd = pyqtSignal()
+    tabPressed = pyqtSignal()
 
     def keyPressEvent(self, event):
         key = event.key()
         mods = event.modifiers()
         ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+
+        if key == Qt.Key.Key_Tab:
+            self.tabPressed.emit()
+            event.accept()
+            return
+
+        if key == Qt.Key.Key_Asterisk:
+            self.tabPressed.emit()
+            event.accept()
+            return
 
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             pos = self.cursorPosition()
