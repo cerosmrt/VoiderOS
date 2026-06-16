@@ -2357,9 +2357,8 @@ class FullscreenCircleApp(QMainWindow):
         self.circular_view.update()
 
     def _delete_line_to_zero(self):
-        """Ctrl+Delete / Ctrl+Backspace in F2: remove current line and append to 0.txt."""
-        if os.path.basename(self.current_file_path).lower() == '0.txt':
-            return
+        """Ctrl+Delete / Ctrl+Backspace in F2: send line to 0.txt (recycle bin).
+        When already viewing 0.txt, permanently deletes the line."""
         lines = self.line_ring.lines
         n = len(lines)
         cur = self.line_ring.index
@@ -2369,14 +2368,18 @@ class FullscreenCircleApp(QMainWindow):
         new_lines = [l for i, l in enumerate(lines) if i != cur]
         new_index = min(cur, len(new_lines) - 1)
 
-        zero_path = os.path.join(self.book_dir, '0.txt')
-        try:
-            os.makedirs(self.book_dir, exist_ok=True)
-            with open(zero_path, 'a', encoding='utf-8') as f:
-                f.write(line + '\n')
-        except Exception as e:
-            print(f"❌ Delete to 0.txt error: {e}")
-            return
+        on_scratch = os.path.abspath(self.current_file_path) == os.path.abspath(self.f1_file)
+
+        if not on_scratch:
+            try:
+                with open(self.f1_file, 'a', encoding='utf-8') as f:
+                    f.write(line + '\n')
+                print(f"♻️ → 0.txt: {line[:60]}")
+            except Exception as e:
+                print(f"❌ Delete to 0.txt error: {e}")
+                return
+        else:
+            print(f"🗑️ Deleted: {line[:60]}")
 
         self.line_ring.lines = new_lines
         self.line_ring.index = new_index
@@ -2679,6 +2682,14 @@ class FullscreenCircleApp(QMainWindow):
             self.switch_to_view(8); event.accept(); return
         if self._matches(key, mods, 'help'):
             self._toggle_help(); event.accept(); return
+
+        # F1: Ctrl+Enter → open 0.txt in F2
+        if self.current_view == 0 and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and \
+                (mods & Qt.KeyboardModifier.ControlModifier):
+            self._set_f2_file(self.f1_file)
+            self.switch_to_view(1)
+            event.accept()
+            return
 
         # Global: rebase (F2 only, enforced inside; F3 handled view-specifically)
         if self._matches(key, mods, 'rebase') and self.current_view != 2:

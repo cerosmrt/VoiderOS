@@ -7,6 +7,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 class CustomLineEdit(QLineEdit):
     """QLineEdit personalizado con soporte para spacebar como tecla de void"""
     spacePressed = pyqtSignal()
+    tabPressed = pyqtSignal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -23,6 +24,11 @@ class CustomLineEdit(QLineEdit):
             event.accept()
             return  # IMPORTANTE: return para no seguir procesando
         
+        if key == Qt.Key.Key_Tab:
+            self.tabPressed.emit()
+            event.accept()
+            return
+
         # Manejo de spacebar para void
         if key == Qt.Key.Key_Space:
             if self.parent.use_spacebar_for_void:
@@ -42,7 +48,8 @@ class CustomLineEdit(QLineEdit):
             show_random_line_from_current_file(self.parent, event)
             event.accept()
         elif (modifiers & Qt.KeyboardModifier.ControlModifier) and key in (
-            Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_F12, Qt.Key.Key_P
+            Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_F12, Qt.Key.Key_P,
+            Qt.Key.Key_Return, Qt.Key.Key_Enter,
         ):
             # Forward these Ctrl combos to parent for global keybindings
             event.ignore()
