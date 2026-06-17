@@ -1776,6 +1776,8 @@ class FullscreenCircleApp(QMainWindow):
         fpath = self._library_path_cache.get(fname)
         if not fpath or not os.path.exists(fpath):
             return
+        if os.path.abspath(fpath) == os.path.abspath(self.f1_file):
+            return
         try:
             with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
                 lines = [l.strip() for l in f if l.strip() and l.strip() != '.']
