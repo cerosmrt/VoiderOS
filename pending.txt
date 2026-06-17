@@ -1,18 +1,3 @@
-PENDING IMPLEMENTATION
-======================
-
-O VIEWS (F5-F8)
----------------
-- F7: make it a working set (LRU — last N books consulted, auto-rotates as new ones load)
-  Currently loads ALL 6822 books every time F7 is opened — impractical to navigate
-  Should persist working set to ~/void/O/.working_set.json
-
-- F8 oracle: verify Enter → F5 works after cursor fix (test needed)
-
-- F6 → F5 fork: verify it works after leading-dot fix (test needed)
-
-- F7 Enter → F6: verify it works end-to-end (should already route correctly)
-
 LIBRARY / DATABASE
 ------------------
 - SQLite metadata DB: store author/title/filepath/line_count for all O/ books
@@ -32,3 +17,54 @@ SYSTEM / INFRASTRUCTURE
 - Sync proto-voider changes to pkgs/voider-py/ (system Voider still on old code)
 - /mnt/data mount: make persistent across boots (currently manual each session)
 - proto-voider run command: clarify how to launch (nix-shell -p python3 python3Packages.pyqt6...)
+
+VOID / PERSONAL WRITING SYSTEM
+-------------------------------
+- Void scanner: on startup, Voider scans /void recursively, indexes all .txt files
+  Index includes: file path, chapter titles, book groupings
+  F3 shows chapters from all files across entire void
+  Source files never modified
+
+- Book compiler: from F3, select a book and trigger export
+  Generates: table of contents, PDF, EPUB (optionally HTML/DOCX/Markdown)
+  Triggered via keyboard command inside Voider
+  Output saved to configurable output directory
+  Source files never modified
+
+- TTS local (two modes):
+  Mode 1 — on demand: select file or block, keyboard command reads it aloud
+  Mode 2 — I mode: reads ~/void/I.txt from random sentence, loops infinitely
+  Engine: piper-tts or espeak-ng (free, offline, lightweight)
+  Runs in background while Voider is in use
+
+- Website generator: Python script reads /void, generates static HTML site
+  One page per chapter, index per book, global index, quotes page, tags page
+  Runs on save or triggered manually from Voider
+  Single source of truth: the .txt files. Never modified.
+
+- TTS website (godplaystheartist.com):
+  On page load, "I" begins playing from random sentence, loops infinitely
+  Feels like the book is always being read — visitor tunes in mid-reading
+  Source: same I.txt from /void
+
+F3 QUEUE (discussed, not yet implemented)
+-----------------------------------------
+- Feature 3: split doc by '/' lines into separate files
+  Ctrl+Shift+F in F2 triggers split; original file kept
+  New files named docname_1.txt, docname_2.txt etc. in same folder
+
+- Feature 4: * key for random lines
+  * in F1 → random line from I/ into the entry (currently recycles to 0.txt — needs discussion)
+  * in F5 → random line from O/ — needs discussion
+
+- Feature 5: F2 / 0.txt simplification
+  Tab scratch mode may be removed; Ctrl+Enter behavior in F1 — needs discussion
+
+- 0.txt always appends at end (not inserts at current position)
+- Ctrl+Enter in F1 → clear input, cursor at last line of 0.txt
+
+- Esc = lock screen: log out, show F1 with name + password prompt
+
+- Feature 6: detaching views — never scoped, needs discussion
+
+- F11 help overlay: doesn't reflect any of the new keys added recently
