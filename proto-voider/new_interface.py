@@ -655,14 +655,13 @@ class FullscreenCircleApp(QMainWindow):
             else:
                 self.book_view.ring = self.book_ring
                 self.book_view._offset = 0.0
-            # Sync cursor to active book (never sync to 0.txt — that's the scratch file)
+            # Sync cursor to the active F2 file (including 0.txt)
             active_fname = os.path.basename(self.f2_file)
-            if active_fname != os.path.basename(self.f1_file):
-                try:
-                    idx = self._library_lines.index(active_fname)
-                    self.book_ring.index = idx
-                except ValueError:
-                    pass
+            try:
+                idx = self._library_lines.index(active_fname)
+                self.book_ring.index = idx
+            except ValueError:
+                pass
             self.stack.setCurrentWidget(self.book_view)
             self.entry.hide()
             self.book_view.update()
@@ -1096,6 +1095,15 @@ class FullscreenCircleApp(QMainWindow):
         if self.book_view:
             self.book_view.ring = self.book_ring
             self.book_view._offset = 0.0
+            # Immediately sync editor text to prevent stale text from causing wrong renames
+            cur = self.book_ring.current()
+            if cur == '.':
+                self.book_view.editor.setText('· · ·')
+                self.book_view.editor.setReadOnly(True)
+            else:
+                self.book_view.editor.setText(cur)
+                self.book_view.editor.setReadOnly(False)
+            self.book_view.editor.setCursorPosition(0)
         self._build_library_path_cache()
         n_books = sum(1 for l in self._library_lines if l != '.')
         print(f"📚 Library: {n_books} books")
@@ -3153,7 +3161,9 @@ class FullscreenCircleApp(QMainWindow):
         if self._matches(key, mods, 'view_f2'):
             self.switch_to_view(1); event.accept(); return
         if self._matches(key, mods, 'view_f3'):
-            self.switch_to_view(2); event.accept(); return
+            if self.current_view != 2:
+                self.switch_to_view(2)
+            event.accept(); return
         if self._matches(key, mods, 'view_f4'):
             self.switch_to_view(3); event.accept(); return
         if self._matches(key, mods, 'view_f5'):
