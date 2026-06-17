@@ -321,6 +321,8 @@ class FullscreenCircleApp(QMainWindow):
         self._ws_rebuild_o_files_cache()
         # Absorb any stray 0.txt files in I/ into the root scratch file
         threading.Thread(target=lambda: self._merge_zero_files(silent=True), daemon=True).start()
+        # Generate I_preview.txt from current folder structure
+        self._generate_i_preview()
 
         # Void key connection
         self._print_void_mode_status()
@@ -805,6 +807,124 @@ class FullscreenCircleApp(QMainWindow):
 
     # ── Reformat ─────────────────────────────────────────────────────────────
 
+    def _generate_i_preview(self):
+        """On startup: create CAPS title files and write I_preview.txt to I/."""
+        i_dir = os.path.join(self.void_dir, 'I')
+        preview_fname = 'I_preview.txt'
+        preview_path = os.path.join(i_dir, preview_fname)
+        skip_lower = {'0.txt', 'i_preview.txt'}
+
+        # Create CAPS prologue files for each direct I/ subfolder (skip 0/ — reserved)
+        try:
+            for entry in os.scandir(i_dir):
+                if not entry.is_dir():
+                    continue
+                caps_name = entry.name.upper() + '.txt'
+                if caps_name.lower() in skip_lower:
+                    continue
+                caps_path = os.path.join(i_dir, caps_name)
+                if not os.path.exists(caps_path):
+                    open(caps_path, 'w', encoding='utf-8').close()
+        except Exception as e:
+            print(f"⚠️ I_preview CAPS error: {e}")
+
+        # Walk every directory in I/ and collect files directly inside each one
+        raw = []  # list of (abs_path, [filenames])
+        try:
+            for dirpath, dirs, files in os.walk(i_dir):
+                dirs.sort(key=lambda x: x.lower())
+                txts = sorted(
+                    [f for f in files
+                     if f.lower().endswith('.txt') and f.lower() not in skip_lower],
+                    key=lambda x: x.lower()
+                )
+                if txts:
+                    raw.append((dirpath, txts))
+        except Exception as e:
+            print(f"⚠️ I_preview walk error: {e}")
+
+        if not raw:
+            return
+
+        # Put I/ root group last (CAPS + stray files); subfolders first
+        subdir_groups = [(p, f) for p, f in raw if p != i_dir]
+        root_group    = [(p, f) for p, f in raw if p == i_dir]
+        ordered = subdir_groups + root_group
+
+        # Compute labels: leaf folder name; add parent/ prefix on collision
+        leaf_names = [os.path.basename(p) for p, _ in ordered]
+        counts = {}
+        for n in leaf_names:
+            counts[n.lower()] = counts.get(n.lower(), 0) + 1
+
+        groups = []
+        for path, filenames in ordered:
+            leaf = os.path.basename(path)
+            if path == i_dir:
+                label = 'I/'
+            elif counts.get(leaf.lower(), 0) > 1:
+                parent = os.path.basename(os.path.dirname(path))
+                label = f'{parent}/{leaf}/'
+            else:
+                label = f'{leaf}/'
+            groups.append((label, filenames))
+
+        # Resolve duplicate filenames across groups with _2, _3 … suffix
+        seen = {}
+        def resolve(fname):
+            key = fname.lower()
+            if key not in seen:
+                seen[key] = True
+                return fname
+            stem, ext = os.path.splitext(fname)
+            i = 2
+            while f'{stem}_{i}{ext}'.lower() in seen:
+                i += 1
+            new = f'{stem}_{i}{ext}'
+            seen[new.lower()] = True
+            return new
+
+        lines = []
+        for label, filenames in groups:
+            lines.append('.')
+            lines.append(label)
+            for f in filenames:
+                lines.append(resolve(f))
+
+        try:
+            with open(preview_path, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(lines) + '\n')
+        except Exception as e:
+            print(f"⚠️ Could not write I_preview.txt: {e}")
+            return
+
+        # Add I_preview.txt + CAPS files to I.txt so they appear in F3
+        lib_path = self._library_path()
+        if os.path.exists(lib_path):
+            try:
+                with open(lib_path, 'r', encoding='utf-8') as f:
+                    lib_lines = [l.rstrip('\n') for l in f]
+                to_add = [preview_fname]
+                for entry in os.scandir(i_dir):
+                    if not entry.is_dir():
+                        continue
+                    caps = entry.name.upper() + '.txt'
+                    if caps.lower() not in skip_lower:
+                        to_add.append(caps)
+                changed = False
+                for fname in to_add:
+                    if fname not in lib_lines:
+                        lib_lines.append(fname)
+                        changed = True
+                if changed:
+                    with open(lib_path, 'w', encoding='utf-8') as f:
+                        f.write('\n'.join(lib_lines) + '\n')
+            except Exception as e:
+                print(f"⚠️ Could not update I.txt: {e}")
+
+        n = sum(len(g[1]) for g in groups)
+        print(f"📋 I_preview.txt: {n} entries across {len(groups)} groups")
+
     def _merge_zero_files(self, silent=True):
         """Absorb every I/ subdirectory 0.txt into ~/void/I/0.txt.
 
@@ -875,7 +995,7 @@ class FullscreenCircleApp(QMainWindow):
             print("✓ Nothing to clean up")
 
         if changed:
-            self._generate_library(self._library_path())
+            self._append_new_files_to_library()
 
         if not silent and changed:
             # Remember which title was selected so we can restore after reload
@@ -1125,6 +1245,31 @@ class FullscreenCircleApp(QMainWindow):
                 f.write('\n'.join(files))
         except Exception as e:
             print(f"⚠️ Could not generate library.txt: {e}")
+
+    def _append_new_files_to_library(self):
+        """Add any I/ files not yet in I.txt to the end, preserving existing order."""
+        lib_path = self._library_path()
+        i_dir = os.path.join(self.void_dir, 'I')
+        try:
+            existing = set()
+            lines = []
+            if os.path.exists(lib_path):
+                with open(lib_path, 'r', encoding='utf-8') as f:
+                    lines = [l.rstrip('\n') for l in f]
+                existing = {l.lower() for l in lines if l and l != '.'}
+            new_files = []
+            for root, _, fnames in os.walk(i_dir):
+                for f in sorted(fnames):
+                    if f.lower().endswith('.txt') and f.lower() not in existing:
+                        new_files.append(f)
+                        existing.add(f.lower())
+            if new_files:
+                lines.extend(new_files)
+                with open(lib_path, 'w', encoding='utf-8') as f:
+                    f.write('\n'.join(lines) + '\n')
+                print(f"📚 Added {len(new_files)} new file(s) to I.txt")
+        except Exception as e:
+            print(f"⚠️ Could not update I.txt: {e}")
 
     def _build_library_path_cache(self):
         """Map filename → absolute path by scanning I/ recursively."""
