@@ -253,7 +253,9 @@ class CustomLineEdit(QLineEdit):
     deleteLineToZero = pyqtSignal()
     deleteAtEnd = pyqtSignal()
     tabPressed = pyqtSignal()
-    dotPressed = pyqtSignal()  # emitted on '.' only when intercept_period is True
+    dotPressed = pyqtSignal()      # '.' key when intercept_period is True
+    shiftReturnPressed = pyqtSignal()
+    ctrlDeletePressed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -263,6 +265,7 @@ class CustomLineEdit(QLineEdit):
         key = event.key()
         mods = event.modifiers()
         ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+        shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
 
         if key == Qt.Key.Key_Period and mods == Qt.KeyboardModifier.NoModifier and self.intercept_period:
             self.dotPressed.emit()
@@ -280,6 +283,10 @@ class CustomLineEdit(QLineEdit):
             return
 
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if shift:
+                self.shiftReturnPressed.emit()
+                event.accept()
+                return
             pos = self.cursorPosition()
             if pos == 0:
                 self.returnPressed.emit()
@@ -292,8 +299,10 @@ class CustomLineEdit(QLineEdit):
         elif key == Qt.Key.Key_Down and mods == Qt.KeyboardModifier.NoModifier:
             self.downPressed.emit()
             event.accept()
-        elif key == Qt.Key.Key_Delete and ctrl and self.cursorPosition() == 0:
-            self.deleteLineToZero.emit()
+        elif key == Qt.Key.Key_Delete and ctrl:
+            if self.cursorPosition() == 0:
+                self.deleteLineToZero.emit()
+            self.ctrlDeletePressed.emit()
             event.accept()
         elif key == Qt.Key.Key_Delete and mods == Qt.KeyboardModifier.NoModifier and self.cursorPosition() == len(self.text()) and not self.hasSelectedText():
             self.deleteAtEnd.emit()

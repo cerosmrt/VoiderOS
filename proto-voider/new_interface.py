@@ -279,6 +279,7 @@ class FullscreenCircleApp(QMainWindow):
         self.book_concat_view = None          # view 9: read-only concatenated group
         self.book_concat_ring = LineRing(['.'])
         self._book_concat_header_indices = set()
+        self._book_pending_new = False        # True while user names a new F3 entry
         self.vault_view = None      # F4: Oracle from I/
         self.transform_view = None  # F5: Transform — editable O/ line → I/
         self.o_reader_view = None   # F6: Reader — circular view of O/ book
@@ -648,6 +649,8 @@ class FullscreenCircleApp(QMainWindow):
                 self.book_view.editor.downPressed.connect(lambda: self._book_navigate(1))
                 self.book_view.editor.dotPressed.connect(self._book_insert_separator)
                 self.book_view.editor.backspaceAtStart.connect(self._book_backspace_on_dot)
+                self.book_view.editor.shiftReturnPressed.connect(self._book_new_entry)
+                self.book_view.editor.ctrlDeletePressed.connect(self._book_send_to_zero)
                 self.book_view.editor.intercept_period = True
                 self.stack.addWidget(self.book_view)
             else:
@@ -1636,6 +1639,16 @@ class FullscreenCircleApp(QMainWindow):
         view.update()
 
     def _book_navigate(self, delta):
+        if self._book_pending_new:
+            # Cancel the pending new entry
+            idx = self.book_ring.index
+            self.book_ring.lines.pop(idx)
+            self._library_lines.pop(idx)
+            if not self.book_ring.lines:
+                self.book_ring.lines = ['.']
+                self._library_lines = ['.']
+            self.book_ring.index = max(0, idx - 1) % len(self.book_ring.lines)
+            self._book_pending_new = False
         self._book_try_rename()
         if len(self.book_ring.lines) < 2:
             return
@@ -1651,6 +1664,8 @@ class FullscreenCircleApp(QMainWindow):
         self.book_view.update()
 
     def _book_try_rename(self):
+        if self._book_pending_new:
+            return True
         fname = self._library_current_fname()
         if not fname:
             return True
@@ -1684,7 +1699,41 @@ class FullscreenCircleApp(QMainWindow):
         return True
 
     def _book_confirm_edit(self):
-        """Enter in F3: dot → open concat group view; title → rename and open in F2."""
+        """Enter in F3: handle new-entry mode, dot → concat view, title → F2."""
+        if self._book_pending_new:
+            text = self.book_view.editor.text().strip()
+            idx = self.book_ring.index
+            if not text:
+                # Empty → cancel, remove placeholder
+                self.book_ring.lines.pop(idx)
+                self._library_lines.pop(idx)
+                if not self.book_ring.lines:
+                    self.book_ring.lines = ['.']
+                    self._library_lines = ['.']
+                self.book_ring.index = max(0, idx - 1) % len(self.book_ring.lines)
+            elif text == '.':
+                # Convert placeholder to separator
+                self.book_ring.lines[idx] = '.'
+                self._library_lines[idx] = '.'
+                self._save_library()
+            else:
+                # Create new file and open in F2
+                fname = text + '.txt'
+                fpath = os.path.join(self.void_dir, 'I', fname)
+                if not os.path.exists(fpath):
+                    open(fpath, 'w', encoding='utf-8').close()
+                self.book_ring.lines[idx] = text
+                self._library_lines[idx] = fname
+                self._library_path_cache[fname] = fpath
+                self._save_library()
+                self._book_pending_new = False
+                self._set_f2_file(fpath)
+                self.switch_to_view(1)
+                return
+            self._book_pending_new = False
+            self._book_show_editor()
+            return
+
         if self.book_ring.current() == '.':
             self._book_open_concat()
             return
@@ -1698,6 +1747,70 @@ class FullscreenCircleApp(QMainWindow):
             fpath = os.path.join(self.void_dir, 'I', fname)
         self._set_f2_file(fpath)
         self.switch_to_view(1)
+
+    def _book_new_entry(self):
+        """Shift+Enter in F3: insert a blank entry below current for the user to name."""
+        if self._book_pending_new:
+            return
+        self._book_try_rename()
+        idx = self.book_ring.index
+        self.book_ring.lines.insert(idx + 1, '')
+        self._library_lines.insert(idx + 1, '')
+        self.book_ring.index = idx + 1
+        self._book_pending_new = True
+        self.book_view._offset = 0.0
+        self.book_view.editor.setText('')
+        self.book_view.editor.setReadOnly(False)
+        self.book_view.editor.setCursorPosition(0)
+        self.book_view.update()
+
+    def _book_send_to_zero(self):
+        """Ctrl+Delete in F3: append all file lines to 0.txt, delete the file."""
+        if self._book_pending_new:
+            return
+        fname = self._library_current_fname()
+        if not fname:
+            return
+        fpath = self._library_path_cache.get(fname)
+        if not fpath or not os.path.exists(fpath):
+            return
+        try:
+            with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                lines = [l.strip() for l in f if l.strip() and l.strip() != '.']
+        except Exception as e:
+            print(f"⚠️ Cannot read {fpath}: {e}")
+            return
+        if lines:
+            try:
+                with open(self.f1_file, 'a', encoding='utf-8') as f:
+                    f.write('\n.\n')
+                    f.write('\n'.join(lines) + '\n')
+            except Exception as e:
+                print(f"⚠️ Cannot append to 0.txt: {e}")
+                return
+        try:
+            os.remove(fpath)
+        except Exception as e:
+            print(f"⚠️ Cannot delete {fpath}: {e}")
+            return
+        idx = self.book_ring.index
+        self.book_ring.lines.pop(idx)
+        self._library_lines.pop(idx)
+        if fname in self._library_path_cache:
+            del self._library_path_cache[fname]
+        if not self.book_ring.lines:
+            self.book_ring.lines = ['.']
+            self._library_lines = ['.']
+        n = len(self.book_ring.lines)
+        self.book_ring.index = idx % n
+        while self.book_ring.current() == '.' and n > 1:
+            self.book_ring.index = (self.book_ring.index + 1) % n
+        self._save_library()
+        if self.current_file_path == self.f1_file:
+            self.load_doc_lines()
+        self.book_view._offset = 0.0
+        self._book_show_editor()
+        print(f"🗑️ {len(lines)} lines from {fname} → 0.txt, file deleted")
 
     def _book_insert_separator(self):
         """Tab in F3: insert a group separator dot above the current position."""
@@ -3213,7 +3326,19 @@ class FullscreenCircleApp(QMainWindow):
     def _handle_f3_keys(self, key, mods, event):
         # Up/Down/Enter handled by book_view.editor signals.
         if key == Qt.Key.Key_Escape:
-            self.switch_to_view(0)
+            if self._book_pending_new:
+                idx = self.book_ring.index
+                self.book_ring.lines.pop(idx)
+                self._library_lines.pop(idx)
+                if not self.book_ring.lines:
+                    self.book_ring.lines = ['.']
+                    self._library_lines = ['.']
+                self.book_ring.index = max(0, idx - 1) % len(self.book_ring.lines)
+                self._book_pending_new = False
+                self.book_view._offset = 0.0
+                self._book_show_editor()
+            else:
+                self.switch_to_view(0)
         elif self._matches(key, mods, 'swap_up'):
             self._book_swap_up(); event.accept()
         elif self._matches(key, mods, 'swap_down'):
