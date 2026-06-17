@@ -7,7 +7,7 @@ import datetime
 import shutil
 import subprocess
 import threading
-from PyQt6.QtWidgets import QApplication, QMainWindow, QStackedWidget, QFileDialog
+from PyQt6.QtWidgets import QApplication, QMainWindow, QStackedWidget, QFileDialog, QLineEdit
 from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
 from PyQt6.QtGui import QFont, QCursor, QShortcut, QKeySequence
 from PyQt6.QtCore import Qt, QTimer, qInstallMessageHandler, QtMsgType
@@ -251,6 +251,35 @@ class FullscreenCircleApp(QMainWindow):
         self.entry.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.entry.setFocus()
 
+        # Search bars (F2 and F3) — hidden by default, shown at bottom of screen
+        _search_style = f"""
+            QLineEdit {{
+                background: transparent;
+                color: {_text_color};
+                border: none;
+                border-bottom: 1px solid {_text_color};
+                selection-background-color: {_text_color};
+                selection-color: black;
+            }}
+        """
+        self._f2_search_bar = QLineEdit(self)
+        self._f2_search_bar.setFont(self._app_font)
+        self._f2_search_bar.setStyleSheet(_search_style)
+        self._f2_search_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._f2_search_bar.setPlaceholderText('search lines…')
+        self._f2_search_bar.hide()
+        self._f2_search_bar.textChanged.connect(self._f2_search_changed)
+        self._f2_search_bar.returnPressed.connect(self._f2_search_confirm)
+
+        self._f3_search_bar = QLineEdit(self)
+        self._f3_search_bar.setFont(self._app_font)
+        self._f3_search_bar.setStyleSheet(_search_style)
+        self._f3_search_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._f3_search_bar.setPlaceholderText('search files…')
+        self._f3_search_bar.hide()
+        self._f3_search_bar.textChanged.connect(self._f3_search_changed)
+        self._f3_search_bar.returnPressed.connect(self._f3_search_confirm)
+
         # Doc ring (active file lines, ordered) and vault ring (void files, shuffled)
         self.line_ring = LineRing()
         self.vault_ring = LineRing()
@@ -280,6 +309,13 @@ class FullscreenCircleApp(QMainWindow):
         self.book_concat_ring = LineRing(['.'])
         self._book_concat_header_indices = set()
         self._book_pending_new = False        # True while user names a new F3 entry
+        # Search state — display rings are separate from real rings (never mutated)
+        self._f2_search_active = False
+        self._f2_search_saved = None   # saved cursor index before search
+        self._f2_display_ring = None   # temp ring shown during search
+        self._f3_search_active = False
+        self._f3_search_saved = None   # saved cursor index before search
+        self._f3_display_ring = None   # temp ring shown during search
         self.vault_view = None      # F4: Oracle from I/
         self.transform_view = None  # F5: Transform — editable O/ line → I/
         self.o_reader_view = None   # F6: Reader — circular view of O/ book
@@ -533,6 +569,11 @@ class FullscreenCircleApp(QMainWindow):
     # ── Views ─────────────────────────────────────────────────────────────────
 
     def switch_to_view(self, view_index):
+        # Close search bars when leaving their view
+        if self._f2_search_active and view_index != 1:
+            self._close_f2_search(restore=True)
+        if self._f3_search_active and view_index != 2:
+            self._close_f3_search(restore=True)
         # F3 → F2: point F2 at the highlighted book then load it
         if self.current_view == 2 and view_index == 1:
             if not self._book_try_rename():
@@ -3250,6 +3291,14 @@ class FullscreenCircleApp(QMainWindow):
         entry_height = self.entry.sizeHint().height()
         self.entry.setFixedWidth(entry_width)
         self.entry.move(w // 2 - entry_width // 2, h // 2 - entry_height // 2)
+        # Search bars sit near the bottom
+        bar_width = min(w - 100, 800)
+        bar_x = (w - bar_width) // 2
+        bar_y = h - entry_height - 24
+        self._f2_search_bar.setFixedWidth(bar_width)
+        self._f2_search_bar.move(bar_x, bar_y)
+        self._f3_search_bar.setFixedWidth(bar_width)
+        self._f3_search_bar.move(bar_x, bar_y)
 
     def closeEvent(self, event):
         self._ws_save_position()
@@ -3299,6 +3348,32 @@ class FullscreenCircleApp(QMainWindow):
     def keyPressEvent(self, event):
         key = event.key()
         mods = event.modifiers()
+
+        # Route Up/Down to the display ring when search is active (clamped, no wrap)
+        if self._f2_search_active and self.current_view == 1 and self._f2_display_ring:
+            if key == Qt.Key.Key_Up:
+                self._f2_display_ring.index = max(0, self._f2_display_ring.index - 1)
+                self.circular_view._offset = 0.0
+                self._f2_search_show_center()
+                event.accept(); return
+            elif key == Qt.Key.Key_Down:
+                self._f2_display_ring.index = min(len(self._f2_display_ring.lines) - 1,
+                                                  self._f2_display_ring.index + 1)
+                self.circular_view._offset = 0.0
+                self._f2_search_show_center()
+                event.accept(); return
+        if self._f3_search_active and self.current_view == 2 and self._f3_display_ring:
+            if key == Qt.Key.Key_Up:
+                self._f3_display_ring.index = max(0, self._f3_display_ring.index - 1)
+                self.book_view._offset = 0.0
+                self._f3_search_show_center()
+                event.accept(); return
+            elif key == Qt.Key.Key_Down:
+                self._f3_display_ring.index = min(len(self._f3_display_ring.lines) - 1,
+                                                  self._f3_display_ring.index + 1)
+                self.book_view._offset = 0.0
+                self._f3_search_show_center()
+                event.accept(); return
 
         # Global: view switching
         if self._matches(key, mods, 'view_f1'):
@@ -3476,14 +3551,22 @@ class FullscreenCircleApp(QMainWindow):
             if (key == Qt.Key.Key_Delete and at_start) or (key == Qt.Key.Key_Backspace and at_end):
                 self._delete_line_to_zero()
                 event.accept()
+        elif mods == Qt.KeyboardModifier.ControlModifier and key == Qt.Key.Key_F:
+            self._open_f2_search(); event.accept()
         elif key == Qt.Key.Key_Escape:
-            if self._para_focus:
+            if self._f2_search_active:
+                self._close_f2_search(restore=True)
+            elif self._para_focus:
                 self._exit_para_focus()
             else:
                 self.switch_to_view(0)
 
     def _handle_f3_keys(self, key, mods, event):
         # Up/Down/Enter handled by book_view.editor signals.
+        if mods == Qt.KeyboardModifier.ControlModifier and key == Qt.Key.Key_F:
+            self._open_f3_search(); event.accept(); return
+        if key == Qt.Key.Key_Escape and self._f3_search_active:
+            self._close_f3_search(restore=True); event.accept(); return
         if key == Qt.Key.Key_Escape:
             if self._book_pending_new:
                 idx = self.book_ring.index
@@ -3498,6 +3581,26 @@ class FullscreenCircleApp(QMainWindow):
                 self._book_show_editor()
             else:
                 self.switch_to_view(0)
+        elif self._matches(key, mods, 'para_prev'):
+            ring = self.book_ring
+            n = len(ring.lines)
+            idx = (ring.index - 1) % n
+            for _ in range(n):
+                if ring.lines[idx] == '.':
+                    ring.index = idx
+                    break
+                idx = (idx - 1) % n
+            self._book_show_editor(); event.accept()
+        elif self._matches(key, mods, 'para_next'):
+            ring = self.book_ring
+            n = len(ring.lines)
+            idx = (ring.index + 1) % n
+            for _ in range(n):
+                if ring.lines[idx] == '.':
+                    ring.index = idx
+                    break
+                idx = (idx + 1) % n
+            self._book_show_editor(); event.accept()
         elif self._matches(key, mods, 'swap_up'):
             self._book_swap_up(); event.accept()
         elif self._matches(key, mods, 'swap_down'):
@@ -3517,6 +3620,180 @@ class FullscreenCircleApp(QMainWindow):
             self.switch_to_view(0)
         elif self._matches(key, mods, 'quit'):
             self.close()
+
+    # ── Search (F2 / F3) ─────────────────────────────────────────────────────
+    # A separate _search_ring is used for display — line_ring / book_ring are
+    # NEVER mutated during search, so the save pipeline never sees filtered data.
+
+    def _f2_search_show_center(self):
+        """Highlight center of display ring; surroundings dimmed. Search bar keeps focus."""
+        if not self._f2_display_ring or not self.circular_view:
+            return
+        view = self.circular_view
+        view.edit_mode = False
+        view.editor.hide()
+        view.search_highlight_center = True
+        view.update()
+        self._f2_search_bar.setFocus()
+
+    def _open_f2_search(self):
+        if self._f2_search_active:
+            return
+        self._f2_search_active = True
+        self._f2_search_saved = self.line_ring.index
+        display = [l for l in self.line_ring.lines if l != '.'] or ['.']
+        self._f2_display_ring = LineRing(display)
+        # Start at the line currently shown in F2
+        cur = self.line_ring.current()
+        if cur and cur != '.' and cur in display:
+            self._f2_display_ring.index = display.index(cur)
+        self.circular_view.search_mode = True
+        self.circular_view.ring = self._f2_display_ring
+        self.circular_view._offset = 0.0
+        self._f2_search_bar.clear()
+        self._f2_search_bar.show()
+        self._f2_search_bar.raise_()
+        self._f2_search_show_center()
+
+    def _close_f2_search(self, restore=True):
+        if not self._f2_search_active:
+            return
+        self._f2_search_active = False
+        self._f2_search_bar.hide()
+        self._f2_display_ring = None
+        if restore and self._f2_search_saved is not None:
+            self.line_ring.index = self._f2_search_saved
+        self.circular_view.search_mode = False
+        self.circular_view.search_highlight_center = False
+        self.circular_view.ring = self.line_ring
+        self._f2_search_saved = None
+        self.circular_view._offset = 0.0
+        self.circular_view.update()
+        self._doc_show_editor()
+
+    def _f2_search_changed(self, text):
+        if not self._f2_search_active:
+            return
+        q = text.strip().lower()
+        if not q:
+            filtered = [l for l in self.line_ring.lines if l != '.'] or ['.']
+        else:
+            filtered = [l for l in self.line_ring.lines if l != '.' and q in l.lower()] or ['.']
+        self._f2_display_ring = LineRing(filtered)
+        self.circular_view.ring = self._f2_display_ring
+        self.circular_view._offset = 0.0
+        self._f2_search_show_center()
+
+    def _f2_search_confirm(self):
+        """Enter: jump to the highlighted match in the full ring and close search."""
+        if not self._f2_search_active:
+            return
+        matched = self._f2_display_ring.current() if self._f2_display_ring else None
+        self._f2_search_active = False
+        self._f2_search_bar.hide()
+        self._f2_display_ring = None
+        self._f2_search_saved = None
+        if matched and matched != '.' and matched in self.line_ring.lines:
+            self.line_ring.index = self.line_ring.lines.index(matched)
+        self.circular_view.search_mode = False
+        self.circular_view.search_highlight_center = False
+        self.circular_view.ring = self.line_ring
+        self.circular_view._offset = 0.0
+        self.circular_view.update()
+        self._doc_show_editor()
+
+    def _f3_search_show_center(self):
+        """Highlight center of display ring; surroundings dimmed. Search bar keeps focus."""
+        if not self._f3_display_ring or not self.book_view:
+            return
+        view = self.book_view
+        view.edit_mode = False
+        view.editor.hide()
+        view.search_highlight_center = True
+        view.update()
+        self._f3_search_bar.setFocus()
+
+    def _open_f3_search(self):
+        if self._f3_search_active:
+            return
+        self._f3_search_active = True
+        self._f3_search_saved = self.book_ring.index
+        display = [l for l in self.book_ring.lines if l != '.'] or ['.']
+        self._f3_display_ring = LineRing(display)
+        # Start at the file currently highlighted in F3
+        cur = self.book_ring.current()
+        if cur and cur != '.' and cur in display:
+            self._f3_display_ring.index = display.index(cur)
+        self.book_view.search_mode = True
+        self.book_view.ring = self._f3_display_ring
+        self.book_view._offset = 0.0
+        self._f3_search_bar.clear()
+        self._f3_search_bar.show()
+        self._f3_search_bar.raise_()
+        self._f3_search_show_center()
+
+    def _close_f3_search(self, restore=True):
+        if not self._f3_search_active:
+            return
+        self._f3_search_active = False
+        self._f3_search_bar.hide()
+        self._f3_display_ring = None
+        if restore and self._f3_search_saved is not None:
+            self.book_ring.index = self._f3_search_saved
+        self.book_view.search_mode = False
+        self.book_view.search_highlight_center = False
+        self.book_view.ring = self.book_ring
+        self._f3_search_saved = None
+        self.book_view._offset = 0.0
+        self.book_view.update()
+        self._book_show_editor()
+
+    def _f3_search_changed(self, text):
+        if not self._f3_search_active:
+            return
+        q = text.strip().lower()
+        if not q:
+            filtered = [l for l in self.book_ring.lines if l != '.'] or ['.']
+        else:
+            filtered = [l for l in self.book_ring.lines if l != '.' and q in l.lower()] or ['.']
+        self._f3_display_ring = LineRing(filtered)
+        self.book_view.ring = self._f3_display_ring
+        self.book_view._offset = 0.0
+        self._f3_search_show_center()
+
+    def _f3_search_confirm(self):
+        """Enter: load the highlighted file and close search."""
+        if not self._f3_search_active:
+            return
+        matched_display = self._f3_display_ring.current() if self._f3_display_ring else None
+        self._f3_search_active = False
+        self._f3_search_bar.hide()
+        self._f3_display_ring = None
+        self._f3_search_saved = None
+        if matched_display and matched_display != '.':
+            for i, l in enumerate(self.book_ring.lines):
+                if l == matched_display:
+                    self.book_ring.index = i
+                    break
+        self.book_view.search_mode = False
+        self.book_view.search_highlight_center = False
+        self.book_view.ring = self.book_ring
+        self.book_view._offset = 0.0
+        self.book_view.update()
+        # Sync editor text NOW so switch_to_view's _book_try_rename sees no change
+        if matched_display and matched_display != '.':
+            self.book_view.editor.setText(matched_display)
+            self.book_view.editor.setReadOnly(False)
+        fname = self._library_current_fname()
+        if fname:
+            fpath = self._library_path_cache.get(fname)
+            if fpath and os.path.isfile(fpath):
+                self.f2_file = fpath
+                self.current_file_path = fpath
+                self.load_doc_lines()
+                self.switch_to_view(1)
+                return
+        self._book_show_editor()
 
 
 if __name__ == '__main__':
