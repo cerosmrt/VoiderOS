@@ -22,6 +22,8 @@ class CircularView(QWidget):
         self.insert_mode = False  # Nueva: modo insertar línea debajo
         self.focus_indices = None  # set of absolute ring indices to highlight in focus mode
         self.zero_marker = False   # if True, dot at ring index 0 renders in red
+        self.search_mode = False             # if True, clamp rendering — don't wrap beyond list bounds
+        self.search_highlight_center = False # if True, full alpha at center, 30% elsewhere
         
         # Crear el editor
         self.editor = CustomLineEdit(self)
@@ -188,13 +190,20 @@ class CircularView(QWidget):
         line_h = fm.height()
         line_ascent = fm.ascent()
         for i in range(-max_lines, max_lines + 1):
+            # In search mode, don't render items that only exist due to circular wrap
+            if self.search_mode:
+                linear_idx = self.ring.index + i
+                if linear_idx < 0 or linear_idx >= len(self.ring.lines):
+                    continue
             y_pos = center_y + (i + self._offset) * self.line_height
             text = self.ring.get(i)
             draw_y = int(y_pos - line_h / 2)
             distance_from_center = abs(y_pos - center_y)
             base_alpha = self.calculate_alpha(distance_from_center)
 
-            if self.focus_indices is not None:
+            if self.search_highlight_center:
+                alpha = base_alpha if i == 0 else base_alpha * 0.3
+            elif self.focus_indices is not None:
                 abs_idx = (self.ring.index + i) % len(self.ring.lines)
                 alpha = base_alpha if abs_idx in self.focus_indices else base_alpha * 0.1
             elif self.edit_mode:
