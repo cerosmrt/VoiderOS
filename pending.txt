@@ -47,6 +47,14 @@ VOID / PERSONAL WRITING SYSTEM
   Feels like the book is always being read — visitor tunes in mid-reading
   Source: same I.txt from /void
 
+I / VOID WRITING SYSTEM
+-----------------------
+- DUPLICATED_ and TRASH_ files in ~/void/I/ need user review in F3 (Ctrl+Delete to discard)
+  Files are at the end of I.txt (last group, unmatched section)
+
+- _generate_i_preview() post-flatten: now generates a flat single-group I_preview.txt on every
+  startup since all files are in I/ root. Should be fixed to not overwrite or to skip when flat.
+
 F3 QUEUE (discussed, not yet implemented)
 -----------------------------------------
 - Feature 3: split doc by '/' lines into separate files
@@ -57,11 +65,9 @@ F3 QUEUE (discussed, not yet implemented)
   * in F1 → random line from I/ into the entry (currently recycles to 0.txt — needs discussion)
   * in F5 → random line from O/ — needs discussion
 
-- Feature 5: F2 / 0.txt simplification
-  Tab scratch mode may be removed; Ctrl+Enter behavior in F1 — needs discussion
+- F6: auto-reformat books on load (same reformat applied in F2)
 
-- 0.txt always appends at end (not inserts at current position)
-- Ctrl+Enter in F1 → clear input, cursor at last line of 0.txt
+- F7: show book title only — parse/clean filename, display without extension
 
 - Esc = lock screen: log out, show F1 with name + password prompt
 
