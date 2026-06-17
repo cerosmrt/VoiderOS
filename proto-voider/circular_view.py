@@ -284,7 +284,8 @@ class CustomLineEdit(QLineEdit):
 
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             if shift:
-                self.shiftReturnPressed.emit()
+                if self.cursorPosition() == len(self.text()):
+                    self.shiftReturnPressed.emit()
                 event.accept()
                 return
             pos = self.cursorPosition()

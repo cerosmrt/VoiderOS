@@ -648,7 +648,6 @@ class FullscreenCircleApp(QMainWindow):
                 self.book_view.editor.upPressed.connect(lambda: self._book_navigate(-1))
                 self.book_view.editor.downPressed.connect(lambda: self._book_navigate(1))
                 self.book_view.editor.dotPressed.connect(self._book_insert_separator)
-                self.book_view.editor.backspaceAtStart.connect(self._book_backspace_on_dot)
                 self.book_view.editor.shiftReturnPressed.connect(self._book_new_entry)
                 self.book_view.editor.ctrlDeletePressed.connect(self._book_send_to_zero)
                 self.book_view.editor.intercept_period = True
@@ -1765,8 +1764,11 @@ class FullscreenCircleApp(QMainWindow):
         self.book_view.update()
 
     def _book_send_to_zero(self):
-        """Ctrl+Delete in F3: append all file lines to 0.txt, delete the file."""
+        """Ctrl+Delete in F3: on dot → delete separator; on title → send lines to 0.txt and delete file."""
         if self._book_pending_new:
+            return
+        if self.book_ring.current() == '.':
+            self._book_backspace_on_dot()
             return
         fname = self._library_current_fname()
         if not fname:
