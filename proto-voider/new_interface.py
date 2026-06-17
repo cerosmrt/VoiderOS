@@ -276,6 +276,9 @@ class FullscreenCircleApp(QMainWindow):
         self.scratch_view = None    # F1 Tab: CircularView of 0.txt scratch pool
         self._f1_scratch_mode = False
         self.book_view = None       # F3: CircularView over book_ring (filenames)
+        self.book_concat_view = None          # view 9: read-only concatenated group
+        self.book_concat_ring = LineRing(['.'])
+        self._book_concat_header_indices = set()
         self.vault_view = None      # F4: Oracle from I/
         self.transform_view = None  # F5: Transform — editable O/ line → I/
         self.o_reader_view = None   # F6: Reader — circular view of O/ book
@@ -294,6 +297,15 @@ class FullscreenCircleApp(QMainWindow):
         self.current_file_path = self.f1_file  # F1 starts on 0.txt
         self.void_file_path = self.f1_file     # fallback when a file is emptied/deleted
         os.makedirs(self.book_dir, exist_ok=True)
+        # Migrate library.txt → I.txt
+        _old_lib = os.path.join(self.void_dir, 'library.txt')
+        _new_lib = os.path.join(self.void_dir, 'I.txt')
+        if os.path.exists(_old_lib) and not os.path.exists(_new_lib):
+            try:
+                os.rename(_old_lib, _new_lib)
+                print("📚 Migrated library.txt → I.txt")
+            except Exception as _e:
+                print(f"⚠️ Could not migrate library.txt: {_e}")
         if not os.path.exists(self.f2_file):
             open(self.f2_file, 'w', encoding='utf-8').close()
 
@@ -612,6 +624,7 @@ class FullscreenCircleApp(QMainWindow):
                 self.circular_view.editor.wordSwapRight.connect(lambda: self._swap_words(1))
                 self.circular_view.editor.deleteLineToZero.connect(self._delete_line_to_zero)
                 self.circular_view.editor.deleteAtEnd.connect(self._doc_join_next)
+                self.circular_view.editor.tabPressed.connect(self._doc_random_line)
                 self.stack.addWidget(self.circular_view)
             else:
                 self.circular_view.ring = self.line_ring
@@ -633,6 +646,9 @@ class FullscreenCircleApp(QMainWindow):
                 self.book_view.editor.splitAtCursor.connect(lambda pos: self._book_confirm_edit())
                 self.book_view.editor.upPressed.connect(lambda: self._book_navigate(-1))
                 self.book_view.editor.downPressed.connect(lambda: self._book_navigate(1))
+                self.book_view.editor.dotPressed.connect(self._book_insert_separator)
+                self.book_view.editor.backspaceAtStart.connect(self._book_backspace_on_dot)
+                self.book_view.editor.intercept_period = True
                 self.stack.addWidget(self.book_view)
             else:
                 self.book_view.ring = self.book_ring
@@ -686,6 +702,7 @@ class FullscreenCircleApp(QMainWindow):
                 self.o_reader_view.editor.returnPressed.connect(lambda: self.switch_to_view(0))
                 self.o_reader_view.editor.upPressed.connect(lambda: self._reader_navigate(-1))
                 self.o_reader_view.editor.downPressed.connect(lambda: self._reader_navigate(1))
+                self.o_reader_view.editor.tabPressed.connect(self._reader_random_line)
                 self.stack.addWidget(self.o_reader_view)
             else:
                 self.o_reader_view.ring = self.o_reader_ring
@@ -746,6 +763,23 @@ class FullscreenCircleApp(QMainWindow):
             self.stack.setCurrentWidget(self.metronome_view)
             self.entry.hide()
             self.metronome_view.activate()
+
+        elif view_index == 9:  # Book concat — read-only group view (Enter on dot in F3)
+            if not self.book_concat_view:
+                self.book_concat_view = CircularView(self.book_concat_ring, self)
+                self.book_concat_view.setFont(self._app_font)
+                self.book_concat_view.editor.returnPressed.disconnect()
+                self.book_concat_view.editor.returnPressed.connect(lambda: self.switch_to_view(2))
+                self.book_concat_view.editor.upPressed.connect(lambda: self._book_concat_navigate(-1))
+                self.book_concat_view.editor.downPressed.connect(lambda: self._book_concat_navigate(1))
+                self.stack.addWidget(self.book_concat_view)
+            else:
+                self.book_concat_view.ring = self.book_concat_ring
+                self.book_concat_view._offset = 0.0
+            self.stack.setCurrentWidget(self.book_concat_view)
+            self.entry.hide()
+            self.book_concat_view.update()
+            self._book_concat_show_editor()
 
         self._tts_on_view(view_index)
 
@@ -843,9 +877,26 @@ class FullscreenCircleApp(QMainWindow):
             self._generate_library(self._library_path())
 
         if not silent and changed:
+            # Remember which title was selected so we can restore after reload
+            _saved_title = None
+            if self.book_ring.lines and self.book_ring.current() != '.':
+                _saved_title = self.book_ring.current()
             if self.current_file_path == self.f1_file:
                 self.load_doc_lines()
             self.switch_to_view(2)
+            # Restore cursor to the same book title if it still exists
+            if _saved_title:
+                try:
+                    idx = self.book_ring.lines.index(_saved_title)
+                    self.book_ring.index = idx
+                    if self.book_view:
+                        self.book_view._offset = 0.0
+                        self.book_view.editor.setText(_saved_title)
+                        self.book_view.editor.setReadOnly(False)
+                        self.book_view.editor.setCursorPosition(0)
+                        self.book_view.update()
+                except ValueError:
+                    pass
 
     def reformat_active_file(self):
         """Ctrl+Shift+F: split raw pasted text into one sentence per line.
@@ -1009,7 +1060,7 @@ class FullscreenCircleApp(QMainWindow):
     # ── Book order ────────────────────────────────────────────────────────────
 
     def _library_path(self):
-        return os.path.join(self.void_dir, 'library.txt')
+        return os.path.join(self.void_dir, 'I.txt')
 
     def _load_library(self):
         """Load ~/void/library.txt into book_ring. Auto-generates on first use."""
@@ -1234,6 +1285,20 @@ class FullscreenCircleApp(QMainWindow):
         view.editor.show()
         view.editor.setFocus()
         view.update()
+
+    def _doc_random_line(self):
+        """* in F2: jump to a random non-dot line in the current document."""
+        candidates = [i for i, l in enumerate(self.line_ring.lines) if l != '.']
+        if not candidates:
+            return
+        self.line_ring.index = random.choice(candidates)
+        self.circular_view._offset = 0.0
+        self.circular_view.editor.setText(self.line_ring.current())
+        self.circular_view.editor.setCursorPosition(0)
+        is_zero_dot = self.circular_view.zero_marker and self.line_ring.index == 0
+        self._apply_editor_style(self.circular_view.editor, red=is_zero_dot)
+        self.circular_view.editor.setReadOnly(False)
+        self.circular_view.update()
 
     def _doc_navigate(self, delta):
         """Move doc ring and update F2 editor text."""
@@ -1547,7 +1612,7 @@ class FullscreenCircleApp(QMainWindow):
     # ── Book browser (F3) ─────────────────────────────────────────────────────
 
     def _book_show_editor(self):
-        """Show F3 editor with current filename (no extension), cursor at start."""
+        """Show F3 editor; dots show as a visual separator (read-only)."""
         if not self.book_ring.lines:
             return
         view = self.book_view
@@ -1559,9 +1624,13 @@ class FullscreenCircleApp(QMainWindow):
             (view.width() - editor_width) // 2,
             center_y - view.editor.sizeHint().height() // 2
         )
-        view.editor.setText(self.book_ring.current())
+        if self.book_ring.current() == '.':
+            view.editor.setText('· · ·')
+            view.editor.setReadOnly(True)
+        else:
+            view.editor.setText(self.book_ring.current())
+            view.editor.setReadOnly(False)
         view.editor.setCursorPosition(0)
-        view.editor.setReadOnly(False)
         view.editor.show()
         view.editor.setFocus()
         view.update()
@@ -1571,10 +1640,13 @@ class FullscreenCircleApp(QMainWindow):
         if len(self.book_ring.lines) < 2:
             return
         self.book_ring.move(delta)
-        while self.book_ring.current() == '.' and len(self.book_ring.lines) > 1:
-            self.book_ring.move(delta)
         self.book_view._offset = 0.0
-        self.book_view.editor.setText(self.book_ring.current())
+        if self.book_ring.current() == '.':
+            self.book_view.editor.setText('· · ·')
+            self.book_view.editor.setReadOnly(True)
+        else:
+            self.book_view.editor.setText(self.book_ring.current())
+            self.book_view.editor.setReadOnly(False)
         self.book_view.editor.setCursorPosition(0)
         self.book_view.update()
 
@@ -1612,7 +1684,10 @@ class FullscreenCircleApp(QMainWindow):
         return True
 
     def _book_confirm_edit(self):
-        """Enter in F3: rename if changed, open selected book in F2."""
+        """Enter in F3: dot → open concat group view; title → rename and open in F2."""
+        if self.book_ring.current() == '.':
+            self._book_open_concat()
+            return
         if not self._book_try_rename():
             return
         fname = self._library_current_fname()
@@ -1623,6 +1698,123 @@ class FullscreenCircleApp(QMainWindow):
             fpath = os.path.join(self.void_dir, 'I', fname)
         self._set_f2_file(fpath)
         self.switch_to_view(1)
+
+    def _book_insert_separator(self):
+        """Tab in F3: insert a group separator dot above the current position."""
+        if self.book_ring.current() == '.':
+            return
+        self._book_try_rename()
+        idx = self.book_ring.index
+        self.book_ring.lines.insert(idx, '.')
+        self._library_lines.insert(idx, '.')
+        self.book_ring.index = idx
+        self._save_library()
+        self.book_view._offset = 0.0
+        self.book_view.editor.setText('· · ·')
+        self.book_view.editor.setReadOnly(True)
+        self.book_view.editor.setCursorPosition(0)
+        self.book_view.update()
+
+    def _book_backspace_on_dot(self):
+        """Backspace in F3 when on a dot: delete the group separator."""
+        if self.book_ring.current() != '.':
+            return
+        idx = self.book_ring.index
+        self.book_ring.lines.pop(idx)
+        self._library_lines.pop(idx)
+        if not self.book_ring.lines:
+            self.book_ring.lines = ['.']
+            self._library_lines = ['.']
+            self.book_ring.index = 0
+        else:
+            self.book_ring.index = idx % len(self.book_ring.lines)
+            while self.book_ring.current() == '.' and len(self.book_ring.lines) > 1:
+                self.book_ring.index = (self.book_ring.index + 1) % len(self.book_ring.lines)
+        self._save_library()
+        self.book_view._offset = 0.0
+        if self.book_ring.current() == '.':
+            self.book_view.editor.setText('· · ·')
+            self.book_view.editor.setReadOnly(True)
+        else:
+            self.book_view.editor.setText(self.book_ring.current())
+            self.book_view.editor.setReadOnly(False)
+        self.book_view.editor.setCursorPosition(0)
+        self.book_view.update()
+
+    def _book_open_concat(self):
+        """Build a read-only concatenated ring from all files in the current dot group."""
+        dot_idx = self.book_ring.index
+        n = len(self._library_lines)
+        group_fnames = []
+        i = (dot_idx + 1) % n
+        for _ in range(n - 1):
+            if self._library_lines[i] == '.':
+                break
+            group_fnames.append(self._library_lines[i])
+            i = (i + 1) % n
+        if not group_fnames:
+            return
+
+        lines = ['.']
+        header_indices = set()
+        for fname in group_fnames:
+            fpath = self._library_path_cache.get(fname)
+            if not fpath or not os.path.exists(fpath):
+                continue
+            stem = os.path.splitext(fname)[0].upper()
+            header_indices.add(len(lines))
+            lines.append(f'── {stem} ──')
+            try:
+                with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                    for raw in f:
+                        s = raw.strip()
+                        if s and s != '.':
+                            lines.append(s)
+            except Exception:
+                pass
+            lines.append('.')
+
+        if len(lines) <= 1:
+            return
+
+        self.book_concat_ring = LineRing(lines)
+        self._book_concat_header_indices = header_indices
+        for start_i in range(len(lines)):
+            if lines[start_i] not in ('.', '') and start_i not in header_indices:
+                self.book_concat_ring.index = start_i
+                break
+
+        self.switch_to_view(9)
+
+    def _book_concat_show_editor(self):
+        view = self.book_concat_view
+        view.edit_mode = True
+        center_y = view.height() // 2
+        editor_width = min(view.width() - 100, 800)
+        view.editor.setFixedWidth(editor_width)
+        view.editor.move(
+            (view.width() - editor_width) // 2,
+            center_y - view.editor.sizeHint().height() // 2
+        )
+        view.editor.setText(self.book_concat_ring.current())
+        view.editor.setReadOnly(True)
+        view.editor.setCursorPosition(0)
+        view.editor.show()
+        view.editor.setFocus()
+        view.update()
+
+    def _book_concat_navigate(self, delta):
+        ring = self.book_concat_ring
+        n = len(ring.lines)
+        for _ in range(n):
+            ring.move(delta)
+            cur = ring.current()
+            if cur not in ('.', '') and ring.index not in self._book_concat_header_indices:
+                break
+        self.book_concat_view._offset = 0.0
+        self.book_concat_view.editor.setText(ring.current())
+        self.book_concat_view.editor.setCursorPosition(0)
+        self.book_concat_view.update()
 
     def _book_swap_up(self):
         """Alt+Up in F3: swap current title with nearest non-dot above."""
@@ -1639,7 +1831,12 @@ class FullscreenCircleApp(QMainWindow):
         self.book_ring.index = prev
         self._save_library()
         self.book_view._offset = 0.0
-        self.book_view.editor.setText(self.book_ring.current())
+        if self.book_ring.current() == '.':
+            self.book_view.editor.setText('· · ·')
+            self.book_view.editor.setReadOnly(True)
+        else:
+            self.book_view.editor.setText(self.book_ring.current())
+            self.book_view.editor.setReadOnly(False)
         self.book_view.editor.setCursorPosition(0)
         self.book_view.update()
 
@@ -1659,7 +1856,12 @@ class FullscreenCircleApp(QMainWindow):
         self.book_ring.index = nxt
         self._save_library()
         self.book_view._offset = 0.0
-        self.book_view.editor.setText(self.book_ring.current())
+        if self.book_ring.current() == '.':
+            self.book_view.editor.setText('· · ·')
+            self.book_view.editor.setReadOnly(True)
+        else:
+            self.book_view.editor.setText(self.book_ring.current())
+            self.book_view.editor.setReadOnly(False)
         self.book_view.editor.setCursorPosition(0)
         self.book_view.update()
 
@@ -1676,6 +1878,7 @@ class FullscreenCircleApp(QMainWindow):
         self._save_library()
         self.book_view._offset = 0.0
         self.book_view.editor.setText(self.book_ring.current())
+        self.book_view.editor.setReadOnly(False)
         self.book_view.editor.setCursorPosition(0)
         self.book_view.update()
 
@@ -2052,6 +2255,18 @@ class FullscreenCircleApp(QMainWindow):
         view.editor.show()
         view.editor.setFocus()
         view.update()
+
+    def _reader_random_line(self):
+        """* in F6: jump to a random non-dot line in the current O/ book."""
+        candidates = [i for i, l in enumerate(self.o_reader_ring.lines)
+                      if l not in ('.', '')]
+        if not candidates:
+            return
+        self.o_reader_ring.index = random.choice(candidates)
+        self.o_reader_view._offset = 0.0
+        self.o_reader_view.editor.setText(self.o_reader_ring.current())
+        self.o_reader_view.editor.setCursorPosition(0)
+        self.o_reader_view.update()
 
     def _reader_navigate(self, delta):
         self.o_reader_ring.move(delta)
@@ -2806,6 +3021,8 @@ class FullscreenCircleApp(QMainWindow):
             self.book_view.editor.setFocus()
         elif self.current_view == 3 and self.vault_view:
             self.vault_view.editor.setFocus()
+        elif self.current_view == 9 and self.book_concat_view:
+            self.book_concat_view.editor.setFocus()
 
     # ── Key routing ───────────────────────────────────────────────────────────
 
@@ -2910,6 +3127,11 @@ class FullscreenCircleApp(QMainWindow):
         elif self.current_view in (5, 6, 7):
             if key == Qt.Key.Key_Escape:
                 self.switch_to_view(0); event.accept()
+            elif self._matches(key, mods, 'quit'):
+                self.close(); event.accept()
+        elif self.current_view == 9:
+            if key == Qt.Key.Key_Escape:
+                self.switch_to_view(2); event.accept()
             elif self._matches(key, mods, 'quit'):
                 self.close(); event.accept()
 

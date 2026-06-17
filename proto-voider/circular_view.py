@@ -253,11 +253,21 @@ class CustomLineEdit(QLineEdit):
     deleteLineToZero = pyqtSignal()
     deleteAtEnd = pyqtSignal()
     tabPressed = pyqtSignal()
+    dotPressed = pyqtSignal()  # emitted on '.' only when intercept_period is True
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.intercept_period = False  # set True on editors that use '.' as a command key
 
     def keyPressEvent(self, event):
         key = event.key()
         mods = event.modifiers()
         ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+
+        if key == Qt.Key.Key_Period and mods == Qt.KeyboardModifier.NoModifier and self.intercept_period:
+            self.dotPressed.emit()
+            event.accept()
+            return
 
         if key == Qt.Key.Key_Tab:
             self.tabPressed.emit()
