@@ -1270,6 +1270,128 @@ class FullscreenCircleApp(QMainWindow):
         self.load_doc_lines()
         self._doc_show_editor()
 
+    def _zero_blocks(self):
+        """Parse the current ring (0.txt) into paragraph blocks.
+
+        Returns a list of blocks; each block is the list of consecutive non-dot
+        lines between '.' separators (order preserved)."""
+        blocks = []
+        cur = []
+        for line in self.line_ring.lines:
+            if line.strip() == '.':
+                if cur:
+                    blocks.append(cur)
+                    cur = []
+            elif line.strip():
+                cur.append(line)
+        if cur:
+            blocks.append(cur)
+        return blocks
+
+    def _split_zero_to_docs(self):
+        """Ctrl+Shift+F in 0.txt: send every block whose LAST line is a '/name'
+        marker to void/I/name.txt and remove it from 0.txt (chaos → documents).
+
+        - '/name'  → target name.txt (append if it exists, else create).
+        - '/'      → auto name 'YY-M-D_N' (sequential within this run).
+        - A newly created doc is inserted in the library right below the '0'
+          portal you came from, so it shows up there in F3.
+        - Blocks without a trailing '/' marker stay in 0.txt.
+        Only acts on 0.txt; writes a 0.txt.bak first.
+        """
+        if os.path.abspath(self.current_file_path) != os.path.abspath(self.f1_file):
+            print("⛔ Split only applies to 0.txt (the scratch).")
+            return
+
+        blocks = self._zero_blocks()
+        i_dir = os.path.join(self.void_dir, 'I')
+
+        # Auto-name generator: YY-M-D_N, skipping names already taken on disk/this run
+        now = datetime.datetime.now()
+        date_base = f"{now.year % 100}-{now.month}-{now.day}"
+        used = set()
+        def _auto_name():
+            n = 1
+            while True:
+                cand = f"{date_base}_{n}"
+                if cand not in used and not os.path.exists(os.path.join(i_dir, cand + '.txt')):
+                    used.add(cand)
+                    return cand
+                n += 1
+
+        kept = []          # blocks that stay in 0.txt
+        moves = []         # (target_name, content_lines)
+        for blk in blocks:
+            last = blk[-1].strip()
+            if last.startswith('/'):
+                content = blk[:-1]
+                if not content:
+                    kept.append(blk)        # only a marker, nothing to move
+                    continue
+                name = last[1:].strip()
+                if not name:
+                    name = _auto_name()
+                moves.append((name, content))
+            else:
+                kept.append(blk)
+
+        if not moves:
+            print("↩ No '/name' markers found — nothing to split.")
+            return
+
+        created = []       # (fname, fpath) for new docs to insert in the library
+        for name, content in moves:
+            fname = name if name.lower().endswith('.txt') else name + '.txt'
+            fpath = os.path.join(i_dir, fname)
+            if os.path.exists(fpath):
+                try:
+                    with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                        existing = [l.rstrip('\n') for l in f]
+                except Exception as e:
+                    print(f"⚠️ Cannot read {fname}, skipping that block: {e}")
+                    kept.append(content)   # keep it in 0.txt so it isn't lost
+                    continue
+                combined = existing + ['.'] + content
+            else:
+                combined = ['.'] + content
+                created.append((fname, fpath))
+            if not self._atomic_write_lines(fpath, combined):
+                kept.append(content)       # write failed → keep in 0.txt
+                if (fname, fpath) in created:
+                    created.remove((fname, fpath))
+                continue
+            print(f"📤 {len(content)} line(s) → {fname}")
+
+        # Rewrite 0.txt from the kept blocks (atomic, with backup)
+        new_zero = []
+        for blk in kept:
+            new_zero.append('.')
+            new_zero.extend(blk)
+        if not new_zero:
+            new_zero = ['.']
+        if not self._atomic_write_lines(self.current_file_path, new_zero, backup=True):
+            return
+
+        # Insert newly created docs into the library, just below the '0' portal
+        if created:
+            if self._book_is_portal(self.book_ring.index):
+                ins = self.book_ring.index + 1
+            else:
+                ins = next((k + 1 for k, raw in enumerate(self._library_lines)
+                            if raw.lower() == '0.txt'), len(self._library_lines))
+            for fname, fpath in created:
+                display = os.path.splitext(fname)[0]
+                self._library_lines.insert(ins, fname)
+                self.book_ring.lines.insert(ins, display)
+                self._library_path_cache[fname] = fpath
+                ins += 1
+            self._save_library()
+
+        print(f"✂️ Split 0.txt: {len(moves)} block(s) moved, "
+              f"{len(created)} new doc(s) (backup: {os.path.basename(self.current_file_path)}.bak)")
+        self.load_doc_lines()
+        self._doc_show_editor()
+
     # ── Book order ────────────────────────────────────────────────────────────
 
     def _library_path(self):
@@ -3657,7 +3779,12 @@ class FullscreenCircleApp(QMainWindow):
             self._doc_show_editor()
             event.accept()
         elif self._matches(key, mods, 'reformat_file'):
-            self.reformat_active_file()
+            # On 0.txt this key splits the scratch into documents; elsewhere it
+            # reformats the active file into one sentence per line.
+            if os.path.abspath(self.current_file_path) == os.path.abspath(self.f1_file):
+                self._split_zero_to_docs()
+            else:
+                self.reformat_active_file()
             event.accept()
         elif self._matches(key, mods, 'shuffle_zero'):
             self._shuffle_zero()
