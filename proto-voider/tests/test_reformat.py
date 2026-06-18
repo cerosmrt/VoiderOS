@@ -15,6 +15,9 @@ def _make_reformat_app(tmp_path, content):
 
     m = getattr(FullscreenCircleApp, 'reformat_active_file')
     app.reformat_active_file = types.MethodType(m, app)
+    # reformat_active_file now writes via _atomic_write_lines (backup + temp+replace)
+    app._atomic_write_lines = types.MethodType(
+        FullscreenCircleApp._atomic_write_lines, app)
 
     app.load_doc_lines = MagicMock()
     app._doc_show_editor = MagicMock()

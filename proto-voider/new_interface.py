@@ -355,8 +355,10 @@ class FullscreenCircleApp(QMainWindow):
         # Load O/ file list from disk cache, then rebuild in background to catch new books
         self._ws_load_o_files_cache()
         self._ws_rebuild_o_files_cache()
-        # Absorb any stray 0.txt files in I/ into the root scratch file
-        threading.Thread(target=lambda: self._merge_zero_files(silent=True), daemon=True).start()
+        # NOTE: the stray-0.txt merge is NO LONGER run automatically at startup.
+        # It deleted files (every subfolder 0.txt + any dots-only .txt) with no
+        # confirmation, and raced with load_doc_lines on the same 0.txt. It is now
+        # available only on demand via Ctrl+Shift+F in F3 (_merge_zero_files).
         # Generate I_preview.txt from current folder structure
         self._generate_i_preview()
 
@@ -443,14 +445,24 @@ class FullscreenCircleApp(QMainWindow):
         """Load active file into the doc ring (ordered, no shuffle). Preserves index."""
         doc_path = self.current_file_path
         lines = []
+        read_failed = False
         try:
             with open(doc_path, 'r', encoding='utf-8') as f:
                 for raw in f:
                     s = raw.strip()
                     if s:
                         lines.append(s)
+        except FileNotFoundError:
+            # Genuinely absent file → an empty doc is correct, saving is safe.
+            pass
         except Exception as e:
+            # Transient/permission/decode error on an EXISTING file. Do NOT load an
+            # empty ring — a subsequent save would overwrite the file with just a dot.
+            read_failed = True
             print(f"⚠️ Error reading {os.path.basename(doc_path)}: {e}")
+        # Block saves whenever a read of an existing file failed, so live-save and
+        # auto_save_circular cannot clobber the on-disk content we couldn't read.
+        self._doc_load_failed = read_failed
         # Ensure a leading dot so the last paragraph and first paragraph
         # are always separated when wrapping around the ring.
         if lines and lines[0] != '.':
@@ -830,6 +842,9 @@ class FullscreenCircleApp(QMainWindow):
     def auto_save_circular(self):
         """Save doc ring state to active file (atomic write)."""
         import tempfile
+        if getattr(self, '_doc_load_failed', False):
+            print("⛔ Save blocked: active file failed to load; refusing to overwrite it.")
+            return
         doc_path = self.current_file_path
         dir_path = os.path.dirname(doc_path) or '.'
         try:
@@ -845,6 +860,38 @@ class FullscreenCircleApp(QMainWindow):
             print(f"💾 Saved to 0.txt (index={self.line_ring.index})")
         except Exception as e:
             print(f"❌ Save error: {e}")
+
+    def _atomic_write_lines(self, path, lines, backup=False):
+        """Write lines to path crash-safely (temp file + os.replace).
+
+        If backup=True, copy the existing file to path+'.bak' first so a bad
+        rewrite (e.g. reformat) can be undone. Each item in `lines` is written
+        with a trailing newline. Returns True on success.
+        """
+        import tempfile, shutil
+        if backup and os.path.exists(path):
+            try:
+                shutil.copy2(path, path + '.bak')
+            except Exception as e:
+                print(f"⚠️ Could not write backup {os.path.basename(path)}.bak: {e}")
+        dir_path = os.path.dirname(path) or '.'
+        try:
+            fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix='.tmp')
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    for line in lines:
+                        f.write(line + '\n')
+                os.replace(tmp_path, path)
+                return True
+            except Exception:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+                raise
+        except Exception as e:
+            print(f"❌ Write error on {os.path.basename(path)}: {e}")
+            return False
 
     # ── Reformat ─────────────────────────────────────────────────────────────
 
@@ -1003,20 +1050,9 @@ class FullscreenCircleApp(QMainWindow):
                         print(f"⚠️ Cannot merge {fpath}: {e}")
                         continue
 
-                elif not is_root_zero:
-                    # Delete any .txt that has no real content (only dots/blank lines)
-                    try:
-                        with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
-                            has_content = any(l.strip() and l.strip() != '.' for l in f)
-                    except Exception:
-                        continue
-                    if not has_content:
-                        try:
-                            os.remove(fpath)
-                            deleted_empty.append(fpath)
-                        except Exception as e:
-                            print(f"⚠️ Cannot delete {fpath}: {e}")
-                            continue
+                # NOTE: the previous "delete any .txt with no real content" branch was
+                # removed — a dots-only or momentarily-empty file is no longer deleted.
+                # Only genuine subfolder 0.txt files are absorbed (above).
 
                 # Remove now-empty parent directories
                 parent = os.path.dirname(fpath)
@@ -1169,12 +1205,7 @@ class FullscreenCircleApp(QMainWindow):
                     elif text:
                         result.append(text)
                     prev_dot = False
-            try:
-                with open(doc_path, 'w', encoding='utf-8') as f:
-                    for line in result:
-                        f.write(line + '\n')
-            except Exception as e:
-                print(f"❌ Reformat write error: {e}")
+            if not self._atomic_write_lines(doc_path, result, backup=True):
                 return
             self.load_doc_lines()
             self._doc_show_editor()
@@ -1206,14 +1237,9 @@ class FullscreenCircleApp(QMainWindow):
         if result_lines and result_lines[0] != '.':
             result_lines.insert(0, '.')
 
-        try:
-            with open(doc_path, 'w', encoding='utf-8') as f:
-                for line in result_lines:
-                    f.write(line + '\n')
-            print(f"✅ Reformatted: {len(result_lines)} lines → {doc_path}")
-        except Exception as e:
-            print(f"❌ Reformat write error: {e}")
+        if not self._atomic_write_lines(doc_path, result_lines, backup=True):
             return
+        print(f"✅ Reformatted: {len(result_lines)} lines → {doc_path} (backup: {os.path.basename(doc_path)}.bak)")
 
         # Reload into ring
         self.load_doc_lines()
@@ -1313,14 +1339,27 @@ class FullscreenCircleApp(QMainWindow):
             print(f"⚠️ Could not update I.txt: {e}")
 
     def _build_library_path_cache(self):
-        """Map filename → absolute path by scanning I/ recursively."""
+        """Map filename → absolute path by scanning I/ recursively.
+
+        The library (I.txt / _library_lines) keys on bare filename, so two files
+        with the same basename in different folders would collide. Previously the
+        last one scanned silently won — opening/deleting one could hit the other.
+        Now we keep the FIRST occurrence (deterministic) and warn about the rest,
+        so a collision is visible instead of dangerous.
+        """
         self._library_path_cache = {}
         i_dir = os.path.join(self.void_dir, 'I')
         try:
             for root, _, fnames in os.walk(i_dir):
                 for f in fnames:
-                    if f.lower().endswith('.txt'):
-                        self._library_path_cache[f] = os.path.join(root, f)
+                    if not f.lower().endswith('.txt'):
+                        continue
+                    full = os.path.join(root, f)
+                    if f in self._library_path_cache:
+                        print(f"⚠️ Duplicate basename {f!r}: keeping "
+                              f"{self._library_path_cache[f]!r}, ignoring {full!r}")
+                        continue
+                    self._library_path_cache[f] = full
         except Exception:
             pass
 
