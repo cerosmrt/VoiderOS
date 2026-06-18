@@ -55,6 +55,16 @@ I / VOID WRITING SYSTEM
 - _generate_i_preview() post-flatten: now generates a flat single-group I_preview.txt on every
   startup since all files are in I/ root. Should be fixed to not overwrite or to skip when flat.
 
+UNDO / RENAME (deferred)
+------------------------
+- Undo/redo: Ctrl+Z (undo) and Ctrl+Shift+Z (redo). Needs an undo stack for
+  doc edits in F2 (and ideally F1 voiding, F3 library ops). Not yet scoped.
+
+- Rename-on-navigate (R5): editing an F3 title then navigating/leaving fires
+  os.rename with no confirmation. The '0' portal case is already fixed (read-only).
+  Still open for NORMAL titles — decide whether to require an explicit rename key
+  or a confirmation instead of renaming silently on navigate.
+
 F3 QUEUE (discussed, not yet implemented)
 -----------------------------------------
 - Feature 3: split doc by '/' lines into separate files
