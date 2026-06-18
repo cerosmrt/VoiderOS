@@ -293,8 +293,11 @@ class CustomLineEdit(QLineEdit):
 
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             if shift:
-                if self.cursorPosition() == len(self.text()):
-                    self.shiftReturnPressed.emit()
+                # Always fire on Shift+Enter regardless of cursor position. In F3
+                # the cursor sits at column 0, so requiring it at end-of-text meant
+                # Shift+Enter silently did nothing (and the user ended up renaming
+                # the current title instead of creating a new entry below).
+                self.shiftReturnPressed.emit()
                 event.accept()
                 return
             pos = self.cursorPosition()
