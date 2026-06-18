@@ -2077,6 +2077,13 @@ class FullscreenCircleApp(QMainWindow):
         if not new_display or new_display.startswith('.'):
             self.book_view.editor.setText(self.book_ring.current())
             return True
+        # '0' is reserved for the scratch portal. Refuse to rename any real file
+        # to '0'/'0.txt' — os.rename overwrites the destination, which would erase
+        # the scratch 0.txt. (Use Shift+Enter + '0' to add a portal instead.)
+        if new_display == '0' or new_display.lower() == '0.txt':
+            print("⛔ '0' is reserved for the scratch portal — rename refused.")
+            self.book_view.editor.setText(self.book_ring.current())
+            return True
         new_fname = new_display + '.txt'
         if new_fname == fname:
             return True
@@ -2084,6 +2091,10 @@ class FullscreenCircleApp(QMainWindow):
         if not old_path or not os.path.exists(old_path):
             return True
         new_path = os.path.join(os.path.dirname(old_path), new_fname)
+        if os.path.exists(new_path):
+            print(f"⛔ {new_fname} already exists — rename refused (would overwrite it).")
+            self.book_view.editor.setText(self.book_ring.current())
+            return True
         try:
             os.rename(old_path, new_path)
             if self.current_file_path == old_path:

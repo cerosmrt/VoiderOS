@@ -48,6 +48,51 @@ def _portal_app(tmp_path, ring_lines, lib_lines):
     return app, scratch
 
 
+class TestRenameGuards:
+    def test_rename_to_zero_is_refused(self, tmp_path):
+        """Renaming a real file to '0' must be refused (would overwrite scratch)."""
+        app, scratch = _portal_app(tmp_path, ['Chapter'], ['Chapter.txt'])
+        chapter = tmp_path / 'I' / 'Chapter.txt'
+        chapter.write_text(".\nbody\n", encoding='utf-8')
+        app._library_path_cache['Chapter.txt'] = str(chapter)
+        app.book_ring.index = 0
+        app.book_view.editor.text.return_value = '0'   # user typed '0' over the title
+
+        assert app._book_try_rename() is True
+        assert chapter.exists()                          # not renamed away
+        assert app._library_lines[0] == 'Chapter.txt'    # unchanged
+        # The scratch 0.txt is intact
+        assert scratch.read_text(encoding='utf-8') == ".\nscratch line\n"
+
+    def test_rename_to_existing_file_is_refused(self, tmp_path):
+        """Renaming onto an existing filename is refused (os.rename overwrites)."""
+        app, _ = _portal_app(tmp_path, ['A', 'B'], ['A.txt', 'B.txt'])
+        a = tmp_path / 'I' / 'A.txt'
+        b = tmp_path / 'I' / 'B.txt'
+        a.write_text("aaa\n", encoding='utf-8')
+        b.write_text("bbb\n", encoding='utf-8')
+        app._library_path_cache.update({'A.txt': str(a), 'B.txt': str(b)})
+        app.book_ring.index = 0                          # on 'A'
+        app.book_view.editor.text.return_value = 'B'     # rename A → B (B exists)
+
+        assert app._book_try_rename() is True
+        assert a.exists() and b.read_text(encoding='utf-8') == "bbb\n"  # B untouched
+        assert app._library_lines[0] == 'A.txt'
+
+    def test_normal_rename_still_works(self, tmp_path):
+        app, _ = _portal_app(tmp_path, ['Old'], ['Old.txt'])
+        old = tmp_path / 'I' / 'Old.txt'
+        old.write_text("text\n", encoding='utf-8')
+        app._library_path_cache['Old.txt'] = str(old)
+        app.book_ring.index = 0
+        app.book_view.editor.text.return_value = 'New'
+
+        assert app._book_try_rename() is True
+        assert (tmp_path / 'I' / 'New.txt').exists()
+        assert not old.exists()
+        assert app._library_lines[0] == 'New.txt'
+
+
 class TestIsPortal:
     def test_detects_zero_display(self, tmp_path):
         app, _ = _portal_app(tmp_path, ['0'], ['0.txt'])
