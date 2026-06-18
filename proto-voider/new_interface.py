@@ -1287,6 +1287,9 @@ class FullscreenCircleApp(QMainWindow):
             if cur == '.':
                 self.book_view.editor.setText('· · ·')
                 self.book_view.editor.setReadOnly(True)
+            elif self._book_is_portal():
+                self.book_view.editor.setText('0')
+                self.book_view.editor.setReadOnly(True)
             else:
                 self.book_view.editor.setText(cur)
                 self.book_view.editor.setReadOnly(False)
@@ -1846,8 +1849,21 @@ class FullscreenCircleApp(QMainWindow):
 
     # ── Book browser (F3) ─────────────────────────────────────────────────────
 
+    def _book_is_portal(self, idx=None):
+        """True if the F3 entry at idx (default current) is the read-only '0'
+        scratch portal. A portal is any library entry named '0' / '0.txt'; it is
+        not renamable and Enter on it jumps to the scratch 0.txt."""
+        if idx is None:
+            idx = self.book_ring.index
+        if idx < 0 or idx >= len(self.book_ring.lines):
+            return False
+        if self.book_ring.lines[idx] == '0':
+            return True
+        return (idx < len(self._library_lines)
+                and self._library_lines[idx].lower() == '0.txt')
+
     def _book_show_editor(self):
-        """Show F3 editor; dots show as a visual separator (read-only)."""
+        """Show F3 editor; dots and the '0' portal show read-only."""
         if not self.book_ring.lines:
             return
         view = self.book_view
@@ -1861,6 +1877,9 @@ class FullscreenCircleApp(QMainWindow):
         )
         if self.book_ring.current() == '.':
             view.editor.setText('· · ·')
+            view.editor.setReadOnly(True)
+        elif self._book_is_portal():
+            view.editor.setText('0')
             view.editor.setReadOnly(True)
         else:
             view.editor.setText(self.book_ring.current())
@@ -1889,6 +1908,9 @@ class FullscreenCircleApp(QMainWindow):
         if self.book_ring.current() == '.':
             self.book_view.editor.setText('· · ·')
             self.book_view.editor.setReadOnly(True)
+        elif self._book_is_portal():
+            self.book_view.editor.setText('0')
+            self.book_view.editor.setReadOnly(True)
         else:
             self.book_view.editor.setText(self.book_ring.current())
             self.book_view.editor.setReadOnly(False)
@@ -1897,6 +1919,9 @@ class FullscreenCircleApp(QMainWindow):
 
     def _book_try_rename(self):
         if self._book_pending_new:
+            return True
+        # The '0' portal is read-only — never rename it.
+        if self._book_is_portal():
             return True
         fname = self._library_current_fname()
         if not fname:
@@ -1948,6 +1973,12 @@ class FullscreenCircleApp(QMainWindow):
                 self.book_ring.lines[idx] = '.'
                 self._library_lines[idx] = '.'
                 self._save_library()
+            elif text == '0':
+                # Convert placeholder to a '0' scratch portal — no file is
+                # created, no collision with the real 0.txt. Read-only marker.
+                self.book_ring.lines[idx] = '0'
+                self._library_lines[idx] = '0.txt'
+                self._save_library()
             else:
                 # Create new file and open in F2
                 fname = text + '.txt'
@@ -1968,6 +1999,11 @@ class FullscreenCircleApp(QMainWindow):
 
         if self.book_ring.current() == '.':
             self._book_open_concat()
+            return
+        if self._book_is_portal():
+            # Portal → jump to the scratch 0.txt in F2 (no rename, no file ops).
+            self._set_f2_file(self.f1_file)
+            self.switch_to_view(1)
             return
         if not self._book_try_rename():
             return
@@ -2002,6 +2038,21 @@ class FullscreenCircleApp(QMainWindow):
             return
         if self.book_ring.current() == '.':
             self._book_backspace_on_dot()
+            return
+        if self._book_is_portal():
+            # Remove only the portal marker from the library — never touch 0.txt.
+            idx = self.book_ring.index
+            self.book_ring.lines.pop(idx)
+            self._library_lines.pop(idx)
+            if not self.book_ring.lines:
+                self.book_ring.lines = ['.']
+                self._library_lines = ['.']
+            n = len(self.book_ring.lines)
+            self.book_ring.index = idx % n
+            self._save_library()
+            self.book_view._offset = 0.0
+            self._book_show_editor()
+            print("🗑️ Portal '0' removed (0.txt untouched)")
             return
         fname = self._library_current_fname()
         if not fname:

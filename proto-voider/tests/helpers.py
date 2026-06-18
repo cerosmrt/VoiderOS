@@ -73,7 +73,7 @@ def make_ring_app(lines, tmp_file=None):
         '_apply_editor_style',
         '_last_lines_path', '_save_last_line', '_restore_last_line',
         '_load_book_order', '_save_book_order', '_rebuild_book_ring',
-        '_book_file_idx', '_book_try_rename',
+        '_book_file_idx', '_book_try_rename', '_book_is_portal',
         '_book_navigate', '_book_swap_up', '_book_swap_down', '_book_rebase',
         # new library-based book API
         '_library_path', '_library_current_fname', '_save_library',
