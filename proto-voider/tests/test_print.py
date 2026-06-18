@@ -28,6 +28,15 @@ def _make_print_app(tmp_path, book_files_content=None, active_content=None):
     app._app_font = MagicMock()
     app._app_font.family.return_value = 'Consolas'
 
+    # Set up library structures expected by print_book / export_book.
+    # Exclude '0.txt' from _library_lines to match real app behaviour
+    # (0.txt is the scratch file and is never listed in I.txt).
+    lib_fnames = [f for f in fnames if f.lower() != '0.txt']
+    app._library_lines = list(lib_fnames)
+    app._library_path_cache = {
+        fname: str(book_dir / fname) for fname in fnames
+    }
+
     for name in ('print_book', 'print_doc', 'export_book', 'export_doc',
                  '_build_doc_html', '_render_doc', '_send_to_printer',
                  '_printer_from_dialog', '_printer_from_save_dialog'):
