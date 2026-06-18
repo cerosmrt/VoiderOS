@@ -72,6 +72,7 @@ DEFAULT_CONFIG = {
         "print_doc": "Ctrl+P",
         "export_doc": "Ctrl+S",
         "reformat_file": "Ctrl+Shift+F",
+        "shuffle_zero": "Ctrl+Shift+R",
         "backup": "Ctrl+B"
     }
 }
@@ -1242,6 +1243,30 @@ class FullscreenCircleApp(QMainWindow):
         print(f"✅ Reformatted: {len(result_lines)} lines → {doc_path} (backup: {os.path.basename(doc_path)}.bak)")
 
         # Reload into ring
+        self.load_doc_lines()
+        self._doc_show_editor()
+
+    def _shuffle_zero(self):
+        """Ctrl+Shift+R in F2: randomise all lines of the scratch 0.txt.
+
+        Only acts on 0.txt — the formless chaos that documents are formed from.
+        Collects every content line (drops '.' separators), shuffles them, and
+        rewrites the file as a single leading dot + the shuffled lines. Writes a
+        0.txt.bak first so the shuffle can be undone.
+        """
+        if os.path.abspath(self.current_file_path) != os.path.abspath(self.f1_file):
+            print("⛔ Shuffle only applies to 0.txt (the scratch).")
+            return
+        content = [l for l in self.line_ring.lines if l.strip() and l.strip() != '.']
+        if len(content) < 2:
+            print("↩ Nothing to shuffle (need at least 2 lines).")
+            return
+        random.shuffle(content)
+        new_lines = ['.'] + content
+        if not self._atomic_write_lines(self.current_file_path, new_lines, backup=True):
+            return
+        print(f"🎲 Shuffled 0.txt: {len(content)} lines "
+              f"(backup: {os.path.basename(self.current_file_path)}.bak)")
         self.load_doc_lines()
         self._doc_show_editor()
 
@@ -3633,6 +3658,9 @@ class FullscreenCircleApp(QMainWindow):
             event.accept()
         elif self._matches(key, mods, 'reformat_file'):
             self.reformat_active_file()
+            event.accept()
+        elif self._matches(key, mods, 'shuffle_zero'):
+            self._shuffle_zero()
             event.accept()
         elif (mods & Qt.KeyboardModifier.ControlModifier) and key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             editor = self.circular_view.editor
