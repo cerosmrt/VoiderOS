@@ -11,5 +11,11 @@ if __name__ == "__main__":
         window.show()
         sys.exit(app.exec())
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"Error: {e}")
-        input("Press Enter to exit...")
+        # Only block on input when attached to an interactive terminal (dev run).
+        # When packaged under the layer-shell host there's no usable stdin, so
+        # a bare input() would hang the desktop on a startup crash.
+        if sys.stdin and sys.stdin.isatty():
+            input("Press Enter to exit...")
