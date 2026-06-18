@@ -30,7 +30,13 @@ def _qt_msg_handler(msg_type, context, message):
 
 qInstallMessageHandler(_qt_msg_handler)
 
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+# When packaged (Nix), the script dir is a read-only store path, so the wrapper
+# sets VOIDER_CONFIG to a writable location in $HOME. The dev sandbox leaves it
+# unset and uses config.json next to the script.
+CONFIG_PATH = os.environ.get(
+    'VOIDER_CONFIG',
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json'),
+)
 
 DEFAULT_CONFIG = {
     "void_dir": "",
@@ -181,12 +187,19 @@ class FullscreenCircleApp(QMainWindow):
             for action, ks in self.config.get('keybindings', {}).items()
         }
 
-        # Resolve void_dir: config → dialog
+        # Resolve void_dir: config → VOIDER_VOID_DIR env var (set by the Nix
+        # wrapper) → dialog. The env-var fallback lets the packaged app start
+        # without a picker; the dev sandbox leaves it unset and uses config/dialog.
         void_dir = self.config.get('void_dir', '')
         if not void_dir or not os.path.isdir(void_dir):
-            void_dir = self._pick_void_directory()
-            if not void_dir:
-                sys.exit(0)
+            env_dir = os.environ.get('VOIDER_VOID_DIR', '')
+            if env_dir:
+                os.makedirs(env_dir, exist_ok=True)
+                void_dir = env_dir
+            else:
+                void_dir = self._pick_void_directory()
+                if not void_dir:
+                    sys.exit(0)
             self.config['void_dir'] = void_dir
             _save_config(self.config)
 
