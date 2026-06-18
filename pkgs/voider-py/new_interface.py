@@ -361,14 +361,24 @@ class FullscreenCircleApp(QMainWindow):
         """Load active file into the doc ring (ordered, no shuffle). Preserves index."""
         doc_path = self.current_file_path
         lines = []
+        read_failed = False
         try:
             with open(doc_path, 'r', encoding='utf-8') as f:
                 for raw in f:
                     s = raw.strip()
                     if s:
                         lines.append(s)
+        except FileNotFoundError:
+            # Genuinely absent file → an empty doc is correct, saving is safe.
+            pass
         except Exception as e:
+            # Transient/permission/decode error on an EXISTING file. Do NOT load an
+            # empty ring — a subsequent save would overwrite the file with just a dot.
+            read_failed = True
             print(f"⚠️ Error reading {os.path.basename(doc_path)}: {e}")
+        # Block saves whenever a read of an existing file failed, so live-save and
+        # auto_save_circular cannot clobber the on-disk content we couldn't read.
+        self._doc_load_failed = read_failed
         # Ensure a leading dot so the last paragraph and first paragraph
         # are always separated when wrapping around the ring.
         if lines and lines[0] != '.':
@@ -597,6 +607,9 @@ class FullscreenCircleApp(QMainWindow):
     def auto_save_circular(self):
         """Save doc ring state to active file (atomic write)."""
         import tempfile
+        if getattr(self, '_doc_load_failed', False):
+            print("⛔ Save blocked: active file failed to load; refusing to overwrite it.")
+            return
         doc_path = self.current_file_path
         dir_path = os.path.dirname(doc_path) or '.'
         try:
@@ -612,6 +625,38 @@ class FullscreenCircleApp(QMainWindow):
             print(f"💾 Saved to 0.txt (index={self.line_ring.index})")
         except Exception as e:
             print(f"❌ Save error: {e}")
+
+    def _atomic_write_lines(self, path, lines, backup=False):
+        """Write lines to path crash-safely (temp file + os.replace).
+
+        If backup=True, copy the existing file to path+'.bak' first so a bad
+        rewrite (e.g. reformat) can be undone. Each item in `lines` is written
+        with a trailing newline. Returns True on success.
+        """
+        import tempfile, shutil
+        if backup and os.path.exists(path):
+            try:
+                shutil.copy2(path, path + '.bak')
+            except Exception as e:
+                print(f"⚠️ Could not write backup {os.path.basename(path)}.bak: {e}")
+        dir_path = os.path.dirname(path) or '.'
+        try:
+            fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix='.tmp')
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    for line in lines:
+                        f.write(line + '\n')
+                os.replace(tmp_path, path)
+                return True
+            except Exception:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+                raise
+        except Exception as e:
+            print(f"❌ Write error on {os.path.basename(path)}: {e}")
+            return False
 
     # ── Reformat ─────────────────────────────────────────────────────────────
 
@@ -724,12 +769,7 @@ class FullscreenCircleApp(QMainWindow):
                     elif text:
                         result.append(text)
                     prev_dot = False
-            try:
-                with open(doc_path, 'w', encoding='utf-8') as f:
-                    for line in result:
-                        f.write(line + '\n')
-            except Exception as e:
-                print(f"❌ Reformat write error: {e}")
+            if not self._atomic_write_lines(doc_path, result, backup=True):
                 return
             self.load_doc_lines()
             self._doc_show_editor()
@@ -761,14 +801,9 @@ class FullscreenCircleApp(QMainWindow):
         if result_lines and result_lines[0] != '.':
             result_lines.insert(0, '.')
 
-        try:
-            with open(doc_path, 'w', encoding='utf-8') as f:
-                for line in result_lines:
-                    f.write(line + '\n')
-            print(f"✅ Reformatted: {len(result_lines)} lines → {doc_path}")
-        except Exception as e:
-            print(f"❌ Reformat write error: {e}")
+        if not self._atomic_write_lines(doc_path, result_lines, backup=True):
             return
+        print(f"✅ Reformatted: {len(result_lines)} lines → {doc_path} (backup: {os.path.basename(doc_path)}.bak)")
 
         # Reload into ring
         self.load_doc_lines()
@@ -1221,11 +1256,22 @@ class FullscreenCircleApp(QMainWindow):
             # Restore original name so the ring stays consistent
             self.book_view.editor.setText(self.book_ring.current())
             return True  # invalid but non-fatal: just keep original
+        # '0' is the scratch file. Refuse to rename any real file to '0'/'0.txt' —
+        # os.rename overwrites the destination, which would erase the scratch 0.txt.
+        if new_name == '0' or new_name.lower() == '0.txt':
+            print("⛔ '0' is reserved for the scratch — rename refused.")
+            self.book_view.editor.setText(self.book_ring.current())
+            return True
         old_fname = self.book_files[fidx]
         new_fname = new_name + '.txt'
         if new_fname != old_fname:
             old_path = os.path.join(self.book_dir, old_fname)
             new_path = os.path.join(self.book_dir, new_fname)
+            # os.rename overwrites an existing destination — refuse to clobber it.
+            if os.path.exists(new_path):
+                print(f"⛔ {new_fname} already exists — rename refused (would overwrite it).")
+                self.book_view.editor.setText(self.book_ring.current())
+                return True
             try:
                 os.rename(old_path, new_path)
                 if self.current_file_path == old_path:

@@ -4,6 +4,30 @@ import random
 import re
 import datetime
 import sys
+import tempfile
+
+
+def _atomic_writelines(path, lines):
+    """Rewrite `path` crash-safely: write a temp file then os.replace().
+
+    Prevents truncation if the process dies mid-write (the old `open('w')` +
+    writelines pattern leaves a half-written/empty file on a crash or disk-full).
+    """
+    dir_path = os.path.dirname(path) or '.'
+    fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            f.writelines(lines)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+        raise
+
 
 def setup_file_handling(app):
     """Initializes file handling for the active file and ensures void_dir exists."""
@@ -140,12 +164,9 @@ def void_line(app, event=None):
                 if app.current_active_line_index < len(all_file_lines):
                     del all_file_lines[app.current_active_line_index]
                 
-                # Reescribir el archivo de origen
-                with open(app.current_file_path, 'w', encoding='utf-8') as current_f:
-                    current_f.writelines(all_file_lines)
-                    current_f.flush()
-                    os.fsync(current_f.fileno())
-                
+                # Reescribir el archivo de origen (atómico)
+                _atomic_writelines(app.current_file_path, all_file_lines)
+
                 # Si el archivo de origen queda vacío después de eliminar la línea (y no es 0.txt), eliminarlo
                 if not all_file_lines and app.current_file_path != app.void_file_path:
                     os.remove(app.current_file_path)
@@ -246,11 +267,8 @@ def void_line(app, event=None):
                     # Insertar un punto en la posición donde solía comenzar el bloque movido
                     new_source_lines.insert(block_start_index, '.\n')
 
-            # Reescribir el archivo de origen
-            with open(app.current_file_path, 'w', encoding='utf-8') as current_f:
-                current_f.writelines(new_source_lines)
-                current_f.flush()
-                os.fsync(current_f.fileno())
+            # Reescribir el archivo de origen (atómico)
+            _atomic_writelines(app.current_file_path, new_source_lines)
 
             print(f"Bloque movido de {os.path.basename(app.current_file_path)} a {os.path.basename(target_file_path)}")
             
@@ -302,13 +320,10 @@ def void_line(app, event=None):
             app.current_active_line = formatted_text
             app.current_active_line_index = None  # Reset to allow appending next time
 
-        # Escribir todas las líneas de vuelta al archivo activo
-        with open(app.current_file_path, 'w', encoding='utf-8') as f:
-            f.writelines(lines)
-            f.flush()
-            os.fsync(f.fileno())
-        
-        print(f"Líneas insertadas/modificadas en {os.path.basename(app.current_file_path)}.") 
+        # Escribir todas las líneas de vuelta al archivo activo (atómico)
+        _atomic_writelines(app.current_file_path, lines)
+
+        print(f"Líneas insertadas/modificadas en {os.path.basename(app.current_file_path)}.")
         app.first_up_after_submission = True  # Enable special navigation for first Up press
 
     except Exception as e:
