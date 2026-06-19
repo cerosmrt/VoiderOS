@@ -720,6 +720,7 @@ class FullscreenCircleApp(QMainWindow):
                 self.book_view.editor.dotPressed.connect(self._book_insert_separator)
                 self.book_view.editor.shiftReturnPressed.connect(self._book_new_entry)
                 self.book_view.editor.ctrlDeletePressed.connect(self._book_send_to_zero)
+                self.book_view.editor.tabPressed.connect(self._book_random)
                 self.book_view.editor.intercept_period = True
                 self.stack.addWidget(self.book_view)
             else:
@@ -2056,6 +2057,20 @@ class FullscreenCircleApp(QMainWindow):
         view.editor.show()
         view.editor.setFocus()
         view.update()
+
+    def _book_random(self):
+        """Tab in F3: jump to a random real book title (skip '.' separators and
+        the read-only '0' portals)."""
+        if self._book_pending_new:
+            return
+        self._book_try_rename()
+        candidates = [i for i, l in enumerate(self.book_ring.lines)
+                      if l != '.' and not self._book_is_portal(i)]
+        if not candidates:
+            return
+        self.book_ring.index = random.choice(candidates)
+        self.book_view._offset = 0.0
+        self._book_show_editor()
 
     def _book_navigate(self, delta):
         if self._book_pending_new:

@@ -1,7 +1,7 @@
 import math
 from PyQt6.QtWidgets import QWidget, QLineEdit
 
-from PyQt6.QtCore import Qt, QPropertyAnimation, pyqtProperty, QEasingCurve, pyqtSignal, QPoint
+from PyQt6.QtCore import Qt, QPropertyAnimation, pyqtProperty, QEasingCurve, pyqtSignal, QPoint, QEvent
 from PyQt6.QtGui import QPainter, QFontMetrics, QFont, QKeyEvent, QColor, QPen
 
 class CircularView(QWidget):
@@ -278,6 +278,17 @@ class CustomLineEdit(QLineEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.intercept_period = False  # set True on editors that use '.' as a command key
+
+    def event(self, e):
+        # Qt grabs Tab/Backtab for focus traversal BEFORE keyPressEvent runs (the
+        # parent CircularView is Tab-focusable), so without this the editor's Tab
+        # handler never fires and Tab just moves focus + selects the text. Catch it
+        # here at the event level and treat Tab as the random-jump key (like '*').
+        if e.type() == QEvent.Type.KeyPress and e.key() in (
+                Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
+            self.tabPressed.emit()
+            return True
+        return super().event(e)
 
     def keyPressEvent(self, event):
         key = event.key()

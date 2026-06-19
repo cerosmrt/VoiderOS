@@ -38,7 +38,7 @@ def _portal_app(tmp_path, ring_lines, lib_lines):
 
     for name in ('_book_is_portal', '_book_try_rename', '_book_confirm_edit',
                  '_book_new_entry', '_book_send_to_zero', '_book_show_editor',
-                 '_library_current_fname'):
+                 '_book_random', '_library_current_fname'):
         setattr(app, name, types.MethodType(getattr(FullscreenCircleApp, name), app))
 
     # Collaborators invoked by confirm/open paths
@@ -170,6 +170,26 @@ class TestPortalCreate:
         assert app._book_is_portal() is True
         app.book_ring.index = 2
         assert app._book_is_portal() is True
+
+
+class TestBookRandom:
+    def test_random_lands_on_real_title_only(self, tmp_path):
+        # Library: portal, dot, real, real, dot, portal
+        ring = ['0', '.', 'Alpha', 'Beta', '.', '0']
+        lib = ['0.txt', '.', 'Alpha.txt', 'Beta.txt', '.', '0.txt']
+        app, _ = _portal_app(tmp_path, ring, lib)
+        app.book_view.editor.text.return_value = ''   # no pending rename text
+        for _ in range(40):
+            app._book_random()
+            cur = app.book_ring.lines[app.book_ring.index]
+            assert cur in ('Alpha', 'Beta')              # never a dot or a '0' portal
+
+    def test_random_noop_when_no_real_titles(self, tmp_path):
+        app, _ = _portal_app(tmp_path, ['0', '.'], ['0.txt', '.'])
+        app.book_ring.index = 0
+        app._book_random()
+        # Nothing to jump to → index unchanged (still on the portal)
+        assert app.book_ring.index == 0
 
 
 class TestPortalDelete:
