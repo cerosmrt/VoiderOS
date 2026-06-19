@@ -12,11 +12,11 @@ let
   ]);
 
   qtwayland = pkgs.qt6.qtwayland;
-  # The system voider now builds from proto-voider — the improved/canonical
-  # version (portal, split, shuffle, all the data-safety fixes). proto honors
-  # VOIDER_CONFIG / VOIDER_VOID_DIR (set below) so it runs from the read-only
-  # store with config in $HOME. The old pkgs/voider-py/ is kept for reference.
-  src = ../../proto-voider;
+  # System voider builds from pkgs/voider-py — its own copy of the good code
+  # ported from proto-voider (portal, split, shuffle, data-safety fixes) plus the
+  # VOIDER_CONFIG / VOIDER_VOID_DIR packaging adaptation. proto-voider/ stays the
+  # untouched dev sandbox; promote by re-copying proto → voider-py when ready.
+  src = ../../pkgs/voider-py;
 in
 pkgs.writeShellScriptBin "voider-py" ''
   # Config lives in the user's home so it's writable
