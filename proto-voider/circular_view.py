@@ -1,8 +1,8 @@
 import math
 from PyQt6.QtWidgets import QWidget, QLineEdit
 
-from PyQt6.QtCore import Qt, QPropertyAnimation, pyqtProperty, QEasingCurve, pyqtSignal
-from PyQt6.QtGui import QPainter, QFontMetrics, QFont, QKeyEvent, QColor
+from PyQt6.QtCore import Qt, QPropertyAnimation, pyqtProperty, QEasingCurve, pyqtSignal, QPoint
+from PyQt6.QtGui import QPainter, QFontMetrics, QFont, QKeyEvent, QColor, QPen
 
 class CircularView(QWidget):
     line_saved = pyqtSignal()
@@ -232,10 +232,19 @@ class CircularView(QWidget):
 
             painter.setOpacity(alpha)
             if is_zero_dot:
-                painter.setPen(QColor(255, 40, 40))
-            painter.drawText(draw_x, draw_y + line_ascent, text)
-            if is_zero_dot:
-                painter.setPen(Qt.GlobalColor.white)
+                # Render the index-0 marker as a HOLLOW circle a bit bigger than a
+                # normal dot, instead of a red '.'. Shape + size make it readable in
+                # black & white (the red was lost under the B&W shader).
+                d = max(9, int(line_h * 0.42))     # ~1.8x a normal dot, hollow
+                cx = margin + text_area_w // 2
+                cy = int(y_pos)
+                prev_pen = painter.pen()
+                painter.setPen(QPen(Qt.GlobalColor.white, 2))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawEllipse(QPoint(cx, cy), d // 2, d // 2)
+                painter.setPen(prev_pen)
+            else:
+                painter.drawText(draw_x, draw_y + line_ascent, text)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

@@ -33,7 +33,12 @@ class TestFileIO:
         txt.write_text("", encoding='utf-8')
         app = make_ring_app(['.'], str(txt))
         app.load_doc_lines()
-        assert app.line_ring.lines == ['.']
+        # An empty doc gets a blank editable line after the leading dot, with the
+        # cursor parked on it, so F2 shows a blinking cursor to type into.
+        assert app.line_ring.lines == ['.', '']
+        assert app.line_ring.index == 1
+        # The blank line is not real content (live-save ignores it until typed).
+        assert not any(l != '.' and l != '' for l in app.line_ring.lines)
 
     def test_auto_save_circular(self, tmp_path):
         txt = tmp_path / "0.txt"

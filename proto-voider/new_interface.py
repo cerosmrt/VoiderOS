@@ -310,6 +310,7 @@ class FullscreenCircleApp(QMainWindow):
         self.book_concat_ring = LineRing(['.'])
         self._book_concat_header_indices = set()
         self._book_pending_new = False        # True while user names a new F3 entry
+        self._book_last_index = 0             # remembered F3 cursor (for re-entry)
         # Search state — display rings are separate from real rings (never mutated)
         self._f2_search_active = False
         self._f2_search_saved = None   # saved cursor index before search
@@ -368,7 +369,8 @@ class FullscreenCircleApp(QMainWindow):
         self._void_enter_connection = None
         self._void_space_connection = None
         self._connect_void_key()
-        self.entry.tabPressed.connect(self._f1_tab_toggle)
+        # F1 scratch mode removed: Tab now recycles a random line (see widgets.py).
+        # The scratch 0.txt is still reachable as a circular view via the '0' portal → F2.
 
         self.init_ui()
         self.switch_to_view(0)
@@ -470,6 +472,14 @@ class FullscreenCircleApp(QMainWindow):
             lines.insert(0, '.')
         self.line_ring = LineRing(lines or ["."])
         self._restore_last_line()
+        # Empty doc (only dots) that loaded cleanly: append a blank editable line and
+        # park the cursor on it, so F2 shows a blinking cursor to start typing into
+        # (otherwise the only line is a read-only dot you can't write on). The blank
+        # line isn't persisted until you type — live-save ignores empty text and
+        # reload strips blank lines.
+        if not read_failed and not any(l != '.' for l in self.line_ring.lines):
+            self.line_ring.lines.append('')
+            self.line_ring.index = len(self.line_ring.lines) - 1
         if self.circular_view:
             self.circular_view.ring = self.line_ring
             self.circular_view._offset = 0.0
@@ -624,6 +634,10 @@ class FullscreenCircleApp(QMainWindow):
                 self.scratch_view.edit_mode = False
                 self.scratch_view.editor.hide()
         old_view = self.current_view
+        # Remember which F3 entry we were on, so re-entering F3 returns to the same
+        # one (e.g. a specific '0' portal) instead of snapping to the first match.
+        if old_view == 2 and self.book_ring.lines:
+            self._book_last_index = self.book_ring.index
         self.current_view = view_index
         print(f"📍 F{old_view+1} → F{view_index+1} | Index: {self.line_ring.index} | Line: '{self.line_ring.current()}'")
 
@@ -711,13 +725,20 @@ class FullscreenCircleApp(QMainWindow):
             else:
                 self.book_view.ring = self.book_ring
                 self.book_view._offset = 0.0
-            # Sync cursor to the active F2 file (including 0.txt)
+            # Sync cursor to the active F2 file (including 0.txt). If the entry we
+            # last sat on still points at that same file (e.g. the specific '0'
+            # portal we used), return to it instead of snapping to the first match —
+            # so multiple '0' portals are each individually reachable.
             active_fname = os.path.basename(self.f2_file)
-            try:
-                idx = self._library_lines.index(active_fname)
-                self.book_ring.index = idx
-            except ValueError:
-                pass
+            last = getattr(self, '_book_last_index', None)
+            if (last is not None and 0 <= last < len(self._library_lines)
+                    and self._library_lines[last] == active_fname):
+                self.book_ring.index = last
+            else:
+                try:
+                    self.book_ring.index = self._library_lines.index(active_fname)
+                except ValueError:
+                    pass
             self.stack.setCurrentWidget(self.book_view)
             self.entry.hide()
             self.book_view.update()
