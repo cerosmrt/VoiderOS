@@ -33,8 +33,9 @@ def _split_app(tmp_path, zero_lines, library=None, portal_idx=0, on_scratch=True
     app._library_path_cache = {'0.txt': str(scratch)}
     app._save_library = MagicMock()
 
+    # _split_zero_to_docs now reformats first, then splits.
     for name in ('_split_zero_to_docs', '_zero_blocks', '_atomic_write_lines',
-                 '_book_is_portal'):
+                 '_book_is_portal', 'reformat_active_file'):
         setattr(app, name, types.MethodType(getattr(FullscreenCircleApp, name), app))
     app.load_doc_lines = MagicMock()
     app._doc_show_editor = MagicMock()
@@ -99,11 +100,23 @@ def test_new_doc_inserted_below_portal(tmp_path):
     app._save_library.assert_called()
 
 
-def test_unmarked_only_is_noop(tmp_path):
+def test_unmarked_only_formats_no_split(tmp_path):
+    # No '/name' markers: formatting still happens, but no documents are split out.
     app, scratch, i_dir = _split_app(tmp_path, ['.', 'just text', '.', 'more'])
     app._split_zero_to_docs()
-    app.load_doc_lines.assert_not_called()        # nothing moved → early return
-    assert list(i_dir.iterdir()) == [scratch]      # no new files
+    # No new .txt documents created (only the scratch and its reformat backup).
+    docs = sorted(p.name for p in i_dir.iterdir())
+    assert docs == ['0.txt', '0.txt.bak']
+
+
+def test_formats_first_even_without_markers(tmp_path):
+    # The core fix: Ctrl+Shift+F on 0.txt reformats into single sentence-lines,
+    # even when there are no '/name' blocks to split.
+    app, scratch, i_dir = _split_app(tmp_path, ['.', 'First sentence. Second sentence.'])
+    app._split_zero_to_docs()
+    lines = scratch.read_text(encoding='utf-8').splitlines()
+    assert 'First sentence.' in lines
+    assert 'Second sentence.' in lines
 
 
 def test_writes_backup(tmp_path):

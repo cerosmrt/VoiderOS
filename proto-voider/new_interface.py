@@ -1311,20 +1311,30 @@ class FullscreenCircleApp(QMainWindow):
         return blocks
 
     def _split_zero_to_docs(self):
-        """Ctrl+Shift+F in 0.txt: send every block whose LAST line is a '/name'
-        marker to void/I/name.txt and remove it from 0.txt (chaos → documents).
+        """Ctrl+Shift+F in 0.txt: FORMAT, then SPLIT.
+
+        Formatting is the base operation, splitting is a layer on top:
+        1. Reformat the whole scratch into single sentence-lines (also writes the
+           0.txt.bak of the original).
+        2. Send every block whose LAST line is a '/name' marker to void/I/name.txt
+           and remove it from 0.txt (chaos → documents). Because we reformatted
+           first, moved blocks arrive already formatted.
 
         - '/name'  → target name.txt (append if it exists, else create).
         - '/'      → auto name 'YY-M-D_N' (sequential within this run).
         - A newly created doc is inserted in the library right below the '0'
           portal you came from, so it shows up there in F3.
         - Blocks without a trailing '/' marker stay in 0.txt.
-        Only acts on 0.txt; writes a 0.txt.bak first.
+        Only acts on 0.txt.
         """
         if os.path.abspath(self.current_file_path) != os.path.abspath(self.f1_file):
-            print("⛔ Split only applies to 0.txt (the scratch).")
+            print("⛔ Format/split only applies to 0.txt (the scratch).")
             return
 
+        # 1. Format first (reformat_active_file backs up to 0.txt.bak and reloads).
+        self.reformat_active_file()
+
+        # 2. Split the now-formatted scratch by '/name' markers.
         blocks = self._zero_blocks()
         i_dir = os.path.join(self.void_dir, 'I')
 
@@ -1358,7 +1368,8 @@ class FullscreenCircleApp(QMainWindow):
                 kept.append(blk)
 
         if not moves:
-            print("↩ No '/name' markers found — nothing to split.")
+            # Formatting already happened above; there's just nothing to split out.
+            print("✓ Formatted 0.txt — no '/name' blocks to split.")
             return
 
         created = []       # (fname, fpath) for new docs to insert in the library
@@ -1384,14 +1395,15 @@ class FullscreenCircleApp(QMainWindow):
                 continue
             print(f"📤 {len(content)} line(s) → {fname}")
 
-        # Rewrite 0.txt from the kept blocks (atomic, with backup)
+        # Rewrite 0.txt from the kept blocks. backup=False: reformat_active_file
+        # above already wrote 0.txt.bak holding the original (pre-format) text.
         new_zero = []
         for blk in kept:
             new_zero.append('.')
             new_zero.extend(blk)
         if not new_zero:
             new_zero = ['.']
-        if not self._atomic_write_lines(self.current_file_path, new_zero, backup=True):
+        if not self._atomic_write_lines(self.current_file_path, new_zero, backup=False):
             return
 
         # Insert newly created docs into the library, just below the '0' portal
@@ -2793,6 +2805,9 @@ class FullscreenCircleApp(QMainWindow):
         self.o_browser_view.editor.setText(self.o_browser_ring.current())
         self.o_browser_view.editor.setCursorPosition(0)
         self.o_browser_view.update()
+        # Persist the highlighted book on every move (robust to watcher hard-kills).
+        self._ws_browser_index = self.o_browser_ring.index
+        self._save_working_set()
 
     def _o_browser_open(self):
         """Open selected O/ file in F6 reader."""
@@ -2872,6 +2887,9 @@ class FullscreenCircleApp(QMainWindow):
         self.o_reader_view.editor.setText(cur)
         self.o_reader_view.editor.setCursorPosition(0)
         self.o_reader_view.update()
+        # Persist on every move — proto's watcher can kill the process without a
+        # clean closeEvent, so saving only on view-switch/close loses the position.
+        self._ws_save_position()
 
     def _reader_fork_to_transform(self):
         """Fork current reader line into F5 transform view."""
