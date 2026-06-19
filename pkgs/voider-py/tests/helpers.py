@@ -47,6 +47,12 @@ def make_ring_app(lines, tmp_file=None):
     app.book_view = None
     app.config = {}
     app._set_active_file = lambda path: None
+    # Attributes required by current new_interface methods
+    app._library_lines = []
+    app._library_path_cache = {}
+    app._book_pending_new = False
+    app._f2_search_active = False
+    app._f3_search_active = False
 
     core_methods = [
         '_paragraphs_from_ring', '_rebuild_ring_from_paragraphs',
@@ -67,8 +73,16 @@ def make_ring_app(lines, tmp_file=None):
         '_apply_editor_style',
         '_last_lines_path', '_save_last_line', '_restore_last_line',
         '_load_book_order', '_save_book_order', '_rebuild_book_ring',
-        '_book_file_idx', '_book_try_rename',
+        '_book_file_idx', '_book_try_rename', '_book_is_portal',
         '_book_navigate', '_book_swap_up', '_book_swap_down', '_book_rebase',
+        # new library-based book API
+        '_library_path', '_library_current_fname', '_save_library',
+        '_build_library_path_cache', '_load_library', '_generate_library',
+        '_append_new_files_to_library',
+        # print/export helpers
+        '_build_doc_html', 'print_book', 'print_doc',
+        'export_book', 'export_doc',
+        '_send_to_printer', '_printer_from_dialog', '_printer_from_save_dialog',
     ]
 
     for name in core_methods:

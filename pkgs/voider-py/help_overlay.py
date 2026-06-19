@@ -5,13 +5,24 @@ from PyQt6.QtCore import Qt, QRect
 
 # (key_label, description)  — None description = section header
 HELP = [
-    ("VIEWS",             None),
+    ("I VIEWS  (write)",  None),
     ("F1",                "Write — center entry, active file"),
     ("F2",                "Circular doc — edit / reorder lines"),
     ("F3",                "Book browser — manage chapters"),
-    ("F4",                "Vault browser — shuffled vault lines"),
-    ("F5",                "Oracle — one random vault line"),
-    ("F6",                "Metronome — type BPM, circle pulses"),
+    ("F4",                "Oracle — one random vault line"),
+    ("",                  ""),
+    ("O VIEWS  (read)",   None),
+    ("F5",                "Fork — edit O/ line into I/"),
+    ("F6",                "Circular reader — read O/ book"),
+    ("F7",                "Book browser — browse O/ library"),
+    ("F8",                "Oracle O/ — random line from O/"),
+    ("",                  ""),
+    ("OTHER",             None),
+    ("F9",                "Metronome — type BPM, circle pulses"),
+    ("F11",               "This help screen"),
+    ("Ctrl+T",            "TTS — toggle text-to-speech"),
+    ("F12",               "Screenshot"),
+    ("Ctrl+F12",          "Open screenshots folder"),
     ("",                  ""),
     ("FILES",             None),
     ("Ctrl+F2",           "Pick active file"),
@@ -23,32 +34,24 @@ HELP = [
     ("Ctrl+P",            "Print"),
     ("",                  ""),
     ("EDITING",           None),
-    ("Enter / Space",     "Void line → active file (F1)"),
+    ("Enter",             "Void line → active file (F1)"),
     ("↑ / ↓",            "Navigate lines"),
     ("PageUp/Down",       "Jump to prev/next paragraph"),
     ("Ctrl+0",            "Rebase: make current line first (F2)"),
     ("Ctrl+R",            "Reshuffle vault"),
-    ("Ctrl+Shift+F",      "Reformat active file"),
     ("",                  ""),
-    ("TOOLS",             None),
-    ("Ctrl+M",            "Mic — toggle audio recording"),
-    ("Ctrl+K",            "Camera — toggle video recording"),
-    ("F12",               "Screenshot"),
-    ("F8",                "This help screen"),
-    ("",                  ""),
-    ("VISUAL EFFECTS  (Hyprland keybinds)", None),
+    ("HYPRLAND",          None),
     ("Super+F5",          "CRT scanlines panel"),
     ("Super+F6",          "Film grain panel"),
     ("Super+F7",          "Black & white panel"),
     ("Super+R",           "Radio — toggle background music"),
-    ("Super+T",           "Open terminal (kitty)"),
-    ("Super+I",           "Open ~/incoming in terminal"),
-    ("Super+C",           "Open Claude Code"),
+    ("Super+T",           "Terminal (kitty)"),
+    ("Super+C",           "Claude Code"),
 ]
 
 
 class HelpOverlay(QWidget):
-    """F8 — full-screen shortcut reference. Any key closes."""
+    """F11 — full-screen shortcut reference. Any key closes."""
 
     _BG_ALPHA = 228
     _ROW_H    = 22
