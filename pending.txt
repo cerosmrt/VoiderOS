@@ -99,6 +99,12 @@ F3 QUEUE (discussed, not yet implemented)
 
 - make f4 an actual formatted version of the book: replace linebreaks with punto y seguido, dot separators with punto y aparte, filename por titulo del capitulo. y no se que mas.
 
+- F4 RENDERED READING VIEW: an F4 that "HTML-renders" the active .txt and shows
+  it the way it would normally read — '.' separators become paragraph breaks,
+  the line-per-sentence layout flows back into normal prose paragraphs. A clean
+  reading render (likely a QTextBrowser/HTML) rather than the per-line circular
+  editor. Source .txt never modified. (Reuse _build_doc_html as a starting point.)
+
 DONE 2026-06-23 (this session)
 ------------------------------
 - F7 working set redesigned: manual, uncapped, ∅ empty slots, Tab fills (no dup),
