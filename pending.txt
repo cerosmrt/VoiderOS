@@ -1,3 +1,18 @@
+================================================================================
+PROCESS: before implementing ANY item here, recapitulate with the user first —
+state what's about to be done and get confirmation before touching files.
+================================================================================
+
+INBOX — to address later (2026-06-23)
+-------------------------------------
+- TTS + navigation: when navigating while the TTS is ON, cut the TTS. Otherwise
+  it keeps reading/scrolling down while you're trying to edit — annoying.
+- Tab in F2 should REPLACE the current line (not insert), but it must be
+  recoverable — bring the old line back via Ctrl+Z (undo) or a navigation way.
+- F4 view: see everything that's in F2 but rendered as normal paragraphs (the
+  reading render — same idea as the F4 RENDERED READING VIEW item below).
+- Customisation: let the user change font, font size, and the like.
+
 LIBRARY / DATABASE
 ------------------
 - SQLite metadata DB: store author/title/filepath/line_count for all O/ books
