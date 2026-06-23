@@ -278,10 +278,14 @@ class CustomLineEdit(QLineEdit):
     dotPressed = pyqtSignal()      # '.' key when intercept_period is True
     shiftReturnPressed = pyqtSignal()
     ctrlDeletePressed = pyqtSignal()
+    homePressed = pyqtSignal()     # Home when home_end_doc is True (doc-wide jump)
+    endPressed = pyqtSignal()      # End when home_end_doc is True (doc-wide jump)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.intercept_period = False  # set True on editors that use '.' as a command key
+        self.home_end_doc = False      # set True on editors where Home/End jump the
+                                       # whole document (first content line / last line)
 
     def event(self, e):
         # Qt grabs Tab/Backtab for focus traversal BEFORE keyPressEvent runs (the
@@ -304,6 +308,16 @@ class CustomLineEdit(QLineEdit):
             self.dotPressed.emit()
             event.accept()
             return
+
+        if self.home_end_doc and mods == Qt.KeyboardModifier.NoModifier:
+            if key == Qt.Key.Key_Home:
+                self.homePressed.emit()
+                event.accept()
+                return
+            if key == Qt.Key.Key_End:
+                self.endPressed.emit()
+                event.accept()
+                return
 
         if key == Qt.Key.Key_Tab:
             self.tabPressed.emit()

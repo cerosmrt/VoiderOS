@@ -43,7 +43,8 @@ def _nav_app(lines, index):
     app._para_focus_content = []
     app._save_last_line = lambda: None
     app._apply_editor_style = lambda *a, **k: None
-    app._doc_navigate = types.MethodType(FullscreenCircleApp._doc_navigate, app)
+    for name in ('_doc_navigate', '_doc_home', '_doc_end', '_doc_refresh_editor'):
+        setattr(app, name, types.MethodType(getattr(FullscreenCircleApp, name), app))
     return app
 
 
@@ -84,6 +85,24 @@ def test_down_mid_line_goes_to_start():
     app._doc_navigate(1)
     assert app.line_ring.current() == 'a longer line'
     assert ed.cursorPosition() == 0                           # default: start
+
+
+def test_home_jumps_to_first_content_line():
+    app = _nav_app(['.', 'first', 'mid', 'last'], index=3)
+    ed = _prime(app, 'last', 2)
+    app._doc_home()
+    assert app.line_ring.current() == 'first'      # skips the ø at index 0
+    assert app.line_ring.index == 1
+    assert ed.cursorPosition() == 0
+
+
+def test_end_jumps_to_last_line_caret_at_end():
+    app = _nav_app(['.', 'first', 'mid', 'last line'], index=1)
+    ed = _prime(app, 'first', 0)
+    app._doc_end()
+    assert app.line_ring.current() == 'last line'
+    assert app.line_ring.index == 3
+    assert ed.cursorPosition() == len('last line')
 
 
 def test_up_sticks_to_end_across_multiple_lines():
