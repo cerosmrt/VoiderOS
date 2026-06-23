@@ -615,10 +615,9 @@ class FullscreenCircleApp(QMainWindow):
             self._ws_save_position()
         # F7 → F6: load the highlighted book into the reader on demand
         if self.current_view == 6 and view_index == 5:
-            cur = self.o_browser_ring.current()
-            if cur and cur != '.':
-                fname = self._ws_fname_from_display(cur)
-                fpath = os.path.join(self.o_dir, fname)
+            slot = self._ws_cur_slot()
+            if slot is not None and not self._ws_slot_is_empty(self._ws_books[slot]):
+                fpath = os.path.join(self.o_dir, self._ws_books[slot]['path'])
                 if os.path.exists(fpath):
                     self._load_o_reader(fpath)
         # Save F7 browser position when leaving F7
@@ -809,6 +808,8 @@ class FullscreenCircleApp(QMainWindow):
                 self.o_browser_view.editor.upPressed.connect(lambda: self._o_browser_navigate(-1))
                 self.o_browser_view.editor.downPressed.connect(lambda: self._o_browser_navigate(1))
                 self.o_browser_view.editor.tabPressed.connect(self._ws_tab_randomize)
+                self.o_browser_view.editor.shiftReturnPressed.connect(self._ws_add_slot)
+                self.o_browser_view.editor.ctrlDeletePressed.connect(self._ws_remove_slot)
                 self.stack.addWidget(self.o_browser_view)
             else:
                 self.o_browser_view.ring = self.o_browser_ring
@@ -2648,12 +2649,21 @@ class FullscreenCircleApp(QMainWindow):
     # ── F7: O/ book browser — working set ────────────────────────────────────
 
     _WS_FILE = '.working_set.json'
+    _WS_EMPTY = '∅'   # display marker for an empty (unfilled) slot
 
     def _ws_json_path(self):
         return os.path.join(self.o_dir, self._WS_FILE)
 
+    def _ws_slot_is_empty(self, e):
+        return not e.get('path')
+
     def _load_working_set(self):
-        """Load book list from JSON; fill empty slots with random books from O/."""
+        """Load the manual working set from JSON.
+
+        The set is built by hand and uncapped: each entry is a slot the user
+        filled by shuffling (Tab). No auto-population. An empty set means a
+        single empty slot to start from.
+        """
         books = []
         path = self._ws_json_path()
         if os.path.exists(path):
@@ -2665,32 +2675,25 @@ class FullscreenCircleApp(QMainWindow):
                     books = data['books']
                 else:
                     books = data.get('locked', []) + data.get('unlocked', [])
+                # Keep only slots whose file still exists (empty slots aren't saved).
                 books = [e for e in books
-                         if os.path.exists(os.path.join(self.o_dir, e['path']))]
+                         if e.get('path')
+                         and os.path.exists(os.path.join(self.o_dir, e['path']))]
                 self._ws_browser_index = data.get('browser_index', 1)
             except Exception:
                 pass
-        ws_size = int(self.config.get('working_set_size', 100))
-        used = {e['path'] for e in books}
-        if len(books) < ws_size:
-            try:
-                candidates = [
-                    f for f in os.listdir(self.o_dir)
-                    if f.lower().endswith('.txt') and not f.startswith('.') and f not in used
-                ]
-                random.shuffle(candidates)
-                for f in candidates[:ws_size - len(books)]:
-                    books.append({'path': f, 'position': 0})
-            except Exception:
-                pass
+        if not books:
+            books = [{'path': '', 'position': 0}]   # start from one empty slot
         self._ws_books = books
         self._ws_loaded = True
 
     def _save_working_set(self):
         try:
+            # Persist only filled slots — empty slots are transient.
+            saved = [e for e in self._ws_books if not self._ws_slot_is_empty(e)]
             with open(self._ws_json_path(), 'w', encoding='utf-8') as f:
                 json.dump({
-                    'books': self._ws_books,
+                    'books': saved,
                     'browser_index': self._ws_browser_index,
                 }, f, indent=2)
         except Exception as e:
@@ -2710,39 +2713,91 @@ class FullscreenCircleApp(QMainWindow):
     def _ws_fname_from_display(self, display):
         return display.strip()
 
-    def _ws_build_browser_ring(self):
+    def _ws_slot_display(self, e):
+        """What a slot shows in the F7 ring: its filename, or the empty marker."""
+        return e['path'] if e.get('path') else self._WS_EMPTY
+
+    def _ws_cur_slot(self):
+        """Map the current F7 ring position to a _ws_books index.
+
+        The ring is built as ['.', slot0, '.', slot1, ...], so the book at ring
+        index r is slot (r-1)//2. Returns None if the ring sits on a separator
+        or there are no slots.
+        """
+        if not self._ws_books:
+            return None
+        r = self.o_browser_ring.index
+        if r <= 0 or r % 2 == 0:   # 0 or even index → a '.' separator
+            return None
+        i = (r - 1) // 2
+        return i if 0 <= i < len(self._ws_books) else None
+
+    def _ws_build_browser_ring(self, slot=None):
+        """Rebuild the F7 ring from _ws_books. If slot is given, park the cursor
+        on that slot; otherwise keep index 1 (first slot)."""
         entries = []
         for e in self._ws_books:
-            entries.extend(['.', e['path']])
+            entries.extend(['.', self._ws_slot_display(e)])
         self.o_browser_ring = LineRing(entries or ['.'])
-        self.o_browser_ring.index = 1 if len(self.o_browser_ring.lines) > 1 else 0
+        if slot is not None and self._ws_books:
+            slot = max(0, min(slot, len(self._ws_books) - 1))
+            self.o_browser_ring.index = 2 * slot + 1
+        else:
+            self.o_browser_ring.index = 1 if len(self.o_browser_ring.lines) > 1 else 0
         if self.o_browser_view:
             self.o_browser_view.ring = self.o_browser_ring
             self.o_browser_view._offset = 0.0
 
-    def _ws_tab_randomize(self):
-        """TAB in F7: replace current book with a random one from O/."""
-        cur = self.o_browser_ring.current()
-        if not cur or cur == '.':
-            return
-        fname = self._ws_fname_from_display(cur)
-        idx = next((i for i, e in enumerate(self._ws_books) if e['path'] == fname), None)
-        if idx is None:
-            return
-        used = {e['path'] for e in self._ws_books}
-        candidates = [f for f in self._ws_all_o_files if f not in used]
-        if candidates:
-            self._ws_books[idx] = {'path': random.choice(candidates), 'position': 0}
-        self._save_working_set()
-        ring_idx = self.o_browser_ring.index
-        self._ws_build_browser_ring()
-        self.o_browser_ring.index = min(ring_idx, len(self.o_browser_ring.lines) - 1)
-        while self.o_browser_ring.current() == '.' and len(self.o_browser_ring.lines) > 1:
-            self.o_browser_ring.move(1)
+    def _ws_refresh_browser(self, slot):
+        """Rebuild + repaint the F7 ring parked on slot, syncing the editor text."""
+        self._ws_build_browser_ring(slot=slot)
         if self.o_browser_view:
             self.o_browser_view.editor.setText(self.o_browser_ring.current())
+            self.o_browser_view.editor.setCursorPosition(0)
             self.o_browser_view.update()
-        print(f"🔀 TAB: {fname} → {self.o_browser_ring.current()}")
+
+    def _ws_tab_randomize(self):
+        """TAB/* in F7: (re)fill the current slot with a random O/ book, never
+        repeating a book already used by another slot."""
+        slot = self._ws_cur_slot()
+        if slot is None:
+            return
+        used = {e['path'] for e in self._ws_books if e.get('path')}
+        candidates = [f for f in self._ws_all_o_files if f not in used]
+        if not candidates:
+            print("🔀 TAB: no unused O/ books left")
+            return
+        prev = self._ws_books[slot].get('path') or self._WS_EMPTY
+        self._ws_books[slot] = {'path': random.choice(candidates), 'position': 0}
+        self._save_working_set()
+        self._ws_refresh_browser(slot)
+        print(f"🔀 TAB: {prev} → {self.o_browser_ring.current()}")
+
+    def _ws_add_slot(self):
+        """Shift+Enter in F7: insert a new empty slot below the current one and
+        move the cursor onto it (then Tab to fill)."""
+        slot = self._ws_cur_slot()
+        insert_at = (slot + 1) if slot is not None else len(self._ws_books)
+        self._ws_books.insert(insert_at, {'path': '', 'position': 0})
+        self._save_working_set()   # empty slot itself isn't persisted, but flush index
+        self._ws_refresh_browser(insert_at)
+        print(f"➕ F7: new empty slot at {insert_at}")
+
+    def _ws_remove_slot(self):
+        """Ctrl+Delete in F7: remove the current slot. Never go below one slot —
+        if the set empties out, leave a single empty slot to build from again."""
+        slot = self._ws_cur_slot()
+        if slot is None:
+            return
+        del self._ws_books[slot]
+        if not self._ws_books:
+            self._ws_books = [{'path': '', 'position': 0}]
+            slot = 0
+        else:
+            slot = min(slot, len(self._ws_books) - 1)
+        self._save_working_set()
+        self._ws_refresh_browser(slot)
+        print(f"🗑️ F7: slot removed → {len(self._ws_books)} slot(s)")
 
     def _load_o_browser(self):
         if not self._ws_loaded:
@@ -2811,12 +2866,15 @@ class FullscreenCircleApp(QMainWindow):
         self._save_working_set()
 
     def _o_browser_open(self):
-        """Open selected O/ file in F6 reader."""
-        cur = self.o_browser_ring.current()
-        if not cur or cur == '.':
+        """Enter in F7: open the current slot's book in the F6 reader. An empty
+        slot does nothing — shuffle (Tab) to fill it first."""
+        slot = self._ws_cur_slot()
+        if slot is None:
             return
-        fname = self._ws_fname_from_display(cur)
-        fpath = os.path.join(self.o_dir, fname)
+        e = self._ws_books[slot]
+        if self._ws_slot_is_empty(e):
+            return
+        fpath = os.path.join(self.o_dir, e['path'])
         if not os.path.exists(fpath):
             return
         self._load_o_reader(fpath)
