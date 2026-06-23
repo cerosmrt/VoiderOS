@@ -256,9 +256,11 @@ class CircularView(QWidget):
         
         if self.edit_mode:
             center_y = self.height() // 2
-            editor_width = min(self.width() - 100, 800)
+            # Track the window width (no fixed cap) so the editor grows/shrinks
+            # with the window instead of snapping back to a fixed 800px.
+            editor_width = self.width() - 100
             self.editor.setFixedWidth(editor_width)
-            self.editor.move((self.width() - editor_width) // 2, 
+            self.editor.move((self.width() - editor_width) // 2,
                              center_y - self.editor.height() // 2)
         self.update()
 

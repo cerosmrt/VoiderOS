@@ -30,6 +30,8 @@ TAB / INPUT — next up (2026-06-23)
   shrink font / let it grow) so the full line fits.
 - Up with caret at END of line → land at the END of the previous line (not the
   start, which is the standard). Custom up-navigation in F2 (and F3?).
+- Home key → jump to start of the text; End key → jump to end of the text
+  (plain Home/End in the line editor; today only Ctrl+Up/Down do home/end).
 
 VOID / PERSONAL WRITING SYSTEM
 -------------------------------

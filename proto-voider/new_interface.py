@@ -1704,7 +1704,9 @@ class FullscreenCircleApp(QMainWindow):
         view = self.circular_view
         view.edit_mode = True
         center_y = view.height() // 2
-        editor_width = min(view.width() - 100, 800)
+        # Use almost the full width (drop the 800px cap) so a long line stays
+        # visible while editing instead of scrolling out the right edge.
+        editor_width = view.width() - 100
         view.editor.setFixedWidth(editor_width)
         view.editor.move(
             (view.width() - editor_width) // 2,
@@ -2178,7 +2180,8 @@ class FullscreenCircleApp(QMainWindow):
         view = self.book_view
         view.edit_mode = True
         center_y = view.height() // 2
-        editor_width = min(view.width() - 100, 800)
+        # Almost full width (no 800px cap) so long titles stay fully visible.
+        editor_width = view.width() - 100
         view.editor.setFixedWidth(editor_width)
         view.editor.move(
             (view.width() - editor_width) // 2,
