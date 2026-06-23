@@ -501,10 +501,11 @@ THEME
     bindm = SUPER, mouse:272, movewindow
     bindm = SUPER, mouse:273, resizewindow
 
-    # ── Visual effect panels (Super+F5/F6/F7) ─────────────────────────────────
-    bind = SUPER, F5, exec, voider-open-panel crt
-    bind = SUPER, F6, exec, voider-open-panel grain
-    bind = SUPER, F7, exec, voider-open-panel bw
+    # ── Visual effect panels (Super+J/K/L) ────────────────────────────────────
+    # On unused keys: F5/F6/F7 are voider in-app view keys, so keep these clear.
+    bind = SUPER, J, exec, voider-open-panel crt
+    bind = SUPER, K, exec, voider-open-panel grain
+    bind = SUPER, L, exec, voider-open-panel bw
 
     # ── Screenshot to clipboard ───────────────────────────────────────────────
     bind = SUPER, S, exec, grim - | wl-copy
