@@ -1,5 +1,6 @@
-"""Tests for F2 up-navigation: caret at the END of a line, when navigating UP,
-lands at the END of the previous line (not column 0, which is the standard)."""
+"""Tests for F2 navigation caret behaviour: moving Up/Down preserves the caret
+column on the destination line (clamped), and an end-of-line caret sticks to the
+end of the target line. Other entry points still default to the start."""
 import types
 
 from line_ring import LineRing
@@ -61,21 +62,36 @@ def test_up_at_end_lands_at_end_of_prev_line():
     assert ed.cursorPosition() == len('short')                # end of prev line
 
 
-def test_up_not_at_end_goes_to_start():
+def test_up_preserves_column_clamped():
     app = _nav_app(['.', 'short', 'a longer line'], index=2)
-    ed = _prime(app, 'a longer line', 3)                      # caret mid-line
+    ed = _prime(app, 'a longer line', 3)                      # caret at column 3
     app._doc_navigate(-1)
     assert app.line_ring.current() == 'short'
-    assert ed.cursorPosition() == 0                           # standard: start
+    assert ed.cursorPosition() == 3                           # same column
 
 
-def test_down_at_end_still_goes_to_start():
-    # The end-preserving behaviour is up-only; down keeps the standard start.
+def test_up_column_clamped_to_shorter_line():
+    app = _nav_app(['.', 'ab', 'a longer line'], index=2)
+    ed = _prime(app, 'a longer line', 8)                      # column 8
+    app._doc_navigate(-1)
+    assert app.line_ring.current() == 'ab'
+    assert ed.cursorPosition() == 2                           # clamped to len('ab')
+
+
+def test_down_at_end_lands_at_end_of_next_line():
     app = _nav_app(['.', 'short', 'a longer line'], index=1)
     ed = _prime(app, 'short', len('short'))                  # caret at end
     app._doc_navigate(1)
     assert app.line_ring.current() == 'a longer line'
-    assert ed.cursorPosition() == 0
+    assert ed.cursorPosition() == len('a longer line')       # end of next line
+
+
+def test_down_preserves_column():
+    app = _nav_app(['.', 'short', 'a longer line'], index=1)
+    ed = _prime(app, 'short', 2)                             # column 2
+    app._doc_navigate(1)
+    assert app.line_ring.current() == 'a longer line'
+    assert ed.cursorPosition() == 2                           # same column
 
 
 def test_up_sticks_to_end_across_multiple_lines():

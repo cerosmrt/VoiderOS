@@ -1850,12 +1850,15 @@ class FullscreenCircleApp(QMainWindow):
         self._doc_refresh_editor(select=True)
 
     def _doc_navigate(self, delta):
-        """Move doc ring and update F2 editor text."""
-        # If the caret sits at the END of the line when navigating UP, land at the
-        # end of the previous line instead of its start (so editing flows back up
-        # naturally, rather than jumping to column 0 as is standard).
+        """Move doc ring and update F2 editor text.
+
+        Navigation preserves the caret column on the destination line (Up and
+        Down): if it sat at the END, it lands at the end of the target line;
+        otherwise at the same column, clamped to the line's length. Other entry
+        points (search, random, view switch) still default to the start."""
         ed = self.circular_view.editor
-        was_at_end = ed.cursorPosition() == len(ed.text())
+        col = ed.cursorPosition()
+        at_end = col == len(ed.text())
         self._save_last_line()
         if self._para_focus and self._para_focus_content:
             content = self._para_focus_content
@@ -1866,10 +1869,8 @@ class FullscreenCircleApp(QMainWindow):
             self.line_ring.move(delta)
         self.circular_view._offset = 0.0
         self.circular_view.editor.setText(self._doc_editor_text())
-        if delta < 0 and was_at_end:
-            self.circular_view.editor.setCursorPosition(len(ed.text()))
-        else:
-            self.circular_view.editor.setCursorPosition(0)
+        new_len = len(self.circular_view.editor.text())
+        self.circular_view.editor.setCursorPosition(new_len if at_end else min(col, new_len))
         self.circular_view.editor.setReadOnly(self.line_ring.current() == '.')
         is_zero_dot = self.circular_view.zero_marker and self.line_ring.index == 0
         self._apply_editor_style(self.circular_view.editor, red=is_zero_dot)
