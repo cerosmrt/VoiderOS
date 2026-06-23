@@ -155,11 +155,25 @@ def test_cannot_remove_slot_open_in_reader(tmp_path):
     app._ws_books = [{'path': 'a.txt', 'position': 0},
                      {'path': 'b.txt', 'position': 0}]
     app._ws_build_browser_ring(slot=0)
-    # a.txt is the book currently loaded in the F6 reader
+    # a.txt is the book currently loaded in the F6 reader — silently undeletable.
     app.o_reader_file = str(o_dir / 'a.txt')
     app._ws_remove_slot()
-    # Refused — slot stays, both books still present.
     assert _filled_paths(app) == ['a.txt', 'b.txt']
+
+
+def test_loaded_book_remains_after_deleting_others(tmp_path):
+    app, o_dir = _ws_app(tmp_path)
+    app._ws_books = [{'path': 'a.txt', 'position': 0},
+                     {'path': 'b.txt', 'position': 0}]
+    app.o_reader_file = str(o_dir / 'a.txt')   # a.txt loaded in F6
+    # Delete b.txt (cursor on slot 1) → only the loaded a.txt remains.
+    app._ws_build_browser_ring(slot=1)
+    app._ws_remove_slot()
+    assert _filled_paths(app) == ['a.txt']
+    # Trying to delete the last (loaded) one does nothing — it stays loaded.
+    app._ws_build_browser_ring(slot=0)
+    app._ws_remove_slot()
+    assert _filled_paths(app) == ['a.txt']
 
 
 # ── Persistence ──────────────────────────────────────────────────────────────
