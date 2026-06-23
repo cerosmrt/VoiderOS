@@ -1,6 +1,6 @@
-"""Tests for F2 navigation caret behaviour: moving Up/Down preserves the caret
-column on the destination line (clamped), and an end-of-line caret sticks to the
-end of the target line. Other entry points still default to the start."""
+"""Tests for F2 navigation caret behaviour: the caret defaults to the START of
+the destination line, EXCEPT when it sat at the END — then it sticks to the end
+of the target line (Up or Down)."""
 import types
 
 from line_ring import LineRing
@@ -62,20 +62,12 @@ def test_up_at_end_lands_at_end_of_prev_line():
     assert ed.cursorPosition() == len('short')                # end of prev line
 
 
-def test_up_preserves_column_clamped():
+def test_up_mid_line_goes_to_start():
     app = _nav_app(['.', 'short', 'a longer line'], index=2)
-    ed = _prime(app, 'a longer line', 3)                      # caret at column 3
+    ed = _prime(app, 'a longer line', 3)                      # caret mid-line
     app._doc_navigate(-1)
     assert app.line_ring.current() == 'short'
-    assert ed.cursorPosition() == 3                           # same column
-
-
-def test_up_column_clamped_to_shorter_line():
-    app = _nav_app(['.', 'ab', 'a longer line'], index=2)
-    ed = _prime(app, 'a longer line', 8)                      # column 8
-    app._doc_navigate(-1)
-    assert app.line_ring.current() == 'ab'
-    assert ed.cursorPosition() == 2                           # clamped to len('ab')
+    assert ed.cursorPosition() == 0                           # default: start
 
 
 def test_down_at_end_lands_at_end_of_next_line():
@@ -86,12 +78,12 @@ def test_down_at_end_lands_at_end_of_next_line():
     assert ed.cursorPosition() == len('a longer line')       # end of next line
 
 
-def test_down_preserves_column():
+def test_down_mid_line_goes_to_start():
     app = _nav_app(['.', 'short', 'a longer line'], index=1)
-    ed = _prime(app, 'short', 2)                             # column 2
+    ed = _prime(app, 'short', 2)                             # caret mid-line
     app._doc_navigate(1)
     assert app.line_ring.current() == 'a longer line'
-    assert ed.cursorPosition() == 2                           # same column
+    assert ed.cursorPosition() == 0                           # default: start
 
 
 def test_up_sticks_to_end_across_multiple_lines():
