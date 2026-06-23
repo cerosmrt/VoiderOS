@@ -1715,10 +1715,8 @@ class FullscreenCircleApp(QMainWindow):
         view.editor.setText(self._doc_editor_text())
         view.editor.setCursorPosition(0)
         view.editor.setReadOnly(self.line_ring.current() == '.')
-        is_zero_dot = view.zero_marker and self.line_ring.index == 0
-        if is_zero_dot:
-            view.editor.selectAll()   # highlight the ø while parked on it
-        self._apply_editor_style(view.editor, red=is_zero_dot)
+        # The ø behaves like any dot: white when you're on it (no red, no select).
+        self._apply_editor_style(view.editor)
         view.editor.show()
         view.editor.setFocus()
         view.update()
@@ -1732,8 +1730,7 @@ class FullscreenCircleApp(QMainWindow):
         self.circular_view._offset = 0.0
         self.circular_view.editor.setText(self._doc_editor_text())
         self.circular_view.editor.setCursorPosition(0)
-        is_zero_dot = self.circular_view.zero_marker and self.line_ring.index == 0
-        self._apply_editor_style(self.circular_view.editor, red=is_zero_dot)
+        self._apply_editor_style(self.circular_view.editor)
         self.circular_view.editor.setReadOnly(False)
         self.circular_view.update()
 
@@ -1865,10 +1862,7 @@ class FullscreenCircleApp(QMainWindow):
         self.circular_view.editor.setText(self._doc_editor_text())
         self.circular_view.editor.setCursorPosition(0)
         self.circular_view.editor.setReadOnly(self.line_ring.current() == '.')
-        is_zero_dot = self.circular_view.zero_marker and self.line_ring.index == 0
-        if is_zero_dot:
-            self.circular_view.editor.selectAll()   # highlight the ø while parked on it
-        self._apply_editor_style(self.circular_view.editor, red=is_zero_dot)
+        self._apply_editor_style(self.circular_view.editor)
         self.circular_view.update()
 
     def _doc_join_prev(self):
