@@ -1685,6 +1685,18 @@ class FullscreenCircleApp(QMainWindow):
                 }
             """)
 
+    _ZERO_GLYPH = 'ø'
+
+    def _doc_editor_text(self):
+        """Text the F2 editor should show for the current line: the ø glyph when
+        parked on the index-0 marker (so it stays marked while highlighted instead
+        of looking like a plain '.'), otherwise the line itself. The ring keeps
+        '.' — this is display only, and the marker line is read-only."""
+        cur = self.line_ring.current()
+        if self.circular_view.zero_marker and self.line_ring.index == 0 and cur == '.':
+            return self._ZERO_GLYPH
+        return cur
+
     def _doc_show_editor(self):
         """Show F2 editor with current doc line, cursor at start."""
         if not self.line_ring.lines:
@@ -1698,7 +1710,7 @@ class FullscreenCircleApp(QMainWindow):
             (view.width() - editor_width) // 2,
             center_y - view.editor.sizeHint().height() // 2
         )
-        view.editor.setText(self.line_ring.current())
+        view.editor.setText(self._doc_editor_text())
         view.editor.setCursorPosition(0)
         view.editor.setReadOnly(self.line_ring.current() == '.')
         is_zero_dot = view.zero_marker and self.line_ring.index == 0
@@ -1714,7 +1726,7 @@ class FullscreenCircleApp(QMainWindow):
             return
         self.line_ring.index = random.choice(candidates)
         self.circular_view._offset = 0.0
-        self.circular_view.editor.setText(self.line_ring.current())
+        self.circular_view.editor.setText(self._doc_editor_text())
         self.circular_view.editor.setCursorPosition(0)
         is_zero_dot = self.circular_view.zero_marker and self.line_ring.index == 0
         self._apply_editor_style(self.circular_view.editor, red=is_zero_dot)
@@ -1753,7 +1765,7 @@ class FullscreenCircleApp(QMainWindow):
         cur = self.line_ring.current()
         ed = self.circular_view.editor
         self.circular_view._offset = 0.0
-        ed.setText(cur)
+        ed.setText(self._doc_editor_text())
         if select:
             ed.selectAll()
         else:
@@ -1846,7 +1858,7 @@ class FullscreenCircleApp(QMainWindow):
         else:
             self.line_ring.move(delta)
         self.circular_view._offset = 0.0
-        self.circular_view.editor.setText(self.line_ring.current())
+        self.circular_view.editor.setText(self._doc_editor_text())
         self.circular_view.editor.setCursorPosition(0)
         self.circular_view.editor.setReadOnly(self.line_ring.current() == '.')
         is_zero_dot = self.circular_view.zero_marker and self.line_ring.index == 0

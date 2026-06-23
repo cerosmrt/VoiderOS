@@ -232,17 +232,19 @@ class CircularView(QWidget):
 
             painter.setOpacity(alpha)
             if is_zero_dot:
-                # Render the index-0 marker as a HOLLOW circle a bit bigger than a
-                # normal dot, instead of a red '.'. Shape + size make it readable in
-                # black & white (the red was lost under the B&W shader).
-                d = max(9, int(line_h * 0.42))     # ~1.8x a normal dot, hollow
-                cx = margin + text_area_w // 2
-                cy = int(y_pos)
-                prev_pen = painter.pen()
-                painter.setPen(QPen(Qt.GlobalColor.white, 2))
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.drawEllipse(QPoint(cx, cy), d // 2, d // 2)
-                painter.setPen(prev_pen)
+                # Index-0 marker: the ø glyph (crossed-o), drawn a bit larger than
+                # body text. Distinct from a plain '.', readable in black & white,
+                # and identical to what the editor shows when this line is centered
+                # — so the marker never collapses into a dot while highlighted.
+                glyph = 'ø'
+                prev_font = painter.font()
+                big = QFont(prev_font)
+                big.setPointSizeF(prev_font.pointSizeF() * 1.6)
+                painter.setFont(big)
+                gm = QFontMetrics(big)
+                gx = margin + (text_area_w - gm.horizontalAdvance(glyph)) // 2
+                painter.drawText(gx, draw_y + line_ascent, glyph)
+                painter.setFont(prev_font)
             else:
                 painter.drawText(draw_x, draw_y + line_ascent, text)
 

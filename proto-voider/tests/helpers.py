@@ -46,6 +46,7 @@ def make_ring_app(lines, tmp_file=None):
     app.book_ring = LineRing()
     app.book_view = None
     app.config = {}
+    app._ZERO_GLYPH = FullscreenCircleApp._ZERO_GLYPH
     app._set_active_file = lambda path: None
     # Attributes required by current new_interface methods
     app._library_lines = []
@@ -64,7 +65,7 @@ def make_ring_app(lines, tmp_file=None):
         'goto_prev_dot', 'goto_next_dot',
         'rebase_to_index_zero',
         '_enter_para_focus', '_exit_para_focus',
-        '_doc_show_editor',
+        '_doc_show_editor', '_doc_editor_text',
         'load_doc_lines', 'auto_save_circular',
     ]
     optional_methods = [

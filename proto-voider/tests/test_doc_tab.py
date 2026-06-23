@@ -175,3 +175,26 @@ def test_random_line_from_dir_excludes_active(tmp_path):
 def test_random_line_from_dir_empty_returns_none(tmp_path):
     app = _doc_app(['.'])                     # empty book_dir
     assert app._random_line_from_dir(app.book_dir) is None
+
+
+# ── ø marker stays marked while highlighted ──────────────────────────────────
+
+def test_editor_shows_zero_glyph_on_marker():
+    app = _doc_app(['.', 'body'])
+    app.circular_view.zero_marker = True
+    app.line_ring.index = 0                   # parked on the index-0 marker
+    assert app._doc_editor_text() == app._ZERO_GLYPH
+
+
+def test_editor_shows_plain_dot_for_other_separators():
+    app = _doc_app(['.', 'a', '.', 'b'])
+    app.circular_view.zero_marker = True
+    app.line_ring.index = 2                   # a non-zero '.' separator
+    assert app._doc_editor_text() == '.'
+
+
+def test_editor_shows_line_text_on_content():
+    app = _doc_app(['.', 'hello'])
+    app.circular_view.zero_marker = True
+    app.line_ring.index = 1
+    assert app._doc_editor_text() == 'hello'
