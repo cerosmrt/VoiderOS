@@ -696,9 +696,6 @@ class FullscreenCircleApp(QMainWindow):
                 self.circular_view.editor.deleteLineToZero.connect(self._delete_line_to_zero)
                 self.circular_view.editor.deleteAtEnd.connect(self._doc_join_next)
                 self.circular_view.editor.tabPressed.connect(self._doc_tab)
-                self.circular_view.editor.home_end_doc = True
-                self.circular_view.editor.homePressed.connect(self._doc_home)
-                self.circular_view.editor.endPressed.connect(self._doc_end)
                 self.stack.addWidget(self.circular_view)
             else:
                 self.circular_view.ring = self.line_ring
@@ -1853,13 +1850,7 @@ class FullscreenCircleApp(QMainWindow):
         self._doc_refresh_editor(select=True)
 
     def _doc_navigate(self, delta):
-        """Move doc ring and update F2 editor text.
-
-        The caret defaults to the START of the destination line — EXCEPT when it
-        sat at the END of the current line: then it lands at the end of the target
-        line (Up or Down), so editing flows naturally off the end."""
-        ed = self.circular_view.editor
-        at_end = ed.cursorPosition() == len(ed.text())
+        """Move doc ring and update F2 editor text."""
         self._save_last_line()
         if self._para_focus and self._para_focus_content:
             content = self._para_focus_content
@@ -1870,27 +1861,8 @@ class FullscreenCircleApp(QMainWindow):
             self.line_ring.move(delta)
         self.circular_view._offset = 0.0
         self.circular_view.editor.setText(self._doc_editor_text())
-        new_len = len(self.circular_view.editor.text())
-        self.circular_view.editor.setCursorPosition(new_len if at_end else 0)
+        self.circular_view.editor.setCursorPosition(0)
         self.circular_view.editor.setReadOnly(self.line_ring.current() == '.')
-
-    def _doc_home(self):
-        """Home in F2: jump to the first content line (the first non-dot line,
-        skipping the ø), caret at the start."""
-        self._save_last_line()
-        ring = self.line_ring
-        target = next((i for i, l in enumerate(ring.lines) if l != '.'), 0)
-        ring.index = target
-        self._doc_refresh_editor()
-
-    def _doc_end(self):
-        """End in F2: jump to the last line of the document, caret at the end."""
-        self._save_last_line()
-        ring = self.line_ring
-        ring.index = len(ring.lines) - 1
-        self._doc_refresh_editor()
-        ed = self.circular_view.editor
-        ed.setCursorPosition(len(ed.text()))
         is_zero_dot = self.circular_view.zero_marker and self.line_ring.index == 0
         self._apply_editor_style(self.circular_view.editor, red=is_zero_dot)
         self.circular_view.update()
