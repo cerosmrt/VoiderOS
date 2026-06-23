@@ -101,14 +101,15 @@ THEME
   # Hyprland only supports one screen_shader at a time, so this is the only
   # sane approach for independently-toggleable effects.
 
-  # voider-proto: dev sandbox — runs proto-voider/watch.py with auto-reload.
-  # Edit any .py in proto-voider/, save, app restarts instantly.
+  # voider-proto: dev sandbox — runs the app directly (no watcher/auto-reload).
+  # The watcher restarted the app on every .py change, which clobbered live text
+  # edits; restart manually to pick up code changes instead.
   voiderProto = pkgs.writeShellScriptBin "proto-voider" ''
     cd /home/federico/VoiderOS/proto-voider
     export QT_QPA_PLATFORM=wayland
     export QT_PLUGIN_PATH=${pkgs.qt6.qtwayland}/lib/qt-6/plugins''${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}
     export WAYLAND_DISPLAY=''${WAYLAND_DISPLAY:-wayland-1}
-    exec ${voiderPython}/bin/python3 watch.py
+    exec ${voiderPython}/bin/python3 voider.py
   '';
 
   # voider-radio: plays random internet radio (jazz, ambient, classical)
