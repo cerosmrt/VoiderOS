@@ -3767,8 +3767,12 @@ class FullscreenCircleApp(QMainWindow):
 
         self.auto_save_circular()
         self.circular_view._offset = 0.0
-        self.circular_view.editor.setText(ring.current())
+        # Use _doc_editor_text() (not the raw '.') so the new index-0 line shows
+        # the ø glyph immediately, and match the normal read-only/white styling.
+        self.circular_view.editor.setText(self._doc_editor_text())
         self.circular_view.editor.setCursorPosition(0)
+        self.circular_view.editor.setReadOnly(ring.current() == '.')
+        self._apply_editor_style(self.circular_view.editor)
         self.circular_view.update()
         print(f"🔁 Rebase | '{ring.current()[:50]}'")
 
