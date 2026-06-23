@@ -223,28 +223,18 @@ class CircularView(QWidget):
             abs_idx = (self.ring.index + i) % n
             is_zero_dot = self.zero_marker and text == '.' and abs_idx == 0
 
-            # Zero dot stays visible at full opacity regardless of focus/highlight state
-            if is_zero_dot:
-                alpha = max(alpha, base_alpha)
-
             text_w = fm.horizontalAdvance(text)
             draw_x = max(margin, margin + (text_area_w - text_w) // 2)
 
             painter.setOpacity(alpha)
             if is_zero_dot:
-                # Index-0 marker: the ø glyph (crossed-o), drawn a bit larger than
-                # body text. Distinct from a plain '.', readable in black & white,
-                # and identical to what the editor shows when this line is centered
-                # — so the marker never collapses into a dot while highlighted.
+                # Index-0 marker: the ø glyph (crossed-o). Same font size as body
+                # text (no scaling — a bigger glyph overlapped neighbouring lines)
+                # and it follows the normal alpha, so it only stands out when it's
+                # the line you're actually on, not always.
                 glyph = 'ø'
-                prev_font = painter.font()
-                big = QFont(prev_font)
-                big.setPointSizeF(prev_font.pointSizeF() * 1.6)
-                painter.setFont(big)
-                gm = QFontMetrics(big)
-                gx = margin + (text_area_w - gm.horizontalAdvance(glyph)) // 2
+                gx = margin + (text_area_w - fm.horizontalAdvance(glyph)) // 2
                 painter.drawText(gx, draw_y + line_ascent, glyph)
-                painter.setFont(prev_font)
             else:
                 painter.drawText(draw_x, draw_y + line_ascent, text)
 
