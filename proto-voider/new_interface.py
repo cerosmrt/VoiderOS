@@ -695,7 +695,7 @@ class FullscreenCircleApp(QMainWindow):
                 self.circular_view.editor.wordSwapRight.connect(lambda: self._swap_words(1))
                 self.circular_view.editor.deleteLineToZero.connect(self._delete_line_to_zero)
                 self.circular_view.editor.deleteAtEnd.connect(self._doc_join_next)
-                self.circular_view.editor.tabPressed.connect(self._doc_random_line)
+                self.circular_view.editor.tabPressed.connect(self._doc_tab)
                 self.stack.addWidget(self.circular_view)
             else:
                 self.circular_view.ring = self.line_ring
@@ -1720,6 +1720,120 @@ class FullscreenCircleApp(QMainWindow):
         self._apply_editor_style(self.circular_view.editor, red=is_zero_dot)
         self.circular_view.editor.setReadOnly(False)
         self.circular_view.update()
+
+    def _random_line_from_dir(self, directory, exclude_path=None):
+        """Pick a random non-empty, non-dot line from a random .txt in directory
+        (recursively). Returns the line or None. The source file is never
+        modified — this is a copy (cut-up)."""
+        try:
+            txts = []
+            for root, dirs, files in os.walk(directory):
+                for f in files:
+                    if f.lower().endswith('.txt') and not f.startswith('.'):
+                        p = os.path.join(root, f)
+                        if exclude_path and os.path.abspath(p) == os.path.abspath(exclude_path):
+                            continue
+                        txts.append(p)
+            random.shuffle(txts)
+            for p in txts:
+                try:
+                    with open(p, 'r', encoding='utf-8', errors='replace') as fh:
+                        lines = [l.strip() for l in fh
+                                 if l.strip() and l.strip() != '.']
+                except OSError:
+                    continue
+                if lines:
+                    return random.choice(lines)
+        except Exception as e:
+            print(f"⚠️ random line scan failed: {e}")
+        return None
+
+    def _doc_refresh_editor(self, select=False):
+        """Repaint F2 and sync the editor to the current ring line."""
+        cur = self.line_ring.current()
+        ed = self.circular_view.editor
+        self.circular_view._offset = 0.0
+        ed.setText(cur)
+        if select:
+            ed.selectAll()
+        else:
+            ed.setCursorPosition(0)
+        ed.setReadOnly(cur == '.')
+        is_zero_dot = self.circular_view.zero_marker and self.line_ring.index == 0
+        self._apply_editor_style(ed, red=is_zero_dot)
+        self.circular_view.update()
+
+    def _doc_tab(self):
+        """Contextual Tab in F2:
+          - on the ø zero-marker (index 0): shuffle the paragraph ORDER (each
+            paragraph keeps its lines in their relative order).
+          - on a '.' separator: shuffle the LINES within that paragraph.
+          - on a content line: insert a random I/ line below the cursor,
+            selected, so repeated Tab re-rolls it (source file untouched).
+        """
+        ring = self.line_ring
+        if not ring.lines:
+            return
+        if self.circular_view.zero_marker and ring.index == 0:
+            self._doc_shuffle_paragraphs()
+        elif ring.current() == '.':
+            self._doc_shuffle_para_lines()
+        else:
+            self._doc_insert_random_i_line()
+
+    def _doc_shuffle_paragraphs(self):
+        """Tab on ø: shuffle paragraph order; lines keep their order inside each."""
+        _, paragraphs = self._paragraphs_from_ring()
+        if len(paragraphs) < 2:
+            return
+        random.shuffle(paragraphs)
+        self._rebuild_ring_from_paragraphs(paragraphs)
+        self.line_ring.index = 0          # stay on the ø
+        self.auto_save_circular()
+        self._doc_tab_cand = None
+        self._doc_refresh_editor()
+
+    def _doc_shuffle_para_lines(self):
+        """Tab on a '.': shuffle the lines within that paragraph (needs >=2)."""
+        k, paragraphs = self._current_para_idx()
+        if k is None:
+            return
+        if len(paragraphs[k]) < 2:
+            return
+        random.shuffle(paragraphs[k])
+        dot_idx = self._dot_line_index(k, paragraphs)
+        self._rebuild_ring_from_paragraphs(paragraphs)
+        self.line_ring.index = dot_idx    # stay on the same separator
+        self.auto_save_circular()
+        self._doc_tab_cand = None
+        self._doc_refresh_editor()
+
+    def _doc_insert_random_i_line(self):
+        """Tab on a content line: insert (or re-roll) a random I/ line, selected.
+
+        First Tab inserts a candidate line below the cursor and selects it.
+        Tab again — while still parked on that unchanged candidate — swaps it for
+        another random line in place. Typing or navigating away commits it.
+        """
+        ring = self.line_ring
+        cand = getattr(self, '_doc_tab_cand', None)
+        rerolling = (cand is not None
+                     and cand['idx'] == ring.index
+                     and 0 <= ring.index < len(ring.lines)
+                     and ring.lines[ring.index] == cand['text'])
+        line = self._random_line_from_dir(self.book_dir,
+                                          exclude_path=self.current_file_path)
+        if not line:
+            print("↩ No I/ lines to pull.")
+            return
+        if rerolling:
+            ring.lines[ring.index] = line
+        else:
+            ring.lines.insert(ring.index + 1, line)
+            ring.index += 1
+        self._doc_tab_cand = {'idx': ring.index, 'text': line}
+        self.auto_save_circular()
+        self._doc_refresh_editor(select=True)
 
     def _doc_navigate(self, delta):
         """Move doc ring and update F2 editor text."""
