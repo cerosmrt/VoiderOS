@@ -1,0 +1,9 @@
+# Local Claude Code agent config (permissions, etc.) — not project code
+.claude/
+
+# Test / tooling artifacts
+.coverage
+**/.coverage
+__pycache__/
+*.pyc
+.pytest_cache/

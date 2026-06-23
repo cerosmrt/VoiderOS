@@ -14,9 +14,22 @@ ARCHITECTURE IDEAS (discussed, not decided)
 
 SYSTEM / INFRASTRUCTURE
 -----------------------
-- Sync proto-voider changes to pkgs/voider-py/ (system Voider still on old code)
+- Sync proto-voider changes to pkgs/voider-py/ (system Voider still on old code).
+  Pending to port from this session: PROTO-banner gate, FxPanel, F7 working-set
+  redesign, contextual Tab, ø-marker-stays-highlighted fix. Then nixos-rebuild.
+- FxPanel keybinds moved to Super+J/K/L (crt/grain/bw) in nix/modules/voider.nix —
+  needs a nixos-rebuild to take effect (user applies it).
 - /mnt/data mount: make persistent across boots (currently manual each session)
-- proto-voider run command: clarify how to launch (nix-shell -p python3 python3Packages.pyqt6...)
+- proto-voider run command: `proto-voider` (wrapper cd's into proto-voider/ and
+  runs watch.py); Super+P does the same. Must run inside the Wayland session.
+
+TAB / INPUT — next up (2026-06-23)
+----------------------------------
+- Bigger input box in F2 and F3 so the whole line/title is visible. Today when
+  the text reaches the box edge it scrolls out of view. Widen the editor (and/or
+  shrink font / let it grow) so the full line fits.
+- Up with caret at END of line → land at the END of the previous line (not the
+  start, which is the standard). Custom up-navigation in F2 (and F3?).
 
 VOID / PERSONAL WRITING SYSTEM
 -------------------------------
@@ -65,29 +78,11 @@ UNDO / RENAME (deferred)
   Still open for NORMAL titles — decide whether to require an explicit rename key
   or a confirmation instead of renaming silently on navigate.
 
-F7 WORKING SET — manual, uncapped (requested, not yet implemented)
-------------------------------------------------------------------
-Replace the fixed 100-book auto-window with a manually-built, unbounded list:
-- Start with ONE slot (not a pre-filled 100-book window). First run = one entry.
-- Random key (the * / Tab random-line key in F7) cycles/loads a random O/ book
-  into the current slot — "shuffle until I get one I like".
-- Ctrl+Delete removes the current book from the list.
-- Shift+Enter adds a new empty slot below; then shuffle (random key) until a book
-  you like lands in it.
-- No cap on list size — add as many as you want.
-- Persist in .working_set.json as today (just without the size limit).
-Touches: _load_working_set, _save_working_set, _ws_build_browser_ring,
-_ws_tab_randomize, working_set_size handling, _book_new_entry-equivalent for F7.
-
 F3 QUEUE (discussed, not yet implemented)
 -----------------------------------------
 - Feature 3: split doc by '/' lines into separate files
   Ctrl+Shift+F in F2 triggers split; original file kept
   New files named docname_1.txt, docname_2.txt etc. in same folder
-
-- Feature 4: * key for random lines
-  * in F1 → random line from I/ into the entry (currently recycles to 0.txt — needs discussion)
-  * in F5 → random line from O/ — needs discussion
 
 - F6: auto-reformat books on load (same reformat applied in F2)
 
@@ -98,3 +93,16 @@ F3 QUEUE (discussed, not yet implemented)
 - Feature 6: detaching views — never scoped, needs discussion
 
 - F11 help overlay: doesn't reflect any of the new keys added recently
+  (Tab is now contextual per view, F7 redesigned, FxPanel on Super+J/K/L, etc.)
+
+- make f4 an actual formatted version of the book: replace linebreaks with punto y seguido, dot separators with punto y aparte, filename por titulo del capitulo. y no se que mas.
+
+DONE 2026-06-23 (this session)
+------------------------------
+- F7 working set redesigned: manual, uncapped, ∅ empty slots, Tab fills (no dup),
+  Shift+Enter adds slot, Ctrl+Delete removes (loaded book stays).
+- Contextual Tab: F1→recycle from I/, F2→insert random I/ line / shuffle para
+  lines on '.' / shuffle paragraphs on ø, F5→random O/ line, F6 unchanged.
+- ø marker stays the ø glyph even when highlighted (was collapsing to '.').
+- FxPanel ported back into proto (Super+J/K/L keybinds, pending rebuild).
+- PROTO banner now only shows on the dev sandbox (gated by VOIDER_VOID_DIR).
