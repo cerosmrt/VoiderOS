@@ -2785,9 +2785,18 @@ class FullscreenCircleApp(QMainWindow):
 
     def _ws_remove_slot(self):
         """Ctrl+Delete in F7: remove the current slot. Never go below one slot —
-        if the set empties out, leave a single empty slot to build from again."""
+        if the set empties out, leave a single empty slot to build from again.
+
+        Refuse to remove the slot whose book is currently open in the F6 reader:
+        deleting it would leave a stale book showing in F6 with no slot behind it.
+        """
         slot = self._ws_cur_slot()
         if slot is None:
+            return
+        path = self._ws_books[slot].get('path')
+        if path and self.o_reader_file and \
+                os.path.basename(self.o_reader_file) == path:
+            print(f"🚫 F7: '{path}' is open in F6 — leave the reader before removing it")
             return
         del self._ws_books[slot]
         if not self._ws_books:

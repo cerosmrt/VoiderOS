@@ -43,6 +43,7 @@ def _ws_app(tmp_path, o_files=('a.txt', 'b.txt', 'c.txt', 'd.txt'),
     app._ws_browser_index = 1
     app.o_browser_ring = LineRing(['.'])
     app.o_browser_view = None
+    app.o_reader_file = None
     app.config = {}
 
     if saved_books is not None:
@@ -144,8 +145,21 @@ def test_remove_last_slot_leaves_one_empty(tmp_path):
     app, _ = _ws_app(tmp_path)
     app._ws_books = [{'path': 'a.txt', 'position': 0}]
     app._ws_build_browser_ring(slot=0)
+    app.o_reader_file = None
     app._ws_remove_slot()
     assert app._ws_books == [{'path': '', 'position': 0}]
+
+
+def test_cannot_remove_slot_open_in_reader(tmp_path):
+    app, o_dir = _ws_app(tmp_path)
+    app._ws_books = [{'path': 'a.txt', 'position': 0},
+                     {'path': 'b.txt', 'position': 0}]
+    app._ws_build_browser_ring(slot=0)
+    # a.txt is the book currently loaded in the F6 reader
+    app.o_reader_file = str(o_dir / 'a.txt')
+    app._ws_remove_slot()
+    # Refused — slot stays, both books still present.
+    assert _filled_paths(app) == ['a.txt', 'b.txt']
 
 
 # ── Persistence ──────────────────────────────────────────────────────────────
