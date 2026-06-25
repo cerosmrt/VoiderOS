@@ -17,17 +17,15 @@ class CustomLineEdit(QLineEdit):
         key = event.key()
         modifiers = event.modifiers()
         
-        # Asterisco * para reciclado (interceptar ANTES de escribir)
-        if key == Qt.Key.Key_Asterisk or (key == Qt.Key.Key_8 and (modifiers & Qt.KeyboardModifier.ShiftModifier)):
+        # Tab and * both recycle a random line into the entry (cut-up). Tab is the
+        # primary key now (closer, loop-like glyph); * still works. Intercept
+        # BEFORE the char is typed.
+        if (key == Qt.Key.Key_Tab or key == Qt.Key.Key_Asterisk
+                or (key == Qt.Key.Key_8 and (modifiers & Qt.KeyboardModifier.ShiftModifier))):
             from controls import recycle_line_to_zero_txt
             recycle_line_to_zero_txt(self.parent, event)
             event.accept()
             return  # IMPORTANTE: return para no seguir procesando
-        
-        if key == Qt.Key.Key_Tab:
-            self.tabPressed.emit()
-            event.accept()
-            return
 
         # Manejo de spacebar para void
         if key == Qt.Key.Key_Space:

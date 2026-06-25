@@ -17,6 +17,7 @@
     "view_f7": "F7",
     "view_f8": "F8",
     "view_f9": "F9",
+    "view_f10": "F10",
     "help": "F11",
     "quit": "Escape",
     "rebase": "Ctrl+0",
@@ -39,6 +40,7 @@
     "export_doc": "Ctrl+S",
     "reformat_file": "Ctrl+Shift+F",
     "shuffle_zero": "Ctrl+Shift+R",
+    "dispatch": "Ctrl+Shift+D",
     "backup": "Ctrl+B"
   }
 }

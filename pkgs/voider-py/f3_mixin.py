@@ -1,0 +1,605 @@
+# f3_mixin.py — F3 library/book browser methods
+import os
+import random
+
+from PyQt6.QtCore import Qt
+
+from app_config import _save_config
+from line_ring import LineRing
+
+
+class F3Mixin:
+
+    def _book_is_portal(self, idx=None):
+        """True if the F3 entry at idx (default current) is the read-only '0'
+        scratch portal. A portal is any library entry named '0' / '0.txt'; it is
+        not renamable and Enter on it jumps to the scratch 0.txt."""
+        if idx is None:
+            idx = self.book_ring.index
+        if idx < 0 or idx >= len(self.book_ring.lines):
+            return False
+        if self.book_ring.lines[idx] == '0':
+            return True
+        return (idx < len(self._library_lines)
+                and self._library_lines[idx].lower() == '0.txt')
+
+    def _book_show_editor(self):
+        """Show F3 editor; dots and the '0' portal show read-only."""
+        if not self.book_ring.lines:
+            return
+        view = self.book_view
+        view.edit_mode = True
+        center_y = view.height() // 2
+        # Almost full width (no 800px cap) so long titles stay fully visible.
+        editor_width = view.width() - 100
+        view.editor.setFixedWidth(editor_width)
+        view.editor.move(
+            (view.width() - editor_width) // 2,
+            center_y - view.editor.sizeHint().height() // 2
+        )
+        if self.book_ring.current() == '.':
+            view.editor.setText('· · ·')
+            view.editor.setReadOnly(True)
+        elif self._book_is_portal():
+            view.editor.setText('0')
+            view.editor.setReadOnly(True)
+        else:
+            view.editor.setText(self.book_ring.current())
+            view.editor.setReadOnly(False)
+        view.editor.setCursorPosition(0)
+        view.editor.show()
+        view.editor.setFocus()
+        view.update()
+
+    def _book_random(self):
+        """Tab in F3: jump to a random real book title (skip '.' separators and
+        the read-only '0' portals)."""
+        if self._book_pending_new:
+            return
+        self._book_try_rename()
+        candidates = [i for i, l in enumerate(self.book_ring.lines)
+                      if l != '.' and not self._book_is_portal(i)]
+        if not candidates:
+            return
+        self.book_ring.index = random.choice(candidates)
+        self.book_view._offset = 0.0
+        self._book_show_editor()
+
+    def _book_navigate(self, delta):
+        self._tts_cut()
+        if self._book_pending_new:
+            # Cancel the pending new entry
+            idx = self.book_ring.index
+            self.book_ring.lines.pop(idx)
+            self._library_lines.pop(idx)
+            if not self.book_ring.lines:
+                self.book_ring.lines = ['.']
+                self._library_lines = ['.']
+            self.book_ring.index = max(0, idx - 1) % len(self.book_ring.lines)
+            self._book_pending_new = False
+        self._book_try_rename()
+        if len(self.book_ring.lines) < 2:
+            return
+        self.book_ring.move(delta)
+        self.book_view._offset = 0.0
+        if self.book_ring.current() == '.':
+            self.book_view.editor.setText('· · ·')
+            self.book_view.editor.setReadOnly(True)
+        elif self._book_is_portal():
+            self.book_view.editor.setText('0')
+            self.book_view.editor.setReadOnly(True)
+        else:
+            self.book_view.editor.setText(self.book_ring.current())
+            self.book_view.editor.setReadOnly(False)
+        self.book_view.editor.setCursorPosition(0)
+        self.book_view.update()
+
+    def _book_jump_start(self):
+        """Home in F3: jump to first non-dot entry."""
+        self._tts_cut()
+        ring = self.book_ring
+        for i in range(len(ring.lines)):
+            if ring.lines[i] != '.':
+                ring.index = i
+                break
+        self._book_show_editor()
+
+    def _book_jump_end(self):
+        """End in F3: jump to last non-dot entry."""
+        self._tts_cut()
+        ring = self.book_ring
+        for i in range(len(ring.lines) - 1, -1, -1):
+            if ring.lines[i] != '.':
+                ring.index = i
+                break
+        self._book_show_editor()
+
+    def _book_try_rename(self):
+        if self._book_pending_new:
+            return True
+        # The '0' portal is read-only — never rename it.
+        if self._book_is_portal():
+            return True
+        fname = self._library_current_fname()
+        if not fname:
+            return True
+        new_display = self.book_view.editor.text().strip()
+        if not new_display or new_display.startswith('.'):
+            self.book_view.editor.setText(self.book_ring.current())
+            return True
+        # '0' is reserved for the scratch portal. Refuse to rename any real file
+        # to '0'/'0.txt' — os.rename overwrites the destination, which would erase
+        # the scratch 0.txt. (Use Shift+Enter + '0' to add a portal instead.)
+        if new_display == '0' or new_display.lower() == '0.txt':
+            print("⛔ '0' is reserved for the scratch portal — rename refused.")
+            self.book_view.editor.setText(self.book_ring.current())
+            return True
+        new_fname = new_display + '.txt'
+        if new_fname == fname:
+            return True
+        old_path = self._library_path_cache.get(fname)
+        if not old_path or not os.path.exists(old_path):
+            return True
+        new_path = os.path.join(os.path.dirname(old_path), new_fname)
+        if os.path.exists(new_path):
+            print(f"⛔ {new_fname} already exists — rename refused (would overwrite it).")
+            self.book_view.editor.setText(self.book_ring.current())
+            return True
+        try:
+            os.rename(old_path, new_path)
+            if self.current_file_path == old_path:
+                self.current_file_path = new_path
+                self.config['active_file'] = new_path
+                _save_config(self.config)
+            idx = self.book_ring.index
+            self._library_lines[idx] = new_fname
+            self.book_ring.lines[idx] = new_display
+            del self._library_path_cache[fname]
+            self._library_path_cache[new_fname] = new_path
+            self._save_library()
+            print(f"📝 Renamed: {fname} → {new_fname}")
+        except Exception as e:
+            print(f"⚠️ Rename failed: {e}")
+            return False
+        return True
+
+    def _book_confirm_edit(self):
+        """Enter in F3: handle new-entry mode, dot → concat view, title → F2."""
+        if self._book_pending_new:
+            text = self.book_view.editor.text().strip()
+            idx = self.book_ring.index
+            if not text:
+                # Empty → cancel, remove placeholder
+                self.book_ring.lines.pop(idx)
+                self._library_lines.pop(idx)
+                if not self.book_ring.lines:
+                    self.book_ring.lines = ['.']
+                    self._library_lines = ['.']
+                self.book_ring.index = max(0, idx - 1) % len(self.book_ring.lines)
+            elif text == '.':
+                # Convert placeholder to separator
+                self.book_ring.lines[idx] = '.'
+                self._library_lines[idx] = '.'
+                self._save_library()
+            elif text == '0':
+                # Convert placeholder to a '0' scratch portal — no file is
+                # created, no collision with the real 0.txt. Read-only marker.
+                self.book_ring.lines[idx] = '0'
+                self._library_lines[idx] = '0.txt'
+                self._save_library()
+            else:
+                # Create new file and open in F2
+                fname = text + '.txt'
+                fpath = os.path.join(self.void_dir, 'I', fname)
+                if not os.path.exists(fpath):
+                    open(fpath, 'w', encoding='utf-8').close()
+                self.book_ring.lines[idx] = text
+                self._library_lines[idx] = fname
+                self._library_path_cache[fname] = fpath
+                self._save_library()
+                self._book_pending_new = False
+                self._set_f2_file(fpath)
+                self.switch_to_view(1)
+                return
+            self._book_pending_new = False
+            self._book_show_editor()
+            return
+
+        if self.book_ring.current() == '.':
+            self._book_open_concat()
+            return
+        if self._book_is_portal():
+            # Portal → jump to the scratch 0.txt in F2 (no rename, no file ops).
+            self._set_f2_file(self.f1_file)
+            self.switch_to_view(1)
+            return
+        if not self._book_try_rename():
+            return
+        fname = self._library_current_fname()
+        if not fname:
+            return
+        fpath = self._library_path_cache.get(fname)
+        if not fpath:
+            fpath = os.path.join(self.void_dir, 'I', fname)
+        self._set_f2_file(fpath)
+        self.switch_to_view(1)
+
+    def _book_new_entry(self):
+        """Shift+Enter in F3: insert a blank entry below current for the user to name."""
+        if self._book_pending_new:
+            return
+        self._book_try_rename()
+        idx = self.book_ring.index
+        self.book_ring.lines.insert(idx + 1, '')
+        self._library_lines.insert(idx + 1, '')
+        self.book_ring.index = idx + 1
+        self._book_pending_new = True
+        self.book_view._offset = 0.0
+        self.book_view.editor.setText('')
+        self.book_view.editor.setReadOnly(False)
+        self.book_view.editor.setCursorPosition(0)
+        self.book_view.update()
+
+    def _book_send_to_zero(self):
+        """Ctrl+Delete in F3: on dot → delete separator; on title → send lines to 0.txt and delete file."""
+        if self._book_pending_new:
+            return
+        if self.book_ring.current() == '.':
+            self._book_backspace_on_dot()
+            return
+        if self._book_is_portal():
+            # Remove only the portal marker from the library — never touch 0.txt.
+            idx = self.book_ring.index
+            self.book_ring.lines.pop(idx)
+            self._library_lines.pop(idx)
+            if not self.book_ring.lines:
+                self.book_ring.lines = ['.']
+                self._library_lines = ['.']
+            n = len(self.book_ring.lines)
+            self.book_ring.index = idx % n
+            self._save_library()
+            self.book_view._offset = 0.0
+            self._book_show_editor()
+            print("🗑️ Portal '0' removed (0.txt untouched)")
+            return
+        fname = self._library_current_fname()
+        if not fname:
+            return
+        fpath = self._library_path_cache.get(fname)
+        if not fpath or not os.path.exists(fpath):
+            return
+        if os.path.abspath(fpath) == os.path.abspath(self.f1_file):
+            return
+        try:
+            with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                lines = [l.strip() for l in f if l.strip() and l.strip() != '.']
+        except Exception as e:
+            print(f"⚠️ Cannot read {fpath}: {e}")
+            return
+        if lines:
+            try:
+                with open(self.f1_file, 'a', encoding='utf-8') as f:
+                    f.write('\n.\n')
+                    f.write('\n'.join(lines) + '\n')
+            except Exception as e:
+                print(f"⚠️ Cannot append to 0.txt: {e}")
+                return
+        try:
+            os.remove(fpath)
+        except Exception as e:
+            print(f"⚠️ Cannot delete {fpath}: {e}")
+            return
+        idx = self.book_ring.index
+        self.book_ring.lines.pop(idx)
+        self._library_lines.pop(idx)
+        if fname in self._library_path_cache:
+            del self._library_path_cache[fname]
+        if not self.book_ring.lines:
+            self.book_ring.lines = ['.']
+            self._library_lines = ['.']
+        n = len(self.book_ring.lines)
+        self.book_ring.index = idx % n
+        while self.book_ring.current() == '.' and n > 1:
+            self.book_ring.index = (self.book_ring.index + 1) % n
+        self._save_library()
+        if self.current_file_path == self.f1_file:
+            self.load_doc_lines()
+        self.book_view._offset = 0.0
+        self._book_show_editor()
+        print(f"🗑️ {len(lines)} lines from {fname} → 0.txt, file deleted")
+
+    def _book_insert_separator(self):
+        """Tab in F3: insert a group separator dot above the current position."""
+        if self.book_ring.current() == '.':
+            return
+        self._book_try_rename()
+        idx = self.book_ring.index
+        self.book_ring.lines.insert(idx, '.')
+        self._library_lines.insert(idx, '.')
+        self.book_ring.index = idx
+        self._save_library()
+        self.book_view._offset = 0.0
+        self.book_view.editor.setText('· · ·')
+        self.book_view.editor.setReadOnly(True)
+        self.book_view.editor.setCursorPosition(0)
+        self.book_view.update()
+
+    def _book_backspace_on_dot(self):
+        """Backspace in F3 when on a dot: delete the group separator."""
+        if self.book_ring.current() != '.':
+            return
+        idx = self.book_ring.index
+        self.book_ring.lines.pop(idx)
+        self._library_lines.pop(idx)
+        if not self.book_ring.lines:
+            self.book_ring.lines = ['.']
+            self._library_lines = ['.']
+            self.book_ring.index = 0
+        else:
+            self.book_ring.index = idx % len(self.book_ring.lines)
+            while self.book_ring.current() == '.' and len(self.book_ring.lines) > 1:
+                self.book_ring.index = (self.book_ring.index + 1) % len(self.book_ring.lines)
+        self._save_library()
+        self.book_view._offset = 0.0
+        if self.book_ring.current() == '.':
+            self.book_view.editor.setText('· · ·')
+            self.book_view.editor.setReadOnly(True)
+        else:
+            self.book_view.editor.setText(self.book_ring.current())
+            self.book_view.editor.setReadOnly(False)
+        self.book_view.editor.setCursorPosition(0)
+        self.book_view.update()
+
+    def _book_open_concat(self):
+        """Build a read-only concatenated ring from all files in the current dot group."""
+        dot_idx = self.book_ring.index
+        n = len(self._library_lines)
+        group_fnames = []
+        i = (dot_idx + 1) % n
+        for _ in range(n - 1):
+            if self._library_lines[i] == '.':
+                break
+            group_fnames.append(self._library_lines[i])
+            i = (i + 1) % n
+        if not group_fnames:
+            return
+
+        lines = ['.']
+        header_indices = set()
+        for fname in group_fnames:
+            fpath = self._library_path_cache.get(fname)
+            if not fpath or not os.path.exists(fpath):
+                continue
+            stem = os.path.splitext(fname)[0].upper()
+            header_indices.add(len(lines))
+            lines.append(f'── {stem} ──')
+            try:
+                with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                    for raw in f:
+                        s = raw.strip()
+                        if s and s != '.':
+                            lines.append(s)
+            except Exception:
+                pass
+            lines.append('.')
+
+        if len(lines) <= 1:
+            return
+
+        self.book_concat_ring = LineRing(lines)
+        self._book_concat_header_indices = header_indices
+        for start_i in range(len(lines)):
+            if lines[start_i] not in ('.', '') and start_i not in header_indices:
+                self.book_concat_ring.index = start_i
+                break
+
+        self.switch_to_view(9)
+
+    def _book_concat_show_editor(self):
+        view = self.book_concat_view
+        view.edit_mode = True
+        center_y = view.height() // 2
+        editor_width = view.width() - 100
+        view.editor.setFixedWidth(editor_width)
+        view.editor.move(
+            (view.width() - editor_width) // 2,
+            center_y - view.editor.sizeHint().height() // 2
+        )
+        view.editor.setText(self.book_concat_ring.current())
+        view.editor.setReadOnly(True)
+        view.editor.setCursorPosition(0)
+        view.editor.show()
+        view.editor.setFocus()
+        view.update()
+
+    def _book_concat_navigate(self, delta):
+        self._tts_cut()
+        ring = self.book_concat_ring
+        n = len(ring.lines)
+        for _ in range(n):
+            ring.move(delta)
+            cur = ring.current()
+            if cur not in ('.', '') and ring.index not in self._book_concat_header_indices:
+                break
+        self.book_concat_view._offset = 0.0
+        self.book_concat_view.editor.setText(ring.current())
+        self.book_concat_view.editor.setCursorPosition(0)
+        self.book_concat_view.update()
+
+    def _book_swap_up(self):
+        """Alt+Up in F3: swap current title with nearest non-dot above."""
+        idx = self.book_ring.index
+        prev = idx - 1
+        while prev >= 0 and self.book_ring.lines[prev] == '.':
+            prev -= 1
+        if prev < 0 or self.book_ring.lines[prev] == '.':
+            return
+        self.book_ring.lines[idx], self.book_ring.lines[prev] = \
+            self.book_ring.lines[prev], self.book_ring.lines[idx]
+        self._library_lines[idx], self._library_lines[prev] = \
+            self._library_lines[prev], self._library_lines[idx]
+        self.book_ring.index = prev
+        self._save_library()
+        self.book_view._offset = 0.0
+        if self.book_ring.current() == '.':
+            self.book_view.editor.setText('· · ·')
+            self.book_view.editor.setReadOnly(True)
+        else:
+            self.book_view.editor.setText(self.book_ring.current())
+            self.book_view.editor.setReadOnly(False)
+        self.book_view.editor.setCursorPosition(0)
+        self.book_view.update()
+
+    def _book_swap_down(self):
+        """Alt+Down in F3: swap current title with nearest non-dot below."""
+        idx = self.book_ring.index
+        n = len(self.book_ring.lines)
+        nxt = idx + 1
+        while nxt < n and self.book_ring.lines[nxt] == '.':
+            nxt += 1
+        if nxt >= n or self.book_ring.lines[nxt] == '.':
+            return
+        self.book_ring.lines[idx], self.book_ring.lines[nxt] = \
+            self.book_ring.lines[nxt], self.book_ring.lines[idx]
+        self._library_lines[idx], self._library_lines[nxt] = \
+            self._library_lines[nxt], self._library_lines[idx]
+        self.book_ring.index = nxt
+        self._save_library()
+        self.book_view._offset = 0.0
+        if self.book_ring.current() == '.':
+            self.book_view.editor.setText('· · ·')
+            self.book_view.editor.setReadOnly(True)
+        else:
+            self.book_view.editor.setText(self.book_ring.current())
+            self.book_view.editor.setReadOnly(False)
+        self.book_view.editor.setCursorPosition(0)
+        self.book_view.update()
+
+    def _book_rebase(self):
+        """Ctrl+0 in F3: rotate ring so current title becomes first."""
+        idx = self.book_ring.index
+        if idx == 0:
+            return
+        self.book_ring.lines = self.book_ring.lines[idx:] + self.book_ring.lines[:idx]
+        self._library_lines = self._library_lines[idx:] + self._library_lines[:idx]
+        self.book_ring.index = 0
+        while self.book_ring.current() == '.' and len(self.book_ring.lines) > 1:
+            self.book_ring.move(1)
+        self._save_library()
+        self.book_view._offset = 0.0
+        self.book_view.editor.setText(self.book_ring.current())
+        self.book_view.editor.setReadOnly(False)
+        self.book_view.editor.setCursorPosition(0)
+        self.book_view.update()
+
+    def _vault_show_editor(self):
+        """Show the vault inline editor with the current vault line, cursor at start."""
+        if not self.vault_ring.lines:
+            return
+        view = self.vault_view
+        view.edit_mode = True
+        center_y = view.height() // 2
+        editor_width = view.width() - 100
+        view.editor.setFixedWidth(editor_width)
+        view.editor.move(
+            (view.width() - editor_width) // 2,
+            center_y - view.editor.sizeHint().height() // 2
+        )
+        view.editor.setText(self.vault_ring.current())
+        view.editor.setCursorPosition(0)
+        view.editor.show()
+        view.editor.setFocus()
+        view.update()
+
+    def _f3_search_show_center(self):
+        """Highlight center of display ring; surroundings dimmed. Search bar keeps focus."""
+        if not self._f3_display_ring or not self.book_view:
+            return
+        view = self.book_view
+        view.edit_mode = False
+        view.editor.hide()
+        view.search_highlight_center = True
+        view.update()
+        self._f3_search_bar.setFocus()
+
+    def _open_f3_search(self):
+        if self._f3_search_active:
+            return
+        self._f3_search_active = True
+        self._f3_search_saved = self.book_ring.index
+        display = [l for l in self.book_ring.lines if l != '.'] or ['.']
+        self._f3_display_ring = LineRing(display)
+        # Start at the file currently highlighted in F3
+        cur = self.book_ring.current()
+        if cur and cur != '.' and cur in display:
+            self._f3_display_ring.index = display.index(cur)
+        self.book_view.search_mode = True
+        self.book_view.ring = self._f3_display_ring
+        self.book_view._offset = 0.0
+        self._f3_search_bar.clear()
+        self._f3_search_bar.show()
+        self._f3_search_bar.raise_()
+        self._f3_search_show_center()
+
+    def _close_f3_search(self, restore=True):
+        if not self._f3_search_active:
+            return
+        self._f3_search_active = False
+        self._f3_search_bar.hide()
+        self._f3_display_ring = None
+        if restore and self._f3_search_saved is not None:
+            self.book_ring.index = self._f3_search_saved
+        self.book_view.search_mode = False
+        self.book_view.search_highlight_center = False
+        self.book_view.ring = self.book_ring
+        self._f3_search_saved = None
+        self.book_view._offset = 0.0
+        self.book_view.update()
+        self._book_show_editor()
+
+    def _f3_search_changed(self, text):
+        if not self._f3_search_active:
+            return
+        q = text.strip().lower()
+        if not q:
+            filtered = [l for l in self.book_ring.lines if l != '.'] or ['.']
+        else:
+            filtered = [l for l in self.book_ring.lines if l != '.' and q in l.lower()] or ['.']
+        self._f3_display_ring = LineRing(filtered)
+        self.book_view.ring = self._f3_display_ring
+        self.book_view._offset = 0.0
+        self._f3_search_show_center()
+
+    def _f3_search_confirm(self):
+        """Enter: load the highlighted file and close search."""
+        if not self._f3_search_active:
+            return
+        matched_display = self._f3_display_ring.current() if self._f3_display_ring else None
+        self._f3_search_active = False
+        self._f3_search_bar.hide()
+        self._f3_display_ring = None
+        self._f3_search_saved = None
+        if matched_display and matched_display != '.':
+            for i, l in enumerate(self.book_ring.lines):
+                if l == matched_display:
+                    self.book_ring.index = i
+                    break
+        self.book_view.search_mode = False
+        self.book_view.search_highlight_center = False
+        self.book_view.ring = self.book_ring
+        self.book_view._offset = 0.0
+        self.book_view.update()
+        # Sync editor text NOW so switch_to_view's _book_try_rename sees no change
+        if matched_display and matched_display != '.':
+            self.book_view.editor.setText(matched_display)
+            self.book_view.editor.setReadOnly(False)
+        fname = self._library_current_fname()
+        if fname:
+            fpath = self._library_path_cache.get(fname)
+            if fpath and os.path.isfile(fpath):
+                self.f2_file = fpath
+                self.current_file_path = fpath
+                self.load_doc_lines()
+                self.switch_to_view(1)
+                return
+        self._book_show_editor()

@@ -1,0 +1,53 @@
+================================================================================
+IMPLEMENTED — features confirmed done and promoted to pkgs/voider-py
+================================================================================
+
+SESSION 2026-06-23
+------------------
+- F7 working set redesigned: manual, uncapped, ∅ empty slots, Tab fills slot
+  (no duplicates), Shift+Enter adds slot, Ctrl+Delete removes slot.
+- Contextual Tab:
+    F1  → recycle random line from I/ into entry
+    F2  → on content: insert random I/ text at cursor
+          on dot (.): shuffle lines within paragraph
+          on ø marker: shuffle paragraph order
+    F5  → random line from O/ book
+- ø marker stays the ø glyph even when highlighted (was collapsing to plain dot).
+- FxPanel ported back into proto (Super+J/K/L keybinds for crt/grain/bw panels).
+- PROTO banner now only shows on the dev sandbox (gated by VOIDER_VOID_DIR).
+- F2 end-stickiness navigation: Up/Down remembers cursor at end of line.
+- Ctrl+0 shows the ø glyph immediately on the new first line.
+
+SESSION 2026-06-24
+------------------
+- TTS cut on navigation: any nav key cuts TTS immediately.
+- Tab in F2: inserts random I/ line at cursor position (not replacing, not new line).
+- F4 reading render: QTextBrowser renders active doc as prose — title centered,
+  text justified, dot separators become paragraph breaks.
+- F10 settings panel: in-app panel for font family, font size, text/bg color.
+- Bigger editor in F2 and F3: removed 800px cap — editor uses full window width.
+- Home/End in F2 and F3: jumps to first/last content line of the whole document.
+- _generate_i_preview: skips generation when no subfolders with .txt files (flat I/).
+- F11 help overlay: rewritten to reflect all current keybinds.
+- Dispatch (Ctrl+Shift+D): routes paragraphs from 0.txt to chapter files via
+  /name markers; / alone creates a timestamped file; appends to existing files.
+- F6 auto-reformat: strips Gutenberg boilerplate and reformats raw text into
+  sentence-per-line Voider format on book load.
+- F7 title display: cleans filename — strips .txt, author, Gutenberg noise.
+- Esc = lock screen: full-screen overlay with PAM auth (Linux system password).
+  Esc is swallowed by the lock screen; can only be dismissed with correct password.
+- Trash cascade (F2 Ctrl+Delete):
+    viewing other file → line goes to 0.txt (previous behaviour)
+    viewing 0.txt      → line goes to ~/void/I/trash.txt
+    viewing trash.txt  → line is permanently deleted
+- python-pam added to voider-py.nix (needed for lock screen PAM auth).
+- IPC (QLocalSocket/QLocalServer): multi-instance sync — when one Voider saves
+  a file, other running instances reload that file from disk.
+- Promoted proto-voider → pkgs/voider-py/ (all files synced, nixos-rebuild done).
+
+SESSION 2026-06-25
+------------------
+- Modularised new_interface.py (4709 → ~800 lines): split into 9 mixin files —
+  app_config.py, io_mixin.py, f1_mixin.py, f2_mixin.py, f3_mixin.py, f4_mixin.py,
+  f5678_mixin.py, tts_mixin.py, key_router_mixin.py. Zero behaviour change.
+  All 340 tests pass. Promoted to pkgs/voider-py/.

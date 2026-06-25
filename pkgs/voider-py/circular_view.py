@@ -1,8 +1,8 @@
 import math
 from PyQt6.QtWidgets import QWidget, QLineEdit
 
-from PyQt6.QtCore import Qt, QPropertyAnimation, pyqtProperty, QEasingCurve, pyqtSignal
-from PyQt6.QtGui import QPainter, QFontMetrics, QFont, QKeyEvent, QColor
+from PyQt6.QtCore import Qt, QPropertyAnimation, pyqtProperty, QEasingCurve, pyqtSignal, QPoint, QEvent
+from PyQt6.QtGui import QPainter, QFontMetrics, QFont, QKeyEvent, QColor, QPen
 
 class CircularView(QWidget):
     line_saved = pyqtSignal()
@@ -83,7 +83,7 @@ class CircularView(QWidget):
         self.insert_mode = False
         
         center_y = self.height() // 2
-        editor_width = min(self.width() - 100, 800)
+        editor_width = self.width() - 100
         self.editor.setFixedWidth(editor_width)
         self.editor.move((self.width() - editor_width) // 2, 
                          center_y - self.editor.height() // 2)
@@ -102,7 +102,7 @@ class CircularView(QWidget):
         self.insert_mode = True
         
         center_y = self.height() // 2
-        editor_width = min(self.width() - 100, 800)
+        editor_width = self.width() - 100
         self.editor.setFixedWidth(editor_width)
         
         # Posicionar editor DEBAJO de la línea central (media línea abajo)
@@ -223,19 +223,20 @@ class CircularView(QWidget):
             abs_idx = (self.ring.index + i) % n
             is_zero_dot = self.zero_marker and text == '.' and abs_idx == 0
 
-            # Zero dot stays visible at full opacity regardless of focus/highlight state
-            if is_zero_dot:
-                alpha = max(alpha, base_alpha)
-
             text_w = fm.horizontalAdvance(text)
             draw_x = max(margin, margin + (text_area_w - text_w) // 2)
 
             painter.setOpacity(alpha)
             if is_zero_dot:
-                painter.setPen(QColor(255, 40, 40))
-            painter.drawText(draw_x, draw_y + line_ascent, text)
-            if is_zero_dot:
-                painter.setPen(Qt.GlobalColor.white)
+                # Index-0 marker: the ø glyph (crossed-o). Same font size as body
+                # text (no scaling — a bigger glyph overlapped neighbouring lines)
+                # and it follows the normal alpha, so it only stands out when it's
+                # the line you're actually on, not always.
+                glyph = 'ø'
+                gx = margin + (text_area_w - fm.horizontalAdvance(glyph)) // 2
+                painter.drawText(gx, draw_y + line_ascent, glyph)
+            else:
+                painter.drawText(draw_x, draw_y + line_ascent, text)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -245,9 +246,11 @@ class CircularView(QWidget):
         
         if self.edit_mode:
             center_y = self.height() // 2
-            editor_width = min(self.width() - 100, 800)
+            # Track the window width (no fixed cap) so the editor grows/shrinks
+            # with the window instead of snapping back to a fixed 800px.
+            editor_width = self.width() - 100
             self.editor.setFixedWidth(editor_width)
-            self.editor.move((self.width() - editor_width) // 2, 
+            self.editor.move((self.width() - editor_width) // 2,
                              center_y - self.editor.height() // 2)
         self.update()
 
@@ -265,10 +268,25 @@ class CustomLineEdit(QLineEdit):
     dotPressed = pyqtSignal()      # '.' key when intercept_period is True
     shiftReturnPressed = pyqtSignal()
     ctrlDeletePressed = pyqtSignal()
+    homePressed = pyqtSignal()     # Home when home_end_doc is True (doc-wide jump)
+    endPressed = pyqtSignal()      # End when home_end_doc is True (doc-wide jump)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.intercept_period = False  # set True on editors that use '.' as a command key
+        self.home_end_doc = False      # set True on editors where Home/End jump the
+                                       # whole document (first content line / last line)
+
+    def event(self, e):
+        # Qt grabs Tab/Backtab for focus traversal BEFORE keyPressEvent runs (the
+        # parent CircularView is Tab-focusable), so without this the editor's Tab
+        # handler never fires and Tab just moves focus + selects the text. Catch it
+        # here at the event level and treat Tab as the random-jump key (like '*').
+        if e.type() == QEvent.Type.KeyPress and e.key() in (
+                Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
+            self.tabPressed.emit()
+            return True
+        return super().event(e)
 
     def keyPressEvent(self, event):
         key = event.key()
@@ -280,6 +298,16 @@ class CustomLineEdit(QLineEdit):
             self.dotPressed.emit()
             event.accept()
             return
+
+        if self.home_end_doc and mods == Qt.KeyboardModifier.NoModifier:
+            if key == Qt.Key.Key_Home:
+                self.homePressed.emit()
+                event.accept()
+                return
+            if key == Qt.Key.Key_End:
+                self.endPressed.emit()
+                event.accept()
+                return
 
         if key == Qt.Key.Key_Tab:
             self.tabPressed.emit()

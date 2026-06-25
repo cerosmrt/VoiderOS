@@ -1,0 +1,86 @@
+================================================================================
+PROCESS: before implementing ANY item, recapitulate with the user first —
+state what's about to be done and get confirmation before touching files.
+================================================================================
+
+ACTIVE — ready to implement next
+---------------------------------
+(none queued — pick from below)
+
+WRITING / F2
+------------
+- Tab in F2: behaviour was changed to insert-at-cursor (not replace).
+  Original intent was replace + undo. If replace+undo is still wanted,
+  needs undo stack first. Deferred until undo is scoped.
+
+- Up with caret at end of line → land at END of previous line (not start).
+  Custom up-navigation in F2 (and F3). Discussed, deferred.
+
+EDITING / UNDO
+--------------
+- Undo/redo: Ctrl+Z / Ctrl+Shift+Z. Needs an undo stack for F2 doc edits
+  and ideally F1 voiding, F3 library ops. Not yet scoped.
+
+RENAME
+------
+- Rename-on-navigate (F3): editing a title then navigating fires os.rename
+  silently. Decide: require explicit rename key OR a confirmation dialog.
+  Currently: silent rename is kept (no change made yet).
+
+F3 / LIBRARY
+------------
+- Split doc by '/' markers: Ctrl+Shift+F in F2 splits a file into
+  docname_1.txt, docname_2.txt etc. at '/' separator lines.
+  (Different from Dispatch which routes to named files — this is a
+  dumb numbered split of the current file.)
+
+VIEWS
+-----
+- Feature 6: detaching views — discussed and deferred.
+  Multiple Voider instances now achieve the same result.
+
+- Remap F3/F4: move current F3 (book browser / library) to F4, and use the
+  new F3 as a paragraph-level view of the active file — shows paragraphs as
+  prose, centered, one at a time (or scrollable). Works on 0.txt or any file.
+  From this view you can choose where to send each paragraph (dispatch to a
+  chapter, void it, keep it). Think of it as a "paragraph triage" view.
+
+- Oracle as Tab key on F1/F5 instead of dedicated F8 view — discussed,
+  not decided. Would free F8 for other uses.
+
+DATABASE / O/ READER
+--------------------
+- SQLite metadata DB: author/title/filepath/line_count for all O/ books.
+  Lives at ~/void/library.db. Powers fast search in F8 and F7.
+  Ingest script: scripts/build_library_db.py (not written).
+  Gutenberg downloader to also write to DB on new book saves.
+
+SYSTEM / NIX
+------------
+- voider.nix FxPanel keybinds (Super+J/K/L) moved — confirm working after rebuild.
+
+SAFETY / GIT
+------------
+- Automatic git snapshots of ~/void: Voider currently saves files to disk but
+  never commits to git. Add periodic auto-commit (e.g. every N minutes) or a
+  post-save hook that runs: git -C ~/void add -A && git -C ~/void commit -m
+  "autosave YYYY-MM-DD HH:MM:SS". Decide: timer-based or on-save trigger.
+
+LONG-TERM / DEFERRED
+--------------------
+- Void scanner: on startup, scan /void recursively, index all .txt files.
+  F3 shows chapters across entire void. Source files never modified.
+
+- Book compiler: from F3, export a book as PDF/EPUB/HTML.
+  Triggered from inside Voider. Source files never modified.
+
+- Website generator: Python script reads /void, generates static HTML site.
+  One page per chapter, global index, quotes page. Run on save or manually.
+
+- TTS website (godplaystheartist.com): I.txt plays from random sentence on
+  page load, loops infinitely.
+
+DISCARDED (do not implement)
+-----------------------------
+- TTS local two modes — discarded.
+- Void scanner — discarded for now.

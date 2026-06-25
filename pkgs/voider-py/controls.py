@@ -83,20 +83,26 @@ def show_random_line_from_random_file(app, event=None):
 
 def recycle_line_to_zero_txt(app, event=None):
     """
-    RECICLADO (*): Muestra línea random de cualquier archivo (excluir archivo activo)
-    para pegar manualmente en el archivo activo actual. Cut-up technique.
-    
-    - NO cambia el archivo activo
-    - Solo muestra la línea en el entry
-    - El usuario decide si la pega (Enter) o descarta (Esc/borrar)
-    - Se pega en el current index del archivo activo cuando el usuario presione Enter
+    RECICLADO (Tab / *): Muestra una línea random en el entry para pegar
+    manualmente (Enter) o descartar (Esc/borrar). Cut-up technique. NO toca el
+    archivo de origen — es una copia.
+
+    Fuente según la vista:
+      - F1 (current_view 0): una línea de I/ (book_dir), excluyendo el activo.
+      - F5 (current_view 4): una línea de O/ (o_dir).
     """
     try:
-        # Escanear todos los .txt en void_dir incluyendo subcarpetas
+        # Pick the source folder by context: F5 pulls from O/, everything else
+        # (F1) pulls from I/. Both exclude the current active file.
+        if getattr(app, 'current_view', 0) == 4:
+            source_dir = getattr(app, 'o_dir', app.book_dir)
+        else:
+            source_dir = getattr(app, 'book_dir', app.void_dir)
+
         all_txt_files = []
-        for root, dirs, files in os.walk(app.void_dir):
+        for root, dirs, files in os.walk(source_dir):
             for file in files:
-                if file.lower().endswith('.txt'):
+                if file.lower().endswith('.txt') and not file.startswith('.'):
                     full_path = os.path.join(root, file)
                     # Excluir el archivo activo actual
                     if full_path != app.current_file_path:

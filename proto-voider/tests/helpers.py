@@ -80,6 +80,8 @@ def make_ring_app(lines, tmp_file=None):
         '_library_path', '_library_current_fname', '_save_library',
         '_build_library_path_cache', '_load_library', '_generate_library',
         '_append_new_files_to_library',
+        # TTS helpers
+        '_tts_cut',
         # print/export helpers
         '_build_doc_html', 'print_book', 'print_doc',
         'export_book', 'export_doc',

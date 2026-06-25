@@ -166,6 +166,9 @@ def void_line(app, event=None):
                 
                 # Reescribir el archivo de origen (atómico)
                 _atomic_writelines(app.current_file_path, all_file_lines)
+                ipc = getattr(app, '_ipc', None)
+                if ipc:
+                    ipc.notify_saved(app.current_file_path)
 
                 # Si el archivo de origen queda vacío después de eliminar la línea (y no es 0.txt), eliminarlo
                 if not all_file_lines and app.current_file_path != app.void_file_path:
@@ -269,6 +272,9 @@ def void_line(app, event=None):
 
             # Reescribir el archivo de origen (atómico)
             _atomic_writelines(app.current_file_path, new_source_lines)
+            ipc = getattr(app, '_ipc', None)
+            if ipc:
+                ipc.notify_saved(app.current_file_path)
 
             print(f"Bloque movido de {os.path.basename(app.current_file_path)} a {os.path.basename(target_file_path)}")
             
@@ -322,6 +328,9 @@ def void_line(app, event=None):
 
         # Escribir todas las líneas de vuelta al archivo activo (atómico)
         _atomic_writelines(app.current_file_path, lines)
+        ipc = getattr(app, '_ipc', None)
+        if ipc:
+            ipc.notify_saved(app.current_file_path)
 
         print(f"Líneas insertadas/modificadas en {os.path.basename(app.current_file_path)}.")
         app.first_up_after_submission = True  # Enable special navigation for first Up press

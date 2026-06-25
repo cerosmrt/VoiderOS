@@ -83,7 +83,7 @@ class CircularView(QWidget):
         self.insert_mode = False
         
         center_y = self.height() // 2
-        editor_width = min(self.width() - 100, 800)
+        editor_width = self.width() - 100
         self.editor.setFixedWidth(editor_width)
         self.editor.move((self.width() - editor_width) // 2, 
                          center_y - self.editor.height() // 2)
@@ -102,7 +102,7 @@ class CircularView(QWidget):
         self.insert_mode = True
         
         center_y = self.height() // 2
-        editor_width = min(self.width() - 100, 800)
+        editor_width = self.width() - 100
         self.editor.setFixedWidth(editor_width)
         
         # Posicionar editor DEBAJO de la línea central (media línea abajo)

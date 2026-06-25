@@ -4,7 +4,7 @@ Tab in F2 does three different things depending on where the cursor sits:
   - on the ø zero-marker (index 0): shuffle paragraph ORDER (lines keep their
     relative order inside each paragraph);
   - on a '.' separator: shuffle the LINES within that paragraph;
-  - on a content line: insert (or re-roll) a random I/ line below the cursor.
+  - on a content line: insert a random I/ line text at the cursor position.
 """
 import os
 import types
@@ -98,29 +98,32 @@ def test_insert_pulls_from_i(monkeypatch):
     monkeypatch.setattr(random, 'choice', lambda seq: seq[0])
     app = _doc_app(['.', 'mine'], i_files={'src.txt': ['.', 'borrowed line']})
     app.line_ring.index = 1                  # on 'mine'
+    # cursor at position 4 (end of 'mine')
+    app.circular_view.editor.cursorPosition.return_value = 4
+    app.circular_view.editor.text.return_value = 'mine'
     app._doc_insert_random_i_line()
-    # A new line was inserted below the cursor, taken from I/.
-    assert app.line_ring.lines == ['.', 'mine', 'borrowed line']
-    assert app.line_ring.index == 2
-    assert app._doc_tab_cand == {'idx': 2, 'text': 'borrowed line'}
+    # text inserted at cursor — ring line updated in place, no new ring entry
+    assert app.line_ring.lines == ['.', 'mineborrowed line']
+    assert app.line_ring.index == 1          # stays on same line
 
 
-def test_insert_reroll_replaces_in_place(monkeypatch):
+def test_insert_at_cursor_start(monkeypatch):
     monkeypatch.setattr(random, 'shuffle', lambda seq: None)
-    pool = iter(['first', 'second'])
-    monkeypatch.setattr(random, 'choice', lambda seq: next(pool))
-    app = _doc_app(['.', 'mine'], i_files={'src.txt': ['x']})
+    monkeypatch.setattr(random, 'choice', lambda seq: seq[0])
+    app = _doc_app(['.', 'mine'], i_files={'src.txt': ['word']})
     app.line_ring.index = 1
-    app._doc_insert_random_i_line()          # inserts 'first'
-    assert app.line_ring.lines == ['.', 'mine', 'first']
-    app._doc_insert_random_i_line()          # re-roll → replaces, no growth
-    assert app.line_ring.lines == ['.', 'mine', 'second']
-    assert app.line_ring.index == 2
+    app.circular_view.editor.cursorPosition.return_value = 0
+    app.circular_view.editor.text.return_value = 'mine'
+    app._doc_insert_random_i_line()
+    assert app.line_ring.lines == ['.', 'wordmine']
+    assert app.line_ring.index == 1
 
 
 def test_insert_no_i_lines_is_noop():
     app = _doc_app(['.', 'mine'])            # empty book_dir
     app.line_ring.index = 1
+    app.circular_view.editor.cursorPosition.return_value = 4
+    app.circular_view.editor.text.return_value = 'mine'
     app._doc_insert_random_i_line()
     assert app.line_ring.lines == ['.', 'mine']
 
