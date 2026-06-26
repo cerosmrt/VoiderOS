@@ -152,14 +152,7 @@ class KeyRouterMixin:
         elif self.current_view == 3:
             self._handle_f4_keys(key, mods, event)
         elif self.current_view == 4:
-            if key == Qt.Key.Key_Escape:
-                self.switch_to_view(0); event.accept()
-            elif self._matches(key, mods, 'quit'):
-                self._show_lock_screen(); event.accept()
-            elif key == Qt.Key.Key_Up and mods == Qt.KeyboardModifier.NoModifier:
-                self._f5_navigate(-1); event.accept()
-            elif key == Qt.Key.Key_Down and mods == Qt.KeyboardModifier.NoModifier:
-                self._f5_navigate(1); event.accept()
+            self._handle_f5_keys(key, mods, event)
         elif self.current_view in (5, 6, 7):
             if key == Qt.Key.Key_Escape:
                 self.switch_to_view(0); event.accept()
@@ -316,6 +309,29 @@ class KeyRouterMixin:
             self._merge_zero_files(silent=False); event.accept()
         elif self._matches(key, mods, 'quit'):
             self._show_lock_screen()
+
+    def _handle_f5_keys(self, key, mods, event):
+        Alt = Qt.KeyboardModifier.AltModifier
+        Shift = Qt.KeyboardModifier.ShiftModifier
+        No = Qt.KeyboardModifier.NoModifier
+        if key == Qt.Key.Key_Up and mods == No:
+            self._triage_prev_para(); event.accept()
+        elif key == Qt.Key.Key_Down and mods == No:
+            self._triage_next_para(); event.accept()
+        elif key == Qt.Key.Key_Up and mods == Shift:
+            self._triage_prev_book(); event.accept()
+        elif key == Qt.Key.Key_Down and mods == Shift:
+            self._triage_next_book(); event.accept()
+        elif key == Qt.Key.Key_Right:
+            self._triage_dispatch(); event.accept()
+        elif key == Qt.Key.Key_Up and mods == Alt:
+            self._triage_swap_up(); event.accept()
+        elif key == Qt.Key.Key_Down and mods == Alt:
+            self._triage_swap_down(); event.accept()
+        elif key == Qt.Key.Key_Escape:
+            self.switch_to_view(0); event.accept()
+        elif self._matches(key, mods, 'quit'):
+            self._show_lock_screen(); event.accept()
 
     def _handle_f4_keys(self, key, mods, event):
         # F4 reading view is read-only; Esc/Quit handled globally.

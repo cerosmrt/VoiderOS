@@ -7,6 +7,23 @@ ACTIVE — ready to implement next
 ---------------------------------
 (none queued — pick from below)
 
+BUGS
+----
+- F5 triage laggy / unresponsive on large files (e.g. 0.txt): paintEvent calls
+  fm.boundingRect on every repaint, _triage_enter re-parses the full ring on each
+  F5 entry. Fix: cache paragraph layout on set_para; skip re-entering if paragraphs
+  already loaded for the same file.
+
+- Ctrl+Shift+D dispatch (F2): not working.
+
+- F10 font size overlay: displays 11 when cursor is on the current line (should
+  show the actual configured font size).
+
+- Help overlay: no scroll — text gets cut off on smaller screens. Needs
+  QScrollArea or manual scroll via arrow keys.
+
+- Lock screen aesthetics: user wants it more minimal.
+
 WRITING / F2
 ------------
 - Ctrl+Delete on a dispatch separator line (e.g. "/chapter-name" in 0.txt or F2):
@@ -39,6 +56,10 @@ RENAME
 
 F3 / LIBRARY
 ------------
+- F3 dot separator Ctrl+Delete: pressing Ctrl+Delete on a '.' line in F3 (the
+  separator between two chapter groups) should delete only that separator, merging
+  the two adjacent groups into one. Should NOT delete the text that follows.
+
 - Split doc by '/' markers: Ctrl+Shift+F in F2 splits a file into
   docname_1.txt, docname_2.txt etc. at '/' separator lines.
   (Different from Dispatch which routes to named files — this is a
@@ -49,11 +70,8 @@ VIEWS
 - Feature 6: detaching views — discussed and deferred.
   Multiple Voider instances now achieve the same result.
 
-- Remap F3/F4: move current F3 (book browser / library) to F4, and use the
-  new F3 as a paragraph-level view of the active file — shows paragraphs as
-  prose, centered, one at a time (or scrollable). Works on 0.txt or any file.
-  From this view you can choose where to send each paragraph (dispatch to a
-  chapter, void it, keep it). Think of it as a "paragraph triage" view.
+- F3/F4 remap: originally planned but user chose to override F5 instead.
+  F5 is now the paragraph triage view (implemented). Remap deferred.
 
 - Oracle as Tab key on F1/F5 instead of dedicated F8 view — discussed,
   not decided. Would free F8 for other uses.

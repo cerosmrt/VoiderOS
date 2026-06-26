@@ -47,6 +47,7 @@ from f4_mixin import F4Mixin
 from f5678_mixin import F5678Mixin
 from tts_mixin import TtsMixin
 from key_router_mixin import KeyRouterMixin
+from f5_triage_mixin import F5TriageMixin
 
 from files import setup_file_handling, void_line
 from ipc import VoiderIPC
@@ -60,6 +61,7 @@ from fx_panel import FxPanel
 from help_overlay import HelpOverlay
 from settings_panel import SettingsPanel
 from lock_screen import LockScreen
+from triage_view import TriageView
 
 
 def _zodiac_sign(month, day):
@@ -92,7 +94,7 @@ def _zodiac_sign(month, day):
 
 
 class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
-                          F4Mixin, F5678Mixin, TtsMixin, KeyRouterMixin):
+                          F4Mixin, F5TriageMixin, F5678Mixin, TtsMixin, KeyRouterMixin):
     """
     F1: center entry — write/navigate active file
     F2: circular view — edit/swap active file lines
@@ -250,6 +252,9 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self.vault_view = None      # (Oracle, no longer on F4)
         self.settings_view = None   # F10: Settings panel
         self.transform_view = None  # F5: Transform — editable O/ line → I/
+        self.triage_view = None     # F5: Paragraph triage (split view)
+        self._triage_paragraphs = []
+        self._triage_para_idx = 0
         self.o_reader_view = None   # F6: Reader — circular view of O/ book
         self.o_browser_view = None  # F7: Book browser for O/
         self.oracle_o_view = None   # F8: Oracle from O/
@@ -559,14 +564,15 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self.stack.setCurrentWidget(self.reading_view)
             self.entry.hide()
 
-        elif view_index == 4:  # F5 — mirrors F1 but for O/: edit a forked line, Enter → I/
-            self.stack.setCurrentWidget(self.normal_view)
-            self.entry.show()
-            self.entry.raise_()
-            cur = self.o_reader_ring.current()
-            self.entry.setText('' if not cur or cur == '.' else cur)
-            self.entry.setCursorPosition(len(self.entry.text()))
-            self.entry.setFocus()
+        elif view_index == 4:  # F5 — paragraph triage (split view)
+            if not self.triage_view:
+                self.triage_view = TriageView(self)
+                self.stack.addWidget(self.triage_view)
+            if not self._library_lines:
+                self._load_library()
+            self.stack.setCurrentWidget(self.triage_view)
+            self.entry.hide()
+            self._triage_enter()
 
         elif view_index == 5:  # F6 — reader: circular view of O/ book (read-only)
             if not self.o_reader_view:
@@ -734,6 +740,8 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self._lock_screen.setGeometry(self.rect())
         if hasattr(self, '_fx_panel'):
             self._fx_panel.setGeometry(self.rect())
+        if self.triage_view:
+            self.triage_view.setGeometry(self.stack.rect())
 
     def leaveEvent(self, event):
         """Restore focus to the active editor when the mouse leaves the window."""
