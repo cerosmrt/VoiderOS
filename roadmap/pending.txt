@@ -9,6 +9,16 @@ ACTIVE — ready to implement next
 
 WRITING / F2
 ------------
+- Ctrl+Delete on a dispatch separator line (e.g. "/chapter-name" in 0.txt or F2):
+  currently untested — need to verify it deletes only the separator line itself,
+  NOT the paragraph group that follows it. Expected: separator is removed from the
+  ring / file, surrounding content untouched.
+
+- F6 (O/ circular reader) make editable: Ctrl+Delete on a line from an external
+  book moves that line to the user's own writing (appends to 0.txt the same way
+  that Enter does in F5 fork). Essentially "fork this single sentence into mine"
+  without leaving F6.
+
 - Tab in F2: behaviour was changed to insert-at-cursor (not replace).
   Original intent was replace + undo. If replace+undo is still wanted,
   needs undo stack first. Deferred until undo is scoped.
