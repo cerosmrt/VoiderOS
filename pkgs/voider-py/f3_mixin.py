@@ -38,7 +38,7 @@ class F3Mixin:
             center_y - view.editor.sizeHint().height() // 2
         )
         if self.book_ring.current() == '.':
-            view.editor.setText('· · ·')
+            view.editor.setText('.')
             view.editor.setReadOnly(True)
         elif self._book_is_portal():
             view.editor.setText('0')
@@ -83,7 +83,7 @@ class F3Mixin:
         self.book_ring.move(delta)
         self.book_view._offset = 0.0
         if self.book_ring.current() == '.':
-            self.book_view.editor.setText('· · ·')
+            self.book_view.editor.setText('.')
             self.book_view.editor.setReadOnly(True)
         elif self._book_is_portal():
             self.book_view.editor.setText('0')
@@ -319,7 +319,7 @@ class F3Mixin:
         self.book_ring.index = idx
         self._save_library()
         self.book_view._offset = 0.0
-        self.book_view.editor.setText('· · ·')
+        self.book_view.editor.setText('.')
         self.book_view.editor.setReadOnly(True)
         self.book_view.editor.setCursorPosition(0)
         self.book_view.update()
@@ -342,7 +342,7 @@ class F3Mixin:
         self._save_library()
         self.book_view._offset = 0.0
         if self.book_ring.current() == '.':
-            self.book_view.editor.setText('· · ·')
+            self.book_view.editor.setText('.')
             self.book_view.editor.setReadOnly(True)
         else:
             self.book_view.editor.setText(self.book_ring.current())
@@ -442,7 +442,7 @@ class F3Mixin:
         self._save_library()
         self.book_view._offset = 0.0
         if self.book_ring.current() == '.':
-            self.book_view.editor.setText('· · ·')
+            self.book_view.editor.setText('.')
             self.book_view.editor.setReadOnly(True)
         else:
             self.book_view.editor.setText(self.book_ring.current())
@@ -467,7 +467,7 @@ class F3Mixin:
         self._save_library()
         self.book_view._offset = 0.0
         if self.book_ring.current() == '.':
-            self.book_view.editor.setText('· · ·')
+            self.book_view.editor.setText('.')
             self.book_view.editor.setReadOnly(True)
         else:
             self.book_view.editor.setText(self.book_ring.current())
