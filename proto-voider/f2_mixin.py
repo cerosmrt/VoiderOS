@@ -257,6 +257,8 @@ class F2Mixin:
 
     def _random_line_from_ws(self):
         """Pick a random non-dot line from the F7 working set books."""
+        if not getattr(self, '_ws_loaded', False):
+            self._load_working_set()
         ws = getattr(self, '_ws_books', [])
         filled = [e for e in ws if e.get('path')]
         if not filled:
