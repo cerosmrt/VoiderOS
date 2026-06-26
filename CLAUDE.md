@@ -80,7 +80,7 @@ pytest tests/ -v
 
 Mandatory snapshot:
 ```bash
-git -C /home/federico/void add -A
+git -C /home/federico/void add -A 0.txt I/ I.txt pending.txt
 git -C /home/federico/void commit -m "snapshot $(date '+%Y-%m-%d %H:%M:%S')"
 ```
 Always use `git -C /home/federico/void` — Voider does not run from that cwd.
