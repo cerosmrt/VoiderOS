@@ -265,6 +265,7 @@ class CustomLineEdit(QLineEdit):
     deleteLineToZero = pyqtSignal()
     deleteAtEnd = pyqtSignal()
     tabPressed = pyqtSignal()
+    altTabPressed = pyqtSignal()   # Alt+Tab: insert from working set
     dotPressed = pyqtSignal()      # '.' key when intercept_period is True
     shiftReturnPressed = pyqtSignal()
     ctrlDeletePressed = pyqtSignal()
@@ -284,7 +285,10 @@ class CustomLineEdit(QLineEdit):
         # here at the event level and treat Tab as the random-jump key (like '*').
         if e.type() == QEvent.Type.KeyPress and e.key() in (
                 Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
-            self.tabPressed.emit()
+            if bool(e.modifiers() & Qt.KeyboardModifier.AltModifier):
+                self.altTabPressed.emit()
+            else:
+                self.tabPressed.emit()
             return True
         return super().event(e)
 

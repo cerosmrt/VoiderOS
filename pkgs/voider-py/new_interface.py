@@ -494,6 +494,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                 self.circular_view.editor.deleteLineToZero.connect(self._delete_line_to_zero)
                 self.circular_view.editor.deleteAtEnd.connect(self._doc_join_next)
                 self.circular_view.editor.tabPressed.connect(self._doc_tab)
+                self.circular_view.editor.altTabPressed.connect(self._doc_insert_ws_line)
                 self.circular_view.editor.home_end_doc = True
                 self.circular_view.editor.homePressed.connect(self._doc_jump_start)
                 self.circular_view.editor.endPressed.connect(self._doc_jump_end)

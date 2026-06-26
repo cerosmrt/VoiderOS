@@ -218,39 +218,69 @@ class F2Mixin:
         self._doc_tab_cand = None
         self._doc_refresh_editor()
 
-    def _doc_insert_random_i_line(self):
-        """Tab on a content line: insert/replace with a random I/ fragment.
+    def _doc_insert_fragment(self, line):
+        """Insert a raw line as an inline fragment at the cursor / over selection.
 
-        The pulled line is stripped to an inline fragment (lowercase first char,
-        no trailing dot). If the editor has a selection, the fragment replaces it;
-        otherwise it is inserted at the cursor. Either way the fragment is selected
-        afterward so the next Tab re-rolls it.
+        Strips trailing dot. Keeps leading capital only when the insertion point
+        is at position 0 (start of line); lowercases otherwise. Selects the
+        inserted text so the next Tab re-rolls it.
         """
-        line = self._random_line_from_dir(self.book_dir,
-                                          exclude_path=self.current_file_path)
-        if not line:
-            print("↩ No I/ lines to pull.")
-            return
         fragment = line.rstrip('.')
-        if fragment and fragment[0].isupper():
-            fragment = fragment[0].lower() + fragment[1:]
 
         ed = self.circular_view.editor
         current = ed.text()
         if ed.hasSelectedText():
             start = ed.selectionStart()
             sel_len = len(ed.selectedText())
-            new_text = current[:start] + fragment + current[start + sel_len:]
-            ed.setText(new_text)
-            ed.setSelection(start, len(fragment))
         else:
-            pos = ed.cursorPosition()
-            new_text = current[:pos] + fragment + current[pos:]
-            ed.setText(new_text)
-            ed.setSelection(pos, len(fragment))
+            start = ed.cursorPosition()
+            sel_len = 0
+
+        if start > 0 and fragment and fragment[0].isupper():
+            fragment = fragment[0].lower() + fragment[1:]
+
+        new_text = current[:start] + fragment + current[start + sel_len:]
+        ed.setText(new_text)
+        ed.setSelection(start, len(fragment))
         self.line_ring.lines[self.line_ring.index] = new_text
         self.auto_save_circular()
         self.circular_view.update()
+
+    def _doc_insert_random_i_line(self):
+        """Tab on a content line: insert/replace with a random I/ fragment."""
+        line = self._random_line_from_dir(self.book_dir,
+                                          exclude_path=self.current_file_path)
+        if not line:
+            print("↩ No I/ lines to pull.")
+            return
+        self._doc_insert_fragment(line)
+
+    def _random_line_from_ws(self):
+        """Pick a random non-dot line from the F7 working set books."""
+        ws = getattr(self, '_ws_books', [])
+        filled = [e for e in ws if e.get('path')]
+        if not filled:
+            return None
+        random.shuffle(filled)
+        for e in filled:
+            fpath = os.path.join(self.o_dir, e['path'])
+            try:
+                with open(fpath, 'r', encoding='utf-8', errors='replace') as fh:
+                    lines = [l.strip() for l in fh
+                             if l.strip() and l.strip() != '.']
+                if lines:
+                    return random.choice(lines)
+            except OSError:
+                continue
+        return None
+
+    def _doc_insert_ws_line(self):
+        """Alt+Tab in F2: insert/replace with a random line from the working set."""
+        line = self._random_line_from_ws()
+        if not line:
+            print("↩ No working set books to pull from.")
+            return
+        self._doc_insert_fragment(line)
 
     def _doc_navigate(self, delta):
         """Move doc ring and update F2 editor text.

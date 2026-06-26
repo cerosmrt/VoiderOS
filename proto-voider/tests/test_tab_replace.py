@@ -12,7 +12,7 @@ from helpers import make_ring_app
 TAB_METHODS = (
     '_random_line_from_dir', '_doc_tab',
     '_doc_shuffle_paragraphs', '_doc_shuffle_para_lines',
-    '_doc_insert_random_i_line',
+    '_doc_insert_fragment', '_doc_insert_random_i_line',
     '_doc_refresh_editor',
 )
 
@@ -68,13 +68,14 @@ class TestFragmentStripping:
         assert not inserted.rstrip().endswith('.')
 
     def test_strips_both(self, monkeypatch):
+        """At position 0 capital is kept; trailing dot is always stripped."""
         monkeypatch.setattr(random, 'choice', lambda seq: seq[0])
         app = _tab_app(['.', ''], i_files={'s.txt': ['Hello world.']})
         app.line_ring.index = 1
         _setup_editor(app, '', cursor=0)
         app._doc_insert_random_i_line()
         inserted = app.circular_view.editor.setText.call_args[0][0]
-        assert inserted == 'hello world'
+        assert inserted == 'Hello world'  # capital kept at pos 0, dot stripped
 
 
 class TestSelectionBehaviour:

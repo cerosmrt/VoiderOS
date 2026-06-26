@@ -18,7 +18,7 @@ from helpers import make_ring_app
 DOC_TAB_METHODS = (
     '_random_line_from_dir', '_doc_refresh_editor', '_doc_tab',
     '_doc_shuffle_paragraphs', '_doc_shuffle_para_lines',
-    '_doc_insert_random_i_line',
+    '_doc_insert_fragment', '_doc_insert_random_i_line',
 )
 
 
