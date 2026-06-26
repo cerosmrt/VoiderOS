@@ -285,7 +285,7 @@ class CustomLineEdit(QLineEdit):
         # here at the event level and treat Tab as the random-jump key (like '*').
         if e.type() == QEvent.Type.KeyPress and e.key() in (
                 Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
-            if bool(e.modifiers() & Qt.KeyboardModifier.AltModifier):
+            if e.key() == Qt.Key.Key_Backtab:
                 self.altTabPressed.emit()
             else:
                 self.tabPressed.emit()
