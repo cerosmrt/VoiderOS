@@ -98,7 +98,7 @@ def test_insert_pulls_from_i(monkeypatch):
     monkeypatch.setattr(random, 'choice', lambda seq: seq[0])
     app = _doc_app(['.', 'mine'], i_files={'src.txt': ['.', 'borrowed line']})
     app.line_ring.index = 1                  # on 'mine'
-    # cursor at position 4 (end of 'mine')
+    app.circular_view.editor.hasSelectedText.return_value = False
     app.circular_view.editor.cursorPosition.return_value = 4
     app.circular_view.editor.text.return_value = 'mine'
     app._doc_insert_random_i_line()
@@ -112,6 +112,7 @@ def test_insert_at_cursor_start(monkeypatch):
     monkeypatch.setattr(random, 'choice', lambda seq: seq[0])
     app = _doc_app(['.', 'mine'], i_files={'src.txt': ['word']})
     app.line_ring.index = 1
+    app.circular_view.editor.hasSelectedText.return_value = False
     app.circular_view.editor.cursorPosition.return_value = 0
     app.circular_view.editor.text.return_value = 'mine'
     app._doc_insert_random_i_line()

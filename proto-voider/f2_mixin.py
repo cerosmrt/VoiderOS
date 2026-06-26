@@ -219,18 +219,35 @@ class F2Mixin:
         self._doc_refresh_editor()
 
     def _doc_insert_random_i_line(self):
-        """Tab on a content line: paste a random I/ line at the cursor position."""
+        """Tab on a content line: insert/replace with a random I/ fragment.
+
+        The pulled line is stripped to an inline fragment (lowercase first char,
+        no trailing dot). If the editor has a selection, the fragment replaces it;
+        otherwise it is inserted at the cursor. Either way the fragment is selected
+        afterward so the next Tab re-rolls it.
+        """
         line = self._random_line_from_dir(self.book_dir,
                                           exclude_path=self.current_file_path)
         if not line:
             print("↩ No I/ lines to pull.")
             return
+        fragment = line.rstrip('.')
+        if fragment and fragment[0].isupper():
+            fragment = fragment[0].lower() + fragment[1:]
+
         ed = self.circular_view.editor
-        pos = ed.cursorPosition()
         current = ed.text()
-        new_text = current[:pos] + line + current[pos:]
-        ed.setText(new_text)
-        ed.setCursorPosition(pos + len(line))
+        if ed.hasSelectedText():
+            start = ed.selectionStart()
+            sel_len = len(ed.selectedText())
+            new_text = current[:start] + fragment + current[start + sel_len:]
+            ed.setText(new_text)
+            ed.setSelection(start, len(fragment))
+        else:
+            pos = ed.cursorPosition()
+            new_text = current[:pos] + fragment + current[pos:]
+            ed.setText(new_text)
+            ed.setSelection(pos, len(fragment))
         self.line_ring.lines[self.line_ring.index] = new_text
         self.auto_save_circular()
         self.circular_view.update()
