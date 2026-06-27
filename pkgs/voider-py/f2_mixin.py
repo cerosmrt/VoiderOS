@@ -644,7 +644,15 @@ class F2Mixin:
         for para in paragraphs:
             new_lines.append('.')
             new_lines.extend(para)
+        if not new_lines:
+            new_lines = ['.']
         self.line_ring.lines = new_lines
+        # Keep the cursor in range — LineRing.current() indexes without modulo,
+        # so an index left past the new (shorter) list would raise IndexError.
+        if self.line_ring.index >= len(new_lines):
+            self.line_ring.index = len(new_lines) - 1
+        if self.line_ring.index < 0:
+            self.line_ring.index = 0
 
     def _dot_line_index(self, para_idx, paragraphs):
         """Return the line index of the dot that precedes paragraphs[para_idx]."""
