@@ -95,6 +95,22 @@ SYSTEM / NIX
 
 SAFETY / GIT
 ------------
+- Data-integrity audit follow-ups (item 1 DONE: atomic I.txt writes, commit
+  d85f94e). Remaining, ranked:
+    * (HIGH) Cross-instance I.txt sync: _save_library now notifies via IPC
+      (_atomic_write_lines), but _on_file_saved_by_other only reloads the active
+      doc, never the library — two F3 instances still lost-update each other's
+      index. Add a reload branch (path == I.txt), deferring when mid-edit
+      (_book_pending_new or _f3_search_active), preserving the selected title.
+    * (MED) Save-time line-count assertion in auto_save_circular: before
+      os.replace, if new non-blank count < on-disk count and no explicit-delete
+      flag was set this event, abort and dump a *.rescue copy.
+    * (MED) Position-based search confirm: _f2_search_confirm / _f3_search_confirm
+      resolve matches by value (.index/first equal) — duplicate lines/titles jump
+      to the wrong occurrence. Track the selected display position → source index.
+    * (LOW) Parallel-array tripwire: assert len(book_ring.lines) ==
+      len(_library_lines) after every F3 mutation (debug flag).
+
 - Automatic git snapshots of ~/void: Voider currently saves files to disk but
   never commits to git. Add periodic auto-commit (e.g. every N minutes) or a
   post-save hook that runs: git -C ~/void add -A && git -C ~/void commit -m
