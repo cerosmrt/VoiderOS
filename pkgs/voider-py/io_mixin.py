@@ -693,11 +693,8 @@ class IoMixin:
         except Exception:
             pass
         files.sort()
-        try:
-            with open(lib_path, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(files))
-        except Exception as e:
-            print(f"⚠️ Could not generate library.txt: {e}")
+        if files:
+            self._atomic_write_lines(lib_path, files)
 
     def _append_new_files_to_library(self):
         """Add any I/ files not yet in I.txt to the end, preserving existing order."""
@@ -718,8 +715,7 @@ class IoMixin:
                         existing.add(f.lower())
             if new_files:
                 lines.extend(new_files)
-                with open(lib_path, 'w', encoding='utf-8') as f:
-                    f.write('\n'.join(lines) + '\n')
+                self._atomic_write_lines(lib_path, lines)
                 print(f"📚 Added {len(new_files)} new file(s) to I.txt")
         except Exception as e:
             print(f"⚠️ Could not update I.txt: {e}")
@@ -750,11 +746,13 @@ class IoMixin:
             pass
 
     def _save_library(self):
-        try:
-            with open(self._library_path(), 'w', encoding='utf-8') as f:
-                f.write('\n'.join(self._library_lines))
-        except Exception as e:
-            print(f"⚠️ Could not save library.txt: {e}")
+        # Never persist an empty index — that can only be a logic bug, and an
+        # atomic write of [] would still wipe a good I.txt. The library always
+        # keeps at least ['.'] in normal operation.
+        if not self._library_lines:
+            print("⛔ Refusing to save an empty library index.")
+            return
+        self._atomic_write_lines(self._library_path(), self._library_lines)
 
     def _library_current_fname(self):
         """Return the filename.txt at the current ring position, or None."""
