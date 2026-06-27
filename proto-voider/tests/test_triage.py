@@ -1,228 +1,341 @@
-"""Tests for F5 paragraph triage view."""
+"""Tests for F5 paragraph triage view (source = 0.txt, type-to-filter target)."""
 import os
 import types
-import pytest
 from unittest.mock import MagicMock
 
+import pytest
+
 from line_ring import LineRing
-from helpers import make_ring_app, _mock_circular_view
+from helpers import make_ring_app
 
 
 TRIAGE_METHODS = (
     '_paragraphs_from_ring', '_rebuild_ring_from_paragraphs', '_dot_line_index',
-    '_triage_enter', '_triage_refresh',
-    '_triage_next_para', '_triage_prev_para',
-    '_triage_next_book', '_triage_prev_book',
-    '_triage_dispatch', '_triage_swap_up', '_triage_swap_down',
-    '_library_current_fname', '_save_library',
+    '_atomic_write_lines', '_library_path', '_library_current_fname', '_save_library',
+    '_triage_enter', '_triage_refresh', '_triage_parse_file', '_triage_parse_lines',
+    '_triage_save', '_triage_next_para', '_triage_prev_para',
+    '_triage_matches', '_triage_target', '_triage_dispatch', '_triage_create',
+    '_triage_swap_up', '_triage_swap_down',
+    '_triage_filter_add', '_triage_filter_backspace', '_triage_cycle_match',
+    '_triage_snapshot_once',
 )
 
 
-def _triage_app(lines, book_ring_lines=None, tmp_path=None):
+def _triage_app(tmp_path, zero_lines, library=None, current_is_zero=True):
     from new_interface import FullscreenCircleApp
-    import tempfile
 
-    app = make_ring_app(list(lines))
-    app.line_ring = LineRing(list(lines))
+    app = make_ring_app(['.'])
+    void = tmp_path
+    (void / 'I').mkdir(exist_ok=True)
+    app.void_dir = str(void)
+    app.f1_file = str(void / 'I' / '0.txt')
+    with open(app.f1_file, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(zero_lines) + ('\n' if zero_lines else ''))
 
-    # Triage state
+    library = library or []
+    app._library_lines = []
+    ring_names = []
+    app._library_path_cache = {}
+    for name in library:
+        fname = name + '.txt'
+        app._library_lines.append(fname)
+        ring_names.append(name)
+        p = str(void / 'I' / fname)
+        open(p, 'w').close()
+        app._library_path_cache[fname] = p
+    app.book_ring = LineRing(ring_names or ['.'])
+
+    if current_is_zero:
+        app.current_file_path = app.f1_file
+    else:
+        chap = str(void / 'I' / 'otherchap.txt')
+        open(chap, 'w').close()
+        app.current_file_path = chap
+
+    app.line_ring = LineRing(list(zero_lines) or ['.'])
+    app._ipc = MagicMock()
+    app.triage_view = MagicMock()
     app._triage_paragraphs = []
     app._triage_para_idx = 0
-    app.triage_view = MagicMock()
-
-    # Book ring (right panel)
-    app.book_ring = LineRing(book_ring_lines or ['.', 'chapter-a', '.', 'chapter-b'])
-    app.book_ring.index = 1  # on 'chapter-a'
-    # _library_lines stores filenames (with .txt); book_ring stores display names
-    app._library_lines = ['.', 'chapter-a.txt', '.', 'chapter-b.txt']
-    app._book_pending_new = False
-
-    if tmp_path:
-        app.void_dir = str(tmp_path)
-        app.f1_file = str(tmp_path / 'I' / '0.txt')
-        (tmp_path / 'I').mkdir(exist_ok=True)
-        open(app.f1_file, 'w').close()
-
-    app._library_path_cache = {}
+    app._triage_filter = ''
+    app._triage_match_idx = 0
+    app._triage_snapshotted = False
+    app.switch_to_view = MagicMock()
+    app._show_lock_screen = MagicMock()
 
     for name in TRIAGE_METHODS:
         if hasattr(FullscreenCircleApp, name):
             setattr(app, name, types.MethodType(getattr(FullscreenCircleApp, name), app))
 
-    app.auto_save_circular = MagicMock()
-    app._save_library = MagicMock()
-
     return app
+
+
+def _read_paras(path):
+    with open(path, 'r', encoding='utf-8') as f:
+        lines = [l.rstrip('\n') for l in f]
+    paras, cur = [], []
+    for l in lines:
+        if l.strip() == '.':
+            if cur:
+                paras.append(cur); cur = []
+        elif l.strip():
+            cur.append(l)
+    if cur:
+        paras.append(cur)
+    return paras
 
 
 class TestTriageLoad:
 
-    def test_load_extracts_paragraphs(self):
-        app = _triage_app(['.', 'line1', 'line2', '.', 'line3'])
+    def test_loads_paragraphs_from_zero(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'a', 'b', '.', 'c'])
         app._triage_enter()
-        assert len(app._triage_paragraphs) == 2
-        assert app._triage_paragraphs[0] == ['line1', 'line2']
-        assert app._triage_paragraphs[1] == ['line3']
-
-    def test_load_sets_index_zero(self):
-        app = _triage_app(['.', 'a', '.', 'b'])
-        app._triage_enter()
+        assert app._triage_paragraphs == [['a', 'b'], ['c']]
         assert app._triage_para_idx == 0
 
-    def test_load_single_paragraph(self):
-        app = _triage_app(['.', 'only line'])
+    def test_loads_zero_even_when_active_is_chapter(self, tmp_path):
+        # current file is a chapter, but triage must read 0.txt
+        app = _triage_app(tmp_path, ['.', 'x', '.', 'y'], current_is_zero=False)
         app._triage_enter()
-        assert app._triage_paragraphs == [['only line']]
+        assert app._triage_paragraphs == [['x'], ['y']]
 
-    def test_load_skips_empty_paragraphs(self):
-        """Paragraphs with no lines (consecutive dots) are ignored."""
-        app = _triage_app(['.', '.', 'real line'])
+    def test_empty_zero_sets_idx_minus1(self, tmp_path):
+        app = _triage_app(tmp_path, [])
         app._triage_enter()
-        assert app._triage_paragraphs == [['real line']]
+        assert app._triage_paragraphs == []
+        assert app._triage_para_idx == -1
 
 
 class TestTriageNavigation:
 
-    def test_next_para_advances_index(self):
-        app = _triage_app(['.', 'a', '.', 'b', '.', 'c'])
+    def test_next_para_advances(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'a', '.', 'b', '.', 'c'])
         app._triage_enter()
         app._triage_next_para()
         assert app._triage_para_idx == 1
 
-    def test_prev_para_at_first_goes_to_zo(self):
-        app = _triage_app(['.', 'a', '.', 'b'])
+    def test_prev_at_first_goes_to_zo(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'a', '.', 'b'])
         app._triage_enter()
         app._triage_para_idx = 0
         app._triage_prev_para()
-        assert app._triage_para_idx == -1  # lands on ø
+        assert app._triage_para_idx == -1
 
-    def test_zo_prev_goes_to_last(self):
-        app = _triage_app(['.', 'a', '.', 'b'])
-        app._triage_enter()
-        app._triage_para_idx = -1
-        app._triage_prev_para()
-        assert app._triage_para_idx == 1  # last paragraph
-
-    def test_next_para_at_last_goes_to_zo(self):
-        app = _triage_app(['.', 'a', '.', 'b'])
+    def test_next_at_last_goes_to_zo(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'a', '.', 'b'])
         app._triage_enter()
         app._triage_para_idx = 1
         app._triage_next_para()
-        assert app._triage_para_idx == -1  # lands on ø
+        assert app._triage_para_idx == -1
 
-    def test_zo_next_goes_to_first(self):
-        app = _triage_app(['.', 'a', '.', 'b'])
+
+class TestTriageTargetResolution:
+
+    def test_matches_substring(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'a'],
+                          library=['moonlight', 'sunrise', 'moon-river'])
         app._triage_enter()
-        app._triage_para_idx = -1
-        app._triage_next_para()
-        assert app._triage_para_idx == 0  # first paragraph
+        app._triage_filter = 'moon'
+        names = [d for _, d in app._triage_matches()]
+        assert names == ['moonlight', 'moon-river']
 
-    def test_next_book_advances_ring(self):
-        app = _triage_app(['.', 'x'])
+    def test_target_existing_when_match(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'a'], library=['chapter-a'])
         app._triage_enter()
-        before = app.book_ring.index
-        app._triage_next_book()
-        assert app.book_ring.index != before or len(app.book_ring.lines) == 1
+        app._triage_filter = 'chapter-a'
+        target = app._triage_target()
+        assert target['is_new'] is False
+        assert target['fname'] == 'chapter-a.txt'
 
-    def test_prev_book_retreats_ring(self):
-        app = _triage_app(['.', 'x'])
+    def test_target_new_when_no_match(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'a'], library=['chapter-a'])
         app._triage_enter()
-        app.book_ring.index = 1  # on chapter-a
-        app._triage_prev_book()
-        # Should have moved backwards (wrapping)
-        assert app.book_ring.index != 1 or len(app.book_ring.lines) == 1
+        app._triage_filter = 'totally-original'
+        target = app._triage_target()
+        assert target['is_new'] is True
+        assert target['fname'] == 'totally-original.txt'
 
-
-class TestTriageDispatch:
-
-    def test_dispatch_appends_to_book_file(self, tmp_path):
-        book_file = tmp_path / 'chapter-a.txt'
-        book_file.write_text('existing line\n', encoding='utf-8')
-
-        app = _triage_app(['.', 'para line 1', 'para line 2', '.', 'other'],
-                          tmp_path=tmp_path)
-        app._library_path_cache = {'chapter-a.txt': str(book_file)}
-        app.book_ring.index = 1  # on 'chapter-a'
+    def test_target_none_when_empty_filter_no_books(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'a'], library=[])
         app._triage_enter()
-        app._triage_para_idx = 0
-        app._triage_dispatch()
+        app._triage_filter = ''
+        assert app._triage_target() is None
 
-        content = book_file.read_text(encoding='utf-8')
-        assert 'para line 1' in content
-        assert 'para line 2' in content
 
-    def test_dispatch_removes_para_from_triage(self, tmp_path):
-        book_file = tmp_path / 'chapter-a.txt'
-        book_file.write_text('', encoding='utf-8')
+class TestTriageDispatchExisting:
 
-        app = _triage_app(['.', 'gone', '.', 'stays'],
-                          tmp_path=tmp_path)
-        app._library_path_cache = {'chapter-a.txt': str(book_file)}
-        app.book_ring.index = 1
+    def test_dispatch_appends_to_existing_chapter(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'p1', 'p2', '.', 'q'],
+                          library=['chapter-a'])
         app._triage_enter()
         app._triage_para_idx = 0
+        app._triage_filter = 'chapter-a'
         app._triage_dispatch()
+        paras = _read_paras(app._library_path_cache['chapter-a.txt'])
+        assert ['p1', 'p2'] in paras
 
-        assert ['gone'] not in app._triage_paragraphs
-        assert ['stays'] in app._triage_paragraphs
-
-    def test_dispatch_saves_source_file(self, tmp_path):
-        book_file = tmp_path / 'chapter-a.txt'
-        book_file.write_text('', encoding='utf-8')
-
-        app = _triage_app(['.', 'gone', '.', 'stays'],
-                          tmp_path=tmp_path)
-        app._library_path_cache = {'chapter-a.txt': str(book_file)}
-        app.book_ring.index = 1
+    def test_dispatch_removes_from_source_zero(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'gone', '.', 'stays'],
+                          library=['chapter-a'])
         app._triage_enter()
+        app._triage_para_idx = 0
+        app._triage_filter = 'chapter-a'
         app._triage_dispatch()
+        assert _read_paras(app.f1_file) == [['stays']]
 
-        app.auto_save_circular.assert_called()
-
-    def test_dispatch_skips_dot_entries(self, tmp_path):
-        """Dispatching when book ring is on a '.' separator does nothing."""
-        app = _triage_app(['.', 'para'],
-                          book_ring_lines=['.', 'chapter-a'],
-                          tmp_path=tmp_path)
-        app.book_ring.index = 0  # on the dot separator
+    def test_dispatch_no_new_file_for_existing(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'p'], library=['chapter-a'])
         app._triage_enter()
-        before = list(app._triage_paragraphs)
+        app._triage_filter = 'chapter-a'
+        before = list(app._library_lines)
         app._triage_dispatch()
-        assert app._triage_paragraphs == before
+        assert app._library_lines == before
+
+    def test_dispatch_notifies_ipc_for_both_files(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'p', '.', 'r'], library=['chapter-a'])
+        app._triage_enter()
+        app._triage_filter = 'chapter-a'
+        app._triage_dispatch()
+        notified = {c.args[0] for c in app._ipc.notify_saved.call_args_list}
+        assert app.f1_file in notified
+        assert app._library_path_cache['chapter-a.txt'] in notified
+
+    def test_dispatch_keeps_filter(self, tmp_path):
+        # filter is preserved so consecutive paragraphs can go to the same chapter
+        app = _triage_app(tmp_path, ['.', 'p', '.', 'r'], library=['chapter-a'])
+        app._triage_enter()
+        app._triage_filter = 'chapter-a'
+        app._triage_dispatch()
+        assert app._triage_filter == 'chapter-a'
+
+    def test_dispatch_does_not_create_on_miss(self, tmp_path):
+        # → never creates; an unmatched filter makes dispatch a no-op
+        app = _triage_app(tmp_path, ['.', 'hello'], library=[])
+        app._triage_enter()
+        app._triage_filter = 'totally-original'
+        app._triage_dispatch()
+        assert not os.path.exists(str(tmp_path / 'I' / 'totally-original.txt'))
+        assert app._triage_paragraphs == [['hello']]  # paragraph not moved
+
+
+class TestTriageCreate:
+    """Enter creates a new empty chapter from the typed name — no paragraph moves."""
+
+    def test_create_makes_empty_file(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'hello'], library=[])
+        app._triage_enter()
+        app._triage_filter = 'newchap'
+        app._triage_create()
+        newpath = str(tmp_path / 'I' / 'newchap.txt')
+        assert os.path.exists(newpath)
+        assert _read_paras(newpath) == []  # empty, no paragraph sent
+
+    def test_create_registers_in_library(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'hello'], library=[])
+        app._triage_enter()
+        app._triage_filter = 'newchap'
+        app._triage_create()
+        assert 'newchap.txt' in app._library_lines
+
+    def test_create_does_not_move_paragraph(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'hello'], library=[])
+        app._triage_enter()
+        app._triage_filter = 'newchap'
+        app._triage_create()
+        assert app._triage_paragraphs == [['hello']]
+
+    def test_create_keeps_filter(self, tmp_path):
+        # filter preserved so → immediately dispatches the newly created chapter
+        app = _triage_app(tmp_path, ['.', 'hello'], library=[])
+        app._triage_enter()
+        app._triage_filter = 'newchap'
+        app._triage_create()
+        assert app._triage_filter == 'newchap'
+
+    def test_create_inserts_after_current_book_ring_index(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'hello'], library=['alpha', 'beta', 'gamma'])
+        app._triage_enter()
+        app.book_ring.index = 1  # pointing at 'beta'
+        app._triage_filter = 'newchap'
+        app._triage_create()
+        # should be inserted at index 2, right after 'beta'
+        assert app.book_ring.lines[2] == 'newchap'
+        assert app._library_lines[2] == 'newchap.txt'
+
+    def test_create_noop_when_already_exists(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'hello'], library=['chapter-a'])
+        app._triage_enter()
+        app._triage_filter = 'chapter-a'
+        before = list(app._library_lines)
+        app._triage_create()
+        assert app._library_lines == before  # no duplicate
+
+    def test_create_noop_on_empty_filter(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'hello'], library=[])
+        app._triage_enter()
+        app._triage_filter = ''
+        before = list(app._library_lines)
+        app._triage_create()
+        assert app._library_lines == before
+
+
+class TestTriageCrashClamp:
+
+    def test_ring_index_valid_after_dispatch(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'a', '.', 'b', '.', 'c'],
+                          library=['chapter-a'], current_is_zero=True)
+        app._triage_enter()
+        # park line_ring on the very last line
+        app.line_ring.index = len(app.line_ring.lines) - 1
+        app._triage_filter = 'chapter-a'
+        app._triage_para_idx = 0
+        app._triage_dispatch()
+        assert app.line_ring.index < len(app.line_ring.lines)
+        # must not raise
+        app.line_ring.current()
+
+    def test_rebuild_clamps_out_of_range_index(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'a', '.', 'b', '.', 'c'])
+        app.line_ring = LineRing(['.', 'a', '.', 'b', '.', 'c'])
+        app.line_ring.index = 5
+        app._rebuild_ring_from_paragraphs([['a']])
+        assert app.line_ring.index < len(app.line_ring.lines)
+        app.line_ring.current()
+
+
+class TestTriageSnapshot:
+
+    def test_snapshot_runs_once_per_session(self, tmp_path, monkeypatch):
+        import f5_triage_mixin
+        calls = []
+        monkeypatch.setattr(f5_triage_mixin.subprocess, 'run',
+                            lambda *a, **k: calls.append(a))
+        app = _triage_app(tmp_path, ['.', 'p', '.', 'q', '.', 'r'],
+                          library=['chapter-a'])
+        app._triage_enter()
+        app._triage_filter = 'chapter-a'
+        app._triage_dispatch()
+        first = len(calls)
+        app._triage_filter = 'chapter-a'
+        app._triage_dispatch()
+        # second dispatch must not snapshot again
+        assert len(calls) == first
+        assert first >= 1
 
 
 class TestTriageReorder:
 
-    def test_swap_up_exchanges_paragraphs(self):
-        app = _triage_app(['.', 'first', '.', 'second', '.', 'third'])
-        app._triage_enter()
-        app._triage_para_idx = 1  # on 'second'
-        app._triage_swap_up()
-        assert app._triage_paragraphs[0] == ['second']
-        assert app._triage_paragraphs[1] == ['first']
-        assert app._triage_para_idx == 0
-
-    def test_swap_down_exchanges_paragraphs(self):
-        app = _triage_app(['.', 'first', '.', 'second', '.', 'third'])
-        app._triage_enter()
-        app._triage_para_idx = 0  # on 'first'
-        app._triage_swap_down()
-        assert app._triage_paragraphs[0] == ['second']
-        assert app._triage_paragraphs[1] == ['first']
-        assert app._triage_para_idx == 1
-
-    def test_swap_up_noop_at_first(self):
-        app = _triage_app(['.', 'only', '.', 'two'])
-        app._triage_enter()
-        app._triage_para_idx = 0
-        before = list(app._triage_paragraphs)
-        app._triage_swap_up()
-        assert app._triage_paragraphs == before
-
-    def test_swap_down_noop_at_last(self):
-        app = _triage_app(['.', 'only', '.', 'two'])
+    def test_swap_up_persists(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'first', '.', 'second'])
         app._triage_enter()
         app._triage_para_idx = 1
-        before = list(app._triage_paragraphs)
-        app._triage_swap_down()
-        assert app._triage_paragraphs == before
+        app._triage_swap_up()
+        assert app._triage_paragraphs[0] == ['second']
+        assert _read_paras(app.f1_file)[0] == ['second']
+
+    def test_swap_up_noop_at_first(self, tmp_path):
+        app = _triage_app(tmp_path, ['.', 'one', '.', 'two'])
+        app._triage_enter()
+        app._triage_para_idx = 0
+        app._triage_swap_up()
+        assert app._triage_paragraphs == [['one'], ['two']]

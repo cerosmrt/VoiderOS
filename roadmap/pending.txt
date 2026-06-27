@@ -9,6 +9,12 @@ ACTIVE — ready to implement next
 
 BUGS
 ----
+- Ctrl+Backspace word deletion: when caret is NOT at position 0, Ctrl+Backspace
+  should delete the previous word only (standard behaviour), not the whole line.
+  Currently _delete_line_to_zero fires when caret is at end of line, which is
+  destructive. Fix: only fire line-delete when caret IS at position 0 (or the
+  line IS the only content), otherwise let Qt's built-in word-delete run.
+
 - F5 triage laggy / unresponsive on large files (e.g. 0.txt): paintEvent calls
   fm.boundingRect on every repaint, _triage_enter re-parses the full ring on each
   F5 entry. Fix: cache paragraph layout on set_para; skip re-entering if paragraphs

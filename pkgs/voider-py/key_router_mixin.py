@@ -312,26 +312,53 @@ class KeyRouterMixin:
 
     def _handle_f5_keys(self, key, mods, event):
         Alt = Qt.KeyboardModifier.AltModifier
-        Shift = Qt.KeyboardModifier.ShiftModifier
+        Ctrl = Qt.KeyboardModifier.ControlModifier
         No = Qt.KeyboardModifier.NoModifier
-        if key == Qt.Key.Key_Up and mods == No:
-            self._triage_prev_para(); event.accept()
-        elif key == Qt.Key.Key_Down and mods == No:
-            self._triage_next_para(); event.accept()
-        elif key == Qt.Key.Key_Up and mods == Shift:
-            self._triage_prev_book(); event.accept()
-        elif key == Qt.Key.Key_Down and mods == Shift:
-            self._triage_next_book(); event.accept()
-        elif key == Qt.Key.Key_Right:
-            self._triage_dispatch(); event.accept()
-        elif key == Qt.Key.Key_Up and mods == Alt:
-            self._triage_swap_up(); event.accept()
-        elif key == Qt.Key.Key_Down and mods == Alt:
-            self._triage_swap_down(); event.accept()
-        elif key == Qt.Key.Key_Escape:
-            self.switch_to_view(0); event.accept()
-        elif self._matches(key, mods, 'quit'):
-            self._show_lock_screen(); event.accept()
+        K = Qt.Key
+        # Reorder
+        if key == K.Key_Up and mods == Alt:
+            self._triage_swap_up(); event.accept(); return
+        if key == K.Key_Down and mods == Alt:
+            self._triage_swap_down(); event.accept(); return
+        # Paragraph navigation
+        if key == K.Key_Up and mods == No:
+            self._triage_prev_para(); event.accept(); return
+        if key == K.Key_Down and mods == No:
+            self._triage_next_para(); event.accept(); return
+        # Dispatch current paragraph to the highlighted existing chapter
+        if key == K.Key_Right:
+            self._triage_dispatch(); event.accept(); return
+        # Create a new chapter from the typed name (no paragraph moves)
+        if key in (K.Key_Return, K.Key_Enter):
+            self._triage_create(); event.accept(); return
+        # Navigate filtered chapter list (Shift+Up/Down)
+        Shift = Qt.KeyboardModifier.ShiftModifier
+        if key == K.Key_Up and mods == Shift:
+            self._triage_cycle_match(-1); event.accept(); return
+        if key == K.Key_Down and mods == Shift:
+            self._triage_cycle_match(1); event.accept(); return
+        # Cycle filtered matches
+        if key == K.Key_Tab:
+            self._triage_cycle_match(1); event.accept(); return
+        if key == K.Key_Backtab:
+            self._triage_cycle_match(-1); event.accept(); return
+        # Filter editing
+        if key == K.Key_Backspace:
+            self._triage_filter_backspace(); event.accept(); return
+        if key == K.Key_Escape:
+            if self._triage_filter:
+                self._triage_filter = ''
+                self._triage_match_idx = 0
+                self._triage_refresh()
+            else:
+                self.switch_to_view(0)
+            event.accept(); return
+        if self._matches(key, mods, 'quit'):
+            self._show_lock_screen(); event.accept(); return
+        # Printable character → append to filter (no Ctrl/Alt)
+        text = event.text()
+        if text and text.isprintable() and not (mods & (Ctrl | Alt)):
+            self._triage_filter_add(text); event.accept(); return
 
     def _handle_f4_keys(self, key, mods, event):
         # F4 reading view is read-only; Esc/Quit handled globally.
