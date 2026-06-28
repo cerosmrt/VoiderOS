@@ -55,7 +55,9 @@ class TriageView(QWidget):
         W, H = self.width(), self.height()
         painter.fillRect(0, 0, W, H, QColor(0, 0, 0))
 
-        app = self.parentWidget()
+        # self.window() is the top-level app (has _app_font); parentWidget() is the
+        # QStackedWidget after addWidget reparents us, so it would miss the font.
+        app = self.window()
         font = getattr(app, '_app_font', self._app_font)
         small = QFont(font.family(), max(font.pointSize() - 2, 9))
 
