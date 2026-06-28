@@ -4,6 +4,37 @@ import os
 
 class F4Mixin:
 
+    def _para_ordinal_at(self, lines, idx):
+        """0-based index of the paragraph (dot-model) containing lines[idx].
+
+        Paragraphs are maximal runs of non-empty, non-'.' lines. A line that is
+        a '.' separator or blank maps to the paragraph that precedes it (or 0 if
+        none precedes). Shared by F4 (scroll target) and F5 (start paragraph)."""
+        if not lines:
+            return 0
+        if idx < 0:
+            idx = 0
+        if idx >= len(lines):
+            idx = len(lines) - 1
+        ordinal = -1
+        in_para = False
+        last_para = 0
+        for i, raw in enumerate(lines):
+            s = raw.strip()
+            is_text = False
+            if s == '.':
+                # A '.' is the only paragraph separator; blanks are ignored.
+                in_para = False
+            elif s:
+                if not in_para:
+                    ordinal += 1
+                    in_para = True
+                last_para = ordinal
+                is_text = True
+            if i == idx:
+                return max(0, ordinal if is_text else last_para)
+        return max(0, last_para)
+
     def _reading_refresh(self):
         """Rebuild the F4 reading render from the current file."""
         path = self.current_file_path
@@ -24,6 +55,11 @@ class F4Mixin:
             f'font-family:{font}; font-size:{size}pt; '
             f'padding:60px 120px; border:none; }}'
         )
+        # Land on the paragraph the user is currently on (instead of the top).
+        ring = getattr(self, 'line_ring', None)
+        if ring and ring.lines:
+            p = self._para_ordinal_at(ring.lines, ring.index)
+            self.reading_view.scrollToAnchor(f'vpara{p}')
 
     def _build_reading_html(self, lines, title):
         """Convert Voider line format to prose HTML for F4 reading render.
@@ -51,8 +87,10 @@ class F4Mixin:
             f'<h2 style="text-align:center;margin:3em 0 2em;">'
             f'{_html.escape(title)}</h2>',
         ]
-        for para in paragraphs:
-            parts.append(f'<p style="text-align:justify;margin:0 0 1.2em 0;">{para}</p>')
+        for i, para in enumerate(paragraphs):
+            parts.append(
+                f'<p style="text-align:justify;margin:0 0 1.2em 0;">'
+                f'<a name="vpara{i}"></a>{para}</p>')
         parts.append('</body></html>')
         return ''.join(parts)
 

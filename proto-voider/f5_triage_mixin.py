@@ -28,9 +28,22 @@ class F5TriageMixin:
     # ── Enter / parse ─────────────────────────────────────────────────────────
 
     def _triage_enter(self):
-        """Load paragraphs from 0.txt on disk and reset session state."""
-        self._triage_paragraphs = self._triage_parse_file(self.f1_file)
-        self._triage_para_idx = 0 if self._triage_paragraphs else -1
+        """Load paragraphs from the CURRENT file and start on the current paragraph.
+
+        Source is whatever you're viewing (0.txt or a chapter), captured once for
+        the session so dispatch/save target it consistently. The starting
+        paragraph is the one containing your current line in that file."""
+        self._triage_source = self.current_file_path
+        self._triage_paragraphs = self._triage_parse_file(self._triage_source)
+        if self._triage_paragraphs:
+            ring = getattr(self, 'line_ring', None)
+            if ring and ring.lines:
+                p = self._para_ordinal_at(ring.lines, ring.index)
+                self._triage_para_idx = min(p, len(self._triage_paragraphs) - 1)
+            else:
+                self._triage_para_idx = 0
+        else:
+            self._triage_para_idx = -1
         self._triage_filter = ''
         self._triage_match_idx = 0
         self._triage_snapshotted = False
@@ -61,16 +74,18 @@ class F5TriageMixin:
         return self._triage_parse_lines(lines)
 
     def _triage_save(self):
-        """Atomically write the remaining paragraphs back to 0.txt (+ IPC),
-        and keep the F1/F2 ring consistent if it is showing 0.txt."""
+        """Atomically write the remaining paragraphs back to the source file
+        (+ IPC), and keep the F1/F2 ring consistent — the source IS the current
+        file, so the ring is rebuilt to match."""
+        src = getattr(self, '_triage_source', self.current_file_path)
         lines = []
         for para in self._triage_paragraphs:
             lines.append('.')
             lines.extend(para)
         if not lines:
             lines = ['.']
-        self._atomic_write_lines(self.f1_file, lines)  # notifies IPC
-        if getattr(self, 'current_file_path', None) == self.f1_file:
+        self._atomic_write_lines(src, lines)  # notifies IPC
+        if getattr(self, 'current_file_path', None) == src:
             ring = self.line_ring
             ring.lines = list(lines)
             if ring.index >= len(ring.lines):
@@ -108,11 +123,13 @@ class F5TriageMixin:
 
     def _triage_matches(self):
         """Return [(fname, display), ...] of chapters whose name contains the filter.
-        The scratch portal ('0.txt') and separators ('.') are never targets."""
+        The scratch portal ('0.txt'), separators ('.'), and the file you're
+        triaging (the source) are never targets."""
         flt = self._triage_filter.strip().lower()
+        src_fname = os.path.basename(getattr(self, '_triage_source', '') or '')
         out = []
         for fname in self._library_lines:
-            if fname == '.' or fname == '0.txt':
+            if fname == '.' or fname == '0.txt' or fname == src_fname:
                 continue
             display = os.path.splitext(fname)[0]
             if flt in display.lower():
@@ -263,7 +280,8 @@ class F5TriageMixin:
         if view is None:
             return
         view.set_para(self._triage_paragraphs, self._triage_para_idx,
-                      os.path.basename(self.f1_file))
+                      os.path.basename(getattr(self, '_triage_source',
+                                               self.current_file_path)))
         matches = self._triage_matches()
         target = self._triage_target()
         view.set_target(self._triage_filter,

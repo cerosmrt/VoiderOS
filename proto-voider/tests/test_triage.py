@@ -13,7 +13,7 @@ TRIAGE_METHODS = (
     '_paragraphs_from_ring', '_rebuild_ring_from_paragraphs', '_dot_line_index',
     '_atomic_write_lines', '_library_path', '_library_current_fname', '_save_library',
     '_triage_enter', '_triage_refresh', '_triage_parse_file', '_triage_parse_lines',
-    '_triage_save', '_triage_next_para', '_triage_prev_para',
+    '_triage_save', '_triage_next_para', '_triage_prev_para', '_para_ordinal_at',
     '_triage_matches', '_triage_target', '_triage_dispatch', '_triage_create',
     '_triage_swap_up', '_triage_swap_down',
     '_triage_filter_add', '_triage_filter_backspace', '_triage_cycle_match',
@@ -92,12 +92,6 @@ class TestTriageLoad:
         app._triage_enter()
         assert app._triage_paragraphs == [['a', 'b'], ['c']]
         assert app._triage_para_idx == 0
-
-    def test_loads_zero_even_when_active_is_chapter(self, tmp_path):
-        # current file is a chapter, but triage must read 0.txt
-        app = _triage_app(tmp_path, ['.', 'x', '.', 'y'], current_is_zero=False)
-        app._triage_enter()
-        assert app._triage_paragraphs == [['x'], ['y']]
 
     def test_empty_zero_sets_idx_minus1(self, tmp_path):
         app = _triage_app(tmp_path, [])
