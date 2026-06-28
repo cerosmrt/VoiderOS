@@ -561,14 +561,15 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self.book_view.update()
             self._book_show_editor()
 
-        elif view_index == 3:  # F4 — reading render of current document
+        elif view_index == 3:  # F4 — paginated reading view (book pages)
             if not self.reading_view:
-                self.reading_view = QTextBrowser(self)
-                self.reading_view.setOpenLinks(False)
+                from reading_page import ReadingPageView
+                self.reading_view = ReadingPageView(self)
                 self.stack.addWidget(self.reading_view)
             self._reading_refresh()
             self.stack.setCurrentWidget(self.reading_view)
             self.entry.hide()
+            self.reading_view.setFocus()
 
         elif view_index == 4:  # F5 — paragraph triage (split view)
             if not self.triage_view:

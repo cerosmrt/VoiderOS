@@ -14,6 +14,12 @@ DEFAULT_CONFIG = {
     "void_key": "enter",
     "font_family": "Consolas",
     "font_size": 11,
+    # F4 reading/print font — a book serif, independent of the editing font above.
+    "reading_font": "EB Garamond",
+    "reading_size": 13,
+    # F4 justification hyphenation (Pyphen). "auto" detects each paragraph's
+    # language (book is bilingual); a lang like "es_ES" forces one; "" disables.
+    "reading_hyphen_lang": "auto",
     "text_color": "#ffffff",
     "working_set_size": 100,
     "keybindings": {

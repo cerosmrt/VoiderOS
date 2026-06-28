@@ -1,6 +1,8 @@
 # f4_mixin.py — F4 reading render methods
 import os
 
+from PyQt6.QtGui import QFont
+
 
 class F4Mixin:
 
@@ -36,30 +38,27 @@ class F4Mixin:
         return max(0, last_para)
 
     def _reading_refresh(self):
-        """Rebuild the F4 reading render from the current file."""
+        """Rebuild the F4 book pages from the current file and open on the page
+        holding the paragraph the user is currently reading."""
+        from reading_page import build_reading_document, A5_PT
         path = self.current_file_path
         title = os.path.splitext(os.path.basename(path))[0]
         try:
             with open(path, 'r', encoding='utf-8') as f:
-                lines = [l.strip() for l in f if l.strip()]
+                lines = [l.rstrip('\n') for l in f]
         except Exception:
             lines = []
-        html = self._build_reading_html(lines, title)
-        self.reading_view.setHtml(html)
-        bg = self.config.get('bg_color', '#000000')
-        fg = self.config.get('text_color', '#ffffff')
-        font = self.config.get('font_family', 'Georgia')
-        size = int(self.config.get('font_size', 13))
-        self.reading_view.setStyleSheet(
-            f'QTextBrowser {{ background:{bg}; color:{fg}; '
-            f'font-family:{font}; font-size:{size}pt; '
-            f'padding:60px 120px; border:none; }}'
-        )
-        # Land on the paragraph the user is currently on (instead of the top).
+        # F4 uses its own book serif, independent of the editing font.
+        reading_font = QFont(self.config.get('reading_font', 'EB Garamond'),
+                             int(self.config.get('reading_size', 13)))
+        doc, para_blocks, layout = build_reading_document(
+            [(title, lines)], reading_font, page_pt=A5_PT,
+            hyphenate_lang=self.config.get('reading_hyphen_lang', 'auto'))
+        self.reading_view.set_document(doc, para_blocks, layout)
         ring = getattr(self, 'line_ring', None)
         if ring and ring.lines:
             p = self._para_ordinal_at(ring.lines, ring.index)
-            self.reading_view.scrollToAnchor(f'vpara{p}')
+            self.reading_view.goto_paragraph(p)
 
     def _build_reading_html(self, lines, title):
         """Convert Voider line format to prose HTML for F4 reading render.

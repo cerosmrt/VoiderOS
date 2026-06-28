@@ -361,9 +361,26 @@ class KeyRouterMixin:
             self._triage_filter_add(text); event.accept(); return
 
     def _handle_f4_keys(self, key, mods, event):
-        # F4 reading view is read-only; Esc/Quit handled globally.
-        # Arrow keys / Page Up-Down scroll the QTextBrowser natively.
-        if key == Qt.Key.Key_Escape:
-            self.switch_to_view(1)
-        elif self._matches(key, mods, 'quit'):
-            self._show_lock_screen()
+        # F4 is a paginated book reader: flip pages, never scroll.
+        K = Qt.Key
+        rv = self.reading_view
+        if key in (K.Key_Space, K.Key_Right, K.Key_PageDown, K.Key_Down):
+            if rv:
+                rv.next_page()
+            event.accept(); return
+        if key in (K.Key_Backspace, K.Key_Left, K.Key_PageUp, K.Key_Up):
+            if rv:
+                rv.prev_page()
+            event.accept(); return
+        if key == K.Key_Home:
+            if rv:
+                rv.first_page()
+            event.accept(); return
+        if key == K.Key_End:
+            if rv:
+                rv.last_page()
+            event.accept(); return
+        if key == K.Key_Escape:
+            self.switch_to_view(1); event.accept(); return
+        if self._matches(key, mods, 'quit'):
+            self._show_lock_screen(); event.accept()

@@ -8,7 +8,7 @@ let
 
   # Shared Python env — used by both voider-py and voider-proto
   voiderPython = pkgs.python3.withPackages (ps: with ps; [
-    pyqt6 numpy pyaudio watchdog langdetect
+    pyqt6 numpy pyaudio watchdog langdetect pyphen
   ]);
 
   # Voider ring cursor — white circle with black fill, matches the app logo
@@ -554,6 +554,9 @@ in
     enable = true;
     xwayland.enable = false;
   };
+
+  # EB Garamond — F4 reading/print book serif (see proto-voider/reading_page.py).
+  fonts.packages = [ pkgs.eb-garamond ];
 
   # ── Autologin: greetd → Hyprland (no login UI) ───────────────────────────────
   services.greetd = {
