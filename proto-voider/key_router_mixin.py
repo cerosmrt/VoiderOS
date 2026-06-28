@@ -242,6 +242,9 @@ class KeyRouterMixin:
         elif self._matches(key, mods, 'dispatch'):
             self._dispatch_paragraphs()
             event.accept()
+        elif self._matches(key, mods, 'split_chapter'):
+            self._split_chapter_at_slash()
+            event.accept()
         elif (mods & Qt.KeyboardModifier.ControlModifier) and key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             editor = self.circular_view.editor
             at_start = editor.cursorPosition() == 0

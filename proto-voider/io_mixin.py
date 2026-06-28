@@ -628,6 +628,96 @@ class IoMixin:
         self.load_doc_lines()
         self._doc_show_editor()
 
+    # ── Slash-split a chapter ──────────────────────────────────────────────────
+
+    def _git_snapshot_void(self, label='snapshot'):
+        """One git snapshot of /void's I/ before a destructive write (safety)."""
+        ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        try:
+            subprocess.run(['git', '-C', self.void_dir, 'add', '-A', 'I/'],
+                           capture_output=True, timeout=10)
+            subprocess.run(['git', '-C', self.void_dir, 'commit',
+                            '-m', f'{label} {ts}'], capture_output=True, timeout=10)
+        except Exception as e:
+            print(f"⚠️ Snapshot failed: {e}")
+
+    def _split_chapter_at_slash(self):
+        """Split the current file at every bare '/' line.
+
+        Each '/' cuts: the text after it (until the next '/' or EOF) becomes a
+        NEW chapter, named after the first non-empty line following the '/' — that
+        line is CONSUMED as the name, not kept as text. New chapters are inserted
+        in the library right below the current chapter, in order. Text before the
+        first '/' stays in the current file. Existing chapters are never
+        overwritten (a colliding name is uniquified). Atomic writes + a snapshot.
+        """
+        lines = list(self.line_ring.lines)
+        slash_idx = [i for i, l in enumerate(lines) if l.strip() == '/']
+        if not slash_idx:
+            print("✓ No '/' lines to split.")
+            return
+
+        i_dir = os.path.join(self.void_dir, 'I')
+        before = lines[:slash_idx[0]]
+        bounds = slash_idx + [len(lines)]
+        segments = []  # (name, body_lines)
+        for k in range(len(slash_idx)):
+            seg = lines[bounds[k] + 1: bounds[k + 1]]
+            name, body_start = '', 0
+            for j, s in enumerate(seg):
+                if s.strip():
+                    name = s.strip()
+                    body_start = j + 1
+                    break
+            segments.append((name, seg[body_start:]))
+
+        self._git_snapshot_void('split')
+
+        # Current file keeps everything before the first '/'.
+        cur = list(before)
+        while cur and not cur[-1].strip():
+            cur.pop()
+        if not cur:
+            cur = ['.']
+        self._atomic_write_lines(self.current_file_path, cur)
+
+        # Insert new chapters right below the current chapter in the library.
+        cur_fname = os.path.basename(self.current_file_path)
+        try:
+            ins = self._library_lines.index(cur_fname) + 1
+        except ValueError:
+            ins = min(self.book_ring.index + 1, len(self._library_lines))
+
+        created = 0
+        for name, body in segments:
+            if not name:
+                name = datetime.datetime.now().strftime('%y-%m-%d_%H%M%S')
+            # Never overwrite an existing chapter — uniquify the filename.
+            base, fname = name, name + '.txt'
+            n = 2
+            while os.path.exists(os.path.join(i_dir, fname)) or fname in self._library_lines:
+                fname = f"{base}-{n}.txt"
+                n += 1
+            fpath = os.path.join(i_dir, fname)
+            content = list(body)
+            while content and not content[-1].strip():
+                content.pop()
+            if not content:
+                content = ['.']
+            if not self._atomic_write_lines(fpath, content):
+                continue
+            self._library_lines.insert(ins, fname)
+            self.book_ring.lines.insert(ins, os.path.splitext(fname)[0])
+            self._library_path_cache[fname] = fpath
+            ins += 1
+            created += 1
+
+        if created:
+            self._save_library()
+        self.load_doc_lines()
+        self._doc_show_editor()
+        print(f"✂️ Split {cur_fname}: {created} new chapter(s).")
+
     # ── Book order ────────────────────────────────────────────────────────────
 
     def _library_path(self):

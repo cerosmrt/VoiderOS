@@ -56,6 +56,7 @@ DEFAULT_CONFIG = {
         "reformat_file": "Ctrl+Shift+F",
         "shuffle_zero": "Ctrl+Shift+R",
         "dispatch": "Ctrl+Shift+D",
+        "split_chapter": "Ctrl+Shift+S",
         "backup": "Ctrl+B"
     }
 }
