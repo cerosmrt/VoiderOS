@@ -171,7 +171,10 @@ class CircularView(QWidget):
         w = self.width()
         h = self.height()
         center_y = h // 2
-        text_area_w = min(w - 100, 800)
+        # Match the inline editor width (w - 100, no fixed cap) so a line looks the
+        # same in and out of edit mode: shown in full when it fits the window, only
+        # reaching the edge when it is genuinely too long.
+        text_area_w = w - 100
         margin = (w - text_area_w) // 2
         painter.setClipRect(margin, 0, text_area_w, h)
 
