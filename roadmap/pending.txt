@@ -51,8 +51,34 @@ WRITING / F2
 
 EDITING / UNDO
 --------------
-- Undo/redo: Ctrl+Z / Ctrl+Shift+Z. Needs an undo stack for F2 doc edits
-  and ideally F1 voiding, F3 library ops. Not yet scoped.
+- Undo/redo (Ctrl+Z / Ctrl+Shift+Z) — SCOPED, ready to build. Decisions made:
+    * Scope = TEXT CHANGES ONLY. Navigation and view switches are NOT undoable
+      (decided against — Ctrl+Z should restore text, not bounce views).
+    * Granularity = per EDIT-BURST. Typing on one line collapses into one undo
+      step (closes when you move off the line / switch file-view / do a
+      structural op). Structural ops (delete-to-zero, split/join, F5 dispatch,
+      reorder, rename) are each their own step.
+  Design (capture at the write chokepoint):
+    * Every text mutation funnels through _atomic_write_lines / auto_save_circular.
+      A small UndoManager captures file state THERE → covers every mutation
+      without instrumenting scattered sites.
+    * Two stacks (undo/redo). Each entry = a transaction holding per-file
+      {before, after} line-lists. F5 dispatch touches 2 files (source+target),
+      grouped so one Ctrl+Z undoes the whole move.
+    * Coalescing: auto_save_circular gets an optional coalesce key. _doc_live_save
+      passes ('line', index) so consecutive same-line saves merge; structural ops
+      pass no key → own entry.
+    * Apply undo/redo by writing through the SAME atomic primitive (temp+replace+
+      IPC) — undo can't corrupt, just a reversible atomic write. If the restored
+      file is the current doc, reload line_ring + refresh view (reuse the
+      cross-instance reload path). Git snapshots remain the backstop.
+    * In-memory only (cleared on restart; git covers older history), cap ~100
+      entries, drop oldest.
+  Build order (TDD): (1) headless UndoManager core (push/coalesce/undo/redo/
+    transaction grouping) with full unit tests; (2) wire capture into write layer
+    + coalesce key into _doc_live_save; (3) Ctrl+Z/Ctrl+Shift+Z in key router +
+    reload-after-restore. v1 = F2 doc edits only; extend to F5 dispatch + F3
+    library ops in a follow-up (cross-file transactions).
 
 RENAME
 ------
