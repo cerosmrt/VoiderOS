@@ -27,7 +27,9 @@ class CircularView(QWidget):
         
         # Crear el editor
         self.editor = CustomLineEdit(self)
-        self.editor.setFont(QFont("Consolas", 11))
+        # Follow the configured app font so the line you're editing matches the
+        # dimmed lines around it. Falls back to Consolas 11 before settings load.
+        self.editor.setFont(getattr(parent, '_app_font', None) or QFont("Consolas", 11))
         self.editor.setStyleSheet("""
             QLineEdit {
                 background-color: black;

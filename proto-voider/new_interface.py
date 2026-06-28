@@ -364,6 +364,12 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                      self.book_concat_view, self.scratch_view]:
             if view:
                 view.setFont(self._app_font)
+                # The inline editor is a child QLineEdit with its own font; it does
+                # not inherit, so update it explicitly or the line you're on keeps
+                # the old size.
+                editor = getattr(view, 'editor', None)
+                if editor is not None:
+                    editor.setFont(self._app_font)
         if self.entry:
             self.entry.setFont(self._app_font)
         self.switch_to_view(self._prev_view if hasattr(self, '_prev_view') else 0)
