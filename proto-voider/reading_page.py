@@ -171,8 +171,8 @@ def build_reading_document(sections, font, page_pt=A5_PT,
         for pi, para in enumerate(lines_to_paragraphs(lines)):
             pf = QTextBlockFormat()
             pf.setAlignment(align)
-            # First paragraph after a heading is flush-left (book convention).
-            pf.setTextIndent(0.0 if pi == 0 else indent_pt)
+            # Every paragraph indented (including the first after a title).
+            pf.setTextIndent(indent_pt)
             pf.setLineHeight(line_height_pct, prop)
             open_block(pf)
             cursor.setCharFormat(body_char)
@@ -192,8 +192,12 @@ def compute_page_offsets(doc, block_h, title_blocks=()):
     doc.documentLayout().documentSize()   # force layout so line metrics exist
     titles = set(title_blocks)
     sink = mm_to_pt(TITLE_SINK_MM)
-    offsets = [0.0]
-    page_top = 0.0
+    # Qt collapses the first block's top margin against the document top, so an
+    # opening chapter title would lose its sink. Start the first page a sink above
+    # it so every title lands at the same spot.
+    start0 = -sink if 0 in titles else 0.0
+    offsets = [start0]
+    page_top = start0
     block = doc.begin()
     while block.isValid():
         bl = block.layout()
