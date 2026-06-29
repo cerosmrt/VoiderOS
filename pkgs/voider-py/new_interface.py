@@ -506,6 +506,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                 self.circular_view.editor.deleteAtEnd.connect(self._doc_join_next)
                 self.circular_view.editor.tabPressed.connect(self._doc_tab)
                 self.circular_view.editor.altTabPressed.connect(self._doc_insert_ws_line)
+                self.circular_view.editor.copyContext.connect(self._smart_copy)
                 self.circular_view.editor.home_end_doc = True
                 self.circular_view.editor.homePressed.connect(self._doc_jump_start)
                 self.circular_view.editor.endPressed.connect(self._doc_jump_end)
@@ -533,6 +534,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                 self.book_view.editor.dotPressed.connect(self._book_insert_separator)
                 self.book_view.editor.shiftReturnPressed.connect(self._book_new_entry)
                 self.book_view.editor.ctrlDeletePressed.connect(self._book_send_to_zero)
+                self.book_view.editor.copyContext.connect(self._smart_copy)
                 self.book_view.editor.tabPressed.connect(self._book_random)
                 self.book_view.editor.intercept_period = True
                 self.book_view.editor.home_end_doc = True

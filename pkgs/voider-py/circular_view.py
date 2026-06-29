@@ -276,6 +276,7 @@ class CustomLineEdit(QLineEdit):
     ctrlDeletePressed = pyqtSignal()
     homePressed = pyqtSignal()     # Home when home_end_doc is True (doc-wide jump)
     endPressed = pyqtSignal()      # End when home_end_doc is True (doc-wide jump)
+    copyContext = pyqtSignal()     # Ctrl+C with no selection → contextual copy
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -302,6 +303,16 @@ class CustomLineEdit(QLineEdit):
         mods = event.modifiers()
         ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
         shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+
+        # Ctrl+C: a selection copies normally; with nothing selected, fire a
+        # contextual copy (current line / paragraph / chapter — handled by the app).
+        if ctrl and not shift and key == Qt.Key.Key_C:
+            if self.hasSelectedText():
+                super().keyPressEvent(event)
+            else:
+                self.copyContext.emit()
+                event.accept()
+            return
 
         if key == Qt.Key.Key_Period and mods == Qt.KeyboardModifier.NoModifier and self.intercept_period:
             self.dotPressed.emit()

@@ -21,6 +21,39 @@ class F2Mixin:
             return self._ZERO_GLYPH
         return cur
 
+    def _smart_copy(self):
+        """Ctrl+C with no selection: copy the contextual unit to the clipboard.
+
+        F2 (view 1): the current line, or — when sitting on a '.' — the paragraph
+        that follows it (the block highlighted on a dot). F3 (view 2): the raw text
+        of the highlighted chapter. Other views do nothing.
+        """
+        from PyQt6.QtWidgets import QApplication
+        text = None
+        if self.current_view == 1:
+            ring = self.line_ring
+            cur = ring.current()
+            if cur == '.':
+                lines, n, i, para = ring.lines, len(ring.lines), ring.index + 1, []
+                while i < n and lines[i] != '.':
+                    para.append(lines[i]); i += 1
+                text = '\n'.join(para)
+            else:
+                text = cur
+        elif self.current_view == 2:
+            fname = self._library_current_fname()
+            if fname:
+                fpath = self._library_path_cache.get(fname)
+                if fpath and os.path.isfile(fpath):
+                    try:
+                        with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                            text = f.read().rstrip('\n')
+                    except Exception as e:
+                        print(f"⚠️ Copy error: {e}")
+        if text:
+            QApplication.clipboard().setText(text)
+            print(f"📋 Copied {len(text)} char(s)")
+
     def _doc_show_editor(self):
         """Show F2 editor with current doc line, cursor at start."""
         if not self.line_ring.lines:
