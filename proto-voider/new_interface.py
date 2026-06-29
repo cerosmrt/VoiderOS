@@ -447,6 +447,9 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         # one (e.g. a specific '0' portal) instead of snapping to the first match.
         if old_view == 2 and self.book_ring.lines:
             self._book_last_index = self.book_ring.index
+            # Leaving F3 marks the highlighted chapter as the active file (once,
+            # on exit — not per highlight), so F4/F2/F1 and re-entry all agree.
+            self._book_activate_current()
         self.current_view = view_index
         print(f"📍 F{old_view+1} → F{view_index+1} | Index: {self.line_ring.index} | Line: '{self.line_ring.current()}'")
 

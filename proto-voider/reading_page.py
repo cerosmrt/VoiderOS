@@ -259,6 +259,15 @@ class ReadingPageView(QWidget):
                 break
         return p
 
+    def page_clip_height(self, page):
+        """Visible height of a page = distance to the next page's top (so an
+        early-breaking page never bleeds the next page's first lines)."""
+        bh = self._layout.block_h if self._layout else 0.0
+        top = self._offsets[page]
+        if page + 1 < len(self._offsets):
+            return min(self._offsets[page + 1] - top, bh)
+        return bh
+
     def goto_paragraph(self, para_ordinal):
         """Jump to the page holding the given body paragraph (by ordinal)."""
         if not self._doc or not self._para_blocks or self._layout is None:
@@ -318,6 +327,7 @@ class ReadingPageView(QWidget):
         painter.fillRect(QRectF(ox, oy, draw_w, draw_h), self._paper)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         top = self._offsets[self._page] if self._offsets else 0.0
+        clip_h = self.page_clip_height(self._page)
         painter.save()
         painter.translate(ox, oy)
         painter.scale(scale, scale)
@@ -325,7 +335,7 @@ class ReadingPageView(QWidget):
         painter.translate(0, -top)
         ctx = QAbstractTextDocumentLayout.PaintContext()
         ctx.palette.setColor(QPalette.ColorRole.Text, self._ink)
-        ctx.clip = QRectF(0, top, L.block_w, L.block_h)
+        ctx.clip = QRectF(0, top, L.block_w, clip_h)
         self._doc.documentLayout().draw(painter, ctx)
         painter.restore()
         painter.end()

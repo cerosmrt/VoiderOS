@@ -45,9 +45,11 @@ class F4Mixin:
             return []
 
     def _reading_sections(self):
-        """Return (sections, single_file). On a '.' separator in F3, sections are
-        the whole book below it (one per chapter, '0' portals skipped); otherwise
-        a single section for the active file."""
+        """Return (sections, at_para). F4 follows the F3 highlight: on a '.'
+        separator → the whole book below it (one section per chapter, '0' portals
+        skipped); on a chapter → that highlighted chapter's file. `at_para` is True
+        only when the shown file is the active one, so 'open on my current line'
+        applies; otherwise F4 opens at the first page."""
         ring = getattr(self, 'book_ring', None)
         if ring and ring.lines and ring.current() == '.':
             n = len(self._library_lines)
@@ -64,6 +66,16 @@ class F4Mixin:
                 i = (i + 1) % n
             if secs:
                 return secs, False
+        # Highlighted chapter (so a move in F3 is reflected immediately).
+        fname = self._library_current_fname() if (ring and ring.lines) else None
+        if fname:
+            fpath = self._library_path_cache.get(fname)
+            if fpath and os.path.isfile(fpath):
+                at_para = (os.path.abspath(fpath)
+                           == os.path.abspath(self.current_file_path))
+                return [(os.path.splitext(fname)[0],
+                         self._reading_file_lines(fpath))], at_para
+        # Fallback: the active file.
         path = self.current_file_path
         title = os.path.splitext(os.path.basename(path))[0]
         return [(title, self._reading_file_lines(path))], True

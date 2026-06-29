@@ -64,9 +64,17 @@ def test_portals_skipped_in_book(tmp_path):
     assert [t for t, _ in sections] == ['A']
 
 
-def test_on_chapter_returns_single_file(tmp_path):
-    app = _app(tmp_path, ['.', 'A', 'B'], book_index=1)  # on chapter A
-    sections, single = app._reading_sections()
-    assert single is True
-    assert len(sections) == 1
-    assert sections[0][1] == ['current body']
+def test_on_chapter_returns_highlighted_chapter(tmp_path):
+    # F4 follows the F3 highlight, not the last-opened file
+    app = _app(tmp_path, ['.', 'A', 'B'], book_index=1)  # highlight A
+    sections, at_para = app._reading_sections()
+    assert [t for t, _ in sections] == ['A']
+    assert sections[0][1] == ['body of A']
+    assert at_para is False                       # A isn't the active file
+
+
+def test_at_para_true_when_highlight_is_active_file(tmp_path):
+    app = _app(tmp_path, ['.', 'A', 'B'], book_index=1)
+    app.current_file_path = app._library_path_cache['A.txt']   # active == highlight
+    sections, at_para = app._reading_sections()
+    assert at_para is True

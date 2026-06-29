@@ -514,6 +514,26 @@ class F3Mixin:
         self.book_view.editor.setCursorPosition(0)
         self.book_view.update()
 
+    def _book_activate_current(self):
+        """Make the highlighted chapter the active file. Called when LEAVING F3
+        (any exit — Enter, F2, F4, …), NOT on every navigation, so browsing the
+        library doesn't load a file per keystroke. Dots and '0' portals never
+        become the active file."""
+        if self.book_ring.current() == '.' or self._book_is_portal():
+            return
+        self._book_try_rename()
+        fname = self._library_current_fname()
+        if not fname:
+            return
+        fpath = self._library_path_cache.get(fname)
+        if not (fpath and os.path.isfile(fpath)):
+            return
+        if os.path.abspath(fpath) == os.path.abspath(self.current_file_path):
+            return
+        self._set_f2_file(fpath)
+        self.current_file_path = fpath
+        self.load_doc_lines()
+
     def _book_rebase(self):
         """Ctrl+0 in F3: rotate ring so current title becomes first."""
         idx = self.book_ring.index

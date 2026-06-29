@@ -60,6 +60,32 @@ class TestBuildDocument:
         assert len(offsets) >= 2                       # 2nd chapter forces a page
         assert rp.block_top(doc, para_blocks[1]) >= offsets[1]
 
+    def test_page_windows_tile_without_overlap(self, qapp):
+        # the visible window of each page must meet the next page's top exactly,
+        # so no line is shown on two pages (the duplication bug)
+        lines = []
+        for i in range(200):
+            lines += [f'Paragraph {i} with several words to consume page space here.', '.']
+        doc, para_blocks, layout = rp.build_reading_document([('Long', lines)], QFont('Consolas', 11))
+        v = rp.ReadingPageView()
+        v.resize(800, 600)
+        v.set_document(doc, para_blocks, layout)
+        offsets = v._offsets
+        windows = [(offsets[p], offsets[p] + v.page_clip_height(p))
+                   for p in range(len(offsets))]
+        for p in range(len(offsets) - 1):
+            assert abs(windows[p][1] - offsets[p + 1]) < 1.0      # tiles exactly
+        block = doc.begin()
+        while block.isValid():
+            bl = block.layout()
+            y0 = bl.position().y()
+            for i in range(bl.lineCount()):
+                ln = bl.lineAt(i)
+                mid = y0 + ln.y() + ln.height() / 2
+                hits = sum(1 for (a, b) in windows if a - 0.5 <= mid < b + 0.5)
+                assert hits == 1            # each line on exactly one page
+            block = block.next()
+
     def test_no_line_split_across_pages(self, qapp):
         lines = []
         for i in range(200):

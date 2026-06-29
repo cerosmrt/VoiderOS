@@ -77,7 +77,7 @@ def make_ring_app(lines, tmp_file=None):
         '_book_file_idx', '_book_try_rename', '_book_is_portal',
         '_book_navigate', '_book_swap_up', '_book_swap_down', '_book_rebase',
         '_book_block_bounds', '_apply_book_order', '_book_swap_entries',
-        '_book_move_block', '_book_refresh_editor',
+        '_book_move_block', '_book_refresh_editor', '_book_activate_current',
         # new library-based book API
         '_library_path', '_library_current_fname', '_save_library',
         '_build_library_path_cache', '_load_library', '_generate_library',
