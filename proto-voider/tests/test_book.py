@@ -91,33 +91,33 @@ class TestBookOrder:
         app = _book_app_with_library(tmp_path, ['a.txt', 'b.txt', 'c.txt'])
         if not has(app, '_book_swap_up'):
             pytest.skip("book browser not present in this commit")
-        # ring = ['.', 'a', '.', 'b', '.', 'c'] — index 3 = 'b'
+        # ring = ['.', 'a', '.', 'b', '.', 'c'] — index 3 = 'b'.
+        # New behaviour: a chapter swaps with its IMMEDIATE neighbour, so 'b'
+        # crosses the separator into the book above (joins 'a'). No skip-the-dot
+        # interchange with another chapter.
         app.book_ring.index = 3
         app._book_swap_up()
-        assert app.book_ring.lines[1] == 'b'
-        assert app.book_ring.lines[3] == 'a'
-        assert app.book_ring.index == 1
+        assert app.book_ring.lines == ['.', 'a', 'b', '.', '.', 'c']
+        assert app.book_ring.index == 2
 
     def test_book_swap_up_at_first_noop(self, tmp_path):
         app = _book_app_with_library(tmp_path, ['a.txt', 'b.txt'])
         if not has(app, '_book_swap_up'):
             pytest.skip("book browser not present in this commit")
-        # ring = ['.', 'a', '.', 'b'] — index 1 = 'a' (first, cannot go up)
+        # ring = ['.', 'a', '.', 'b'] — 'a' is in the first book, nothing above
         app.book_ring.index = 1
         app._book_swap_up()
-        assert app.book_ring.lines[1] == 'a'
-        assert app.book_ring.lines[3] == 'b'
+        assert app.book_ring.lines == ['.', 'a', '.', 'b']   # no-op
 
     def test_book_swap_down(self, tmp_path):
         app = _book_app_with_library(tmp_path, ['a.txt', 'b.txt', 'c.txt'])
         if not has(app, '_book_swap_down'):
             pytest.skip("book browser not present in this commit")
-        # ring = ['.', 'a', '.', 'b', '.', 'c'] — index 3 = 'b'
+        # ring = ['.', 'a', '.', 'b', '.', 'c'] — index 3 = 'b' crosses down
         app.book_ring.index = 3
         app._book_swap_down()
-        assert app.book_ring.lines[3] == 'c'
-        assert app.book_ring.lines[5] == 'b'
-        assert app.book_ring.index == 5
+        assert app.book_ring.lines == ['.', 'a', '.', '.', 'b', 'c']
+        assert app.book_ring.index == 4
 
     def test_book_rebase(self, tmp_path):
         app = _book_app_with_library(tmp_path, ['a.txt', 'b.txt', 'c.txt'])

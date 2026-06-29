@@ -426,52 +426,91 @@ class F3Mixin:
         self.book_concat_view.editor.setCursorPosition(0)
         self.book_concat_view.update()
 
-    def _book_swap_up(self):
-        """Alt+Up in F3: swap current title with nearest non-dot above."""
-        idx = self.book_ring.index
-        prev = idx - 1
-        while prev >= 0 and self.book_ring.lines[prev] == '.':
-            prev -= 1
-        if prev < 0 or self.book_ring.lines[prev] == '.':
-            return
-        self.book_ring.lines[idx], self.book_ring.lines[prev] = \
-            self.book_ring.lines[prev], self.book_ring.lines[idx]
-        self._library_lines[idx], self._library_lines[prev] = \
-            self._library_lines[prev], self._library_lines[idx]
-        self.book_ring.index = prev
+    def _book_block_bounds(self, i):
+        """[start, end) of the book block led by the dot at index i (i is a dot)."""
+        lines = self.book_ring.lines
+        n = len(lines)
+        j = i + 1
+        while j < n and lines[j] != '.':
+            j += 1
+        return i, j
+
+    def _apply_book_order(self, order):
+        """Reorder both parallel arrays by an index permutation (keeps them
+        aligned) and persist."""
+        self.book_ring.lines = [self.book_ring.lines[k] for k in order]
+        self._library_lines = [self._library_lines[k] for k in order]
         self._save_library()
-        self.book_view._offset = 0.0
-        if self.book_ring.current() == '.':
-            self.book_view.editor.setText('.')
-            self.book_view.editor.setReadOnly(True)
+
+    def _book_swap_entries(self, a, b):
+        bl, ll = self.book_ring.lines, self._library_lines
+        bl[a], bl[b] = bl[b], bl[a]
+        ll[a], ll[b] = ll[b], ll[a]
+        self._save_library()
+
+    def _book_move_block(self, up):
+        """Move the whole book (the dot + its chapters) at the current dot past
+        the adjacent book."""
+        idx = self.book_ring.index
+        lines = self.book_ring.lines
+        n = len(lines)
+        s, e = self._book_block_bounds(idx)             # current book [s, e)
+        if up:
+            p = s - 1                                   # start of previous book
+            while p >= 0 and lines[p] != '.':
+                p -= 1
+            if p < 0:
+                return                                  # no book above
+            order = (list(range(0, p)) + list(range(s, e))
+                     + list(range(p, s)) + list(range(e, n)))
+            self.book_ring.index = p
         else:
-            self.book_view.editor.setText(self.book_ring.current())
-            self.book_view.editor.setReadOnly(False)
-        self.book_view.editor.setCursorPosition(0)
-        self.book_view.update()
+            if e >= n:
+                return                                  # no book below
+            _, e2 = self._book_block_bounds(e)          # next book [e, e2)
+            order = (list(range(0, s)) + list(range(e, e2))
+                     + list(range(s, e)) + list(range(e2, n)))
+            self.book_ring.index = s + (e2 - e)
+        self._apply_book_order(order)
+
+    def _book_swap_up(self):
+        """Alt+Up in F3: a dot moves its whole book up; a chapter swaps with its
+        immediate neighbour (reorders within the book, or crosses into the book
+        above when the neighbour is a separator)."""
+        idx = self.book_ring.index
+        lines = self.book_ring.lines
+        if lines[idx] == '.':
+            self._book_move_block(up=True)
+        elif idx > 0:
+            j = idx - 1
+            # cross a separator only if there's a book above to move into
+            if not (lines[j] == '.' and not any(x != '.' for x in lines[:j])):
+                self._book_swap_entries(idx, j)
+                self.book_ring.index = j
+        self._book_refresh_editor()
 
     def _book_swap_down(self):
-        """Alt+Down in F3: swap current title with nearest non-dot below."""
+        """Alt+Down in F3: a dot moves its whole book down; a chapter swaps with
+        its immediate neighbour."""
         idx = self.book_ring.index
-        n = len(self.book_ring.lines)
-        nxt = idx + 1
-        while nxt < n and self.book_ring.lines[nxt] == '.':
-            nxt += 1
-        if nxt >= n or self.book_ring.lines[nxt] == '.':
+        lines = self.book_ring.lines
+        if lines[idx] == '.':
+            self._book_move_block(up=False)
+        elif idx < len(lines) - 1:
+            j = idx + 1
+            # cross a separator only if there's a book below to move into
+            if not (lines[j] == '.' and not any(x != '.' for x in lines[j + 1:])):
+                self._book_swap_entries(idx, j)
+                self.book_ring.index = j
+        self._book_refresh_editor()
+
+    def _book_refresh_editor(self):
+        if not self.book_view:
             return
-        self.book_ring.lines[idx], self.book_ring.lines[nxt] = \
-            self.book_ring.lines[nxt], self.book_ring.lines[idx]
-        self._library_lines[idx], self._library_lines[nxt] = \
-            self._library_lines[nxt], self._library_lines[idx]
-        self.book_ring.index = nxt
-        self._save_library()
         self.book_view._offset = 0.0
-        if self.book_ring.current() == '.':
-            self.book_view.editor.setText('.')
-            self.book_view.editor.setReadOnly(True)
-        else:
-            self.book_view.editor.setText(self.book_ring.current())
-            self.book_view.editor.setReadOnly(False)
+        cur = self.book_ring.current()
+        self.book_view.editor.setText('.' if cur == '.' else cur)
+        self.book_view.editor.setReadOnly(cur == '.')
         self.book_view.editor.setCursorPosition(0)
         self.book_view.update()
 
