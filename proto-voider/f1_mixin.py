@@ -37,6 +37,37 @@ class F1Mixin:
         self.entry.setCursorPosition(0)
         self.current_active_line_index = self.line_ring.index
 
+    def _f1_scratch_jump(self):
+        """/0 in F1: move the single '0' scratch portal directly above the current
+        chapter and switch the active file to 0.txt. Consolidates to one portal so
+        scratch is always one step from where you were. No-op if already on 0.txt."""
+        import os
+        cur_fname = os.path.basename(self.current_file_path)
+        if cur_fname == '0.txt':
+            return
+        # Drop every existing '0' portal (keep parallel arrays aligned).
+        kept_lines, kept_ring = [], []
+        for fn, disp in zip(self._library_lines, self.book_ring.lines):
+            if fn == '0.txt':
+                continue
+            kept_lines.append(fn)
+            kept_ring.append(disp)
+        self._library_lines = kept_lines
+        self.book_ring.lines = kept_ring
+        # Insert one portal just above the current chapter.
+        try:
+            i = self._library_lines.index(cur_fname)
+        except ValueError:
+            i = min(self.book_ring.index, len(self._library_lines))
+        self._library_lines.insert(i, '0.txt')
+        self.book_ring.lines.insert(i, '0')
+        self.book_ring.index = i
+        self._save_library()
+        # Switch to the scratch and mirror its current line into the entry.
+        self.current_file_path = self.f1_file
+        self.load_doc_lines()
+        self._f1_show_current()
+
     def _f1_persist_entry(self):
         """Before navigating away from a line in F1, save the entry into it
         (matches F2 live-save: only non-empty text, never overwrites a '.')."""

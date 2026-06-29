@@ -784,9 +784,13 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         if self.current_view == 4:
             self._f5_fork()
             return
-        # F1 focus writing: commit the line into the active file, open a blank
-        # line below, and clear the entry to keep writing forward. (Legacy slash
-        # commands removed — file switching lives in F3; /0 is handled in Part B.)
+        # /0 is the one command: jump to the scratch (moving its portal above the
+        # current chapter). Everything else is normal focus writing: commit the
+        # line into the active file and open a blank line below to keep going.
+        if self.entry.text().strip() == '/0':
+            self._f1_scratch_jump()
+            self.entry.clear()
+            return
         self._f1_commit_line(self.entry.text())
         self.entry.clear()
         self.entry.setCursorPosition(0)
