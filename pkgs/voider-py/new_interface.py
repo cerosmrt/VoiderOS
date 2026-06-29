@@ -552,8 +552,12 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             # so multiple '0' portals are each individually reachable.
             active_fname = os.path.basename(self.f2_file)
             last = getattr(self, '_book_last_index', None)
+            # Return to where you left F3 when that spot was the active chapter OR
+            # a non-file position (a '.' separator or a '0' portal) — those don't
+            # change the active file, so they'd otherwise be lost on re-entry.
             if (last is not None and 0 <= last < len(self._library_lines)
-                    and self._library_lines[last] == active_fname):
+                    and (self._library_lines[last] == active_fname
+                         or self._library_lines[last] in ('.', '0.txt'))):
                 self.book_ring.index = last
             else:
                 try:
