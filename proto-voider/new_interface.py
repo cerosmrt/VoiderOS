@@ -450,16 +450,14 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self.current_view = view_index
         print(f"📍 F{old_view+1} → F{view_index+1} | Index: {self.line_ring.index} | Line: '{self.line_ring.current()}'")
 
-        if view_index == 0:  # F1 — always 0.txt, entry starts blank
-            # Fork only from F6 (O/ reader) — F2 fork is handled explicitly by _doc_confirm_edit
+        if view_index == 0:  # F1 — focus writing on the ACTIVE file
+            # Fork only from F6 (O/ reader) — F2 entry is handled by _doc_confirm_edit
             fork_line = None
             if old_view == 5:
                 cur = self.o_reader_ring.current()
                 if cur and cur != '.':
                     fork_line = cur
-            if self.current_file_path != self.f1_file:
-                self.current_file_path = self.f1_file
-                self.load_doc_lines()
+            # F1 follows whatever file is active (no longer forced to 0.txt).
             if self.circular_view:
                 self.circular_view.edit_mode = False
                 self.circular_view.editor.hide()
@@ -474,11 +472,12 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self.entry.show()
             self.entry.raise_()
             if fork_line:
-                # Pre-fill with the F2 line so user can edit and re-void it
+                # Forked O/ line: pre-fill so you can edit and commit it
                 self.entry.setText(fork_line)
                 self.entry.selectAll()
             else:
-                self.entry.clear()
+                # Mirror the current line of the active file (blank for a '.')
+                self._f1_show_current()
             self.entry.setFocus()
 
         elif view_index == 1:  # F2 — circular doc view (follows F3 selection)
@@ -785,10 +784,12 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         if self.current_view == 4:
             self._f5_fork()
             return
-        void_line(self)
-        self.load_doc_lines()
-        if hasattr(self, 'last_inserted_index') and self.last_inserted_index is not None:
-            self.line_ring.index = min(self.last_inserted_index, len(self.line_ring.lines) - 1)
+        # F1 focus writing: commit the line into the active file, open a blank
+        # line below, and clear the entry to keep writing forward. (Legacy slash
+        # commands removed — file switching lives in F3; /0 is handled in Part B.)
+        self._f1_commit_line(self.entry.text())
+        self.entry.clear()
+        self.entry.setCursorPosition(0)
 
     def _disconnect_void_key(self):
         if self._void_enter_connection:

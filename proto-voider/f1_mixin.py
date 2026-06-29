@@ -6,6 +6,50 @@ from circular_view import CircularView
 
 class F1Mixin:
 
+    # ── F1 focus writing on the active file ─────────────────────────────────────
+
+    def _f1_commit_line(self, text):
+        """F1 Enter: write `text` into the current line of the ACTIVE file, then
+        open a blank line just below and move to it (build forward). A '.'
+        separator is preserved — text is inserted after it, never over it. Empty
+        input is a no-op. Persists atomically via auto_save_circular."""
+        t = text.strip()
+        if not t:
+            return
+        ring = self.line_ring
+        if not ring.lines:
+            ring.lines = ['']
+        ring.index = max(0, min(ring.index, len(ring.lines) - 1))
+        if ring.lines[ring.index] == '.':
+            ring.lines.insert(ring.index + 1, t)
+            ring.index += 1
+        else:
+            ring.lines[ring.index] = t
+        ring.lines.insert(ring.index + 1, '')
+        ring.index += 1
+        self.auto_save_circular()
+
+    def _f1_show_current(self):
+        """Mirror the current line into the F1 entry (blank for a '.' separator),
+        cursor at the start (F2-standard position)."""
+        cur = self.line_ring.current() if self.line_ring.lines else ''
+        self.entry.setText('' if cur == '.' else cur)
+        self.entry.setCursorPosition(0)
+        self.current_active_line_index = self.line_ring.index
+
+    def _f1_persist_entry(self):
+        """Before navigating away from a line in F1, save the entry into it
+        (matches F2 live-save: only non-empty text, never overwrites a '.')."""
+        t = self.entry.text().strip()
+        ring = self.line_ring
+        if not ring.lines or not (0 <= ring.index < len(ring.lines)):
+            return
+        if ring.lines[ring.index] == '.':
+            return
+        if t and t != ring.lines[ring.index]:
+            ring.lines[ring.index] = t
+            self.auto_save_circular()
+
     def _f5_fork(self):
         text = self.entry.text().strip()
         if not text:

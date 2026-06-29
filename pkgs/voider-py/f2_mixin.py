@@ -473,19 +473,19 @@ class F2Mixin:
             self.circular_view.update()
 
     def _doc_confirm_edit(self):
-        """Enter in F2: focus mode on dot; on text line fork to F1 pre-filled."""
-        if self.line_ring.current() == '.' and not self._para_focus:
+        """Enter (cursor at start) in F2: dot → paragraph focus; empty line → drop
+        into F1 focus writing here; non-empty → split the line at the start (Enter
+        keeps breaking the line, just like a split mid-text)."""
+        cur = self.line_ring.current()
+        if cur == '.' and not self._para_focus:
             self._enter_para_focus()
+            return
+        if self._para_focus:
+            self._exit_para_focus()
+        if cur.strip() == '':
+            self.switch_to_view(0)   # F1 mirrors this empty line; write here
         else:
-            fork_line = self.line_ring.current()
-            idx = self.line_ring.index
-            self._exit_para_focus() if self._para_focus else None
-            self.current_active_line_index = None
-            self.last_inserted_index = idx
-            self.switch_to_view(0)
-            if fork_line and fork_line != '.':
-                self.entry.setText(fork_line)
-                self.entry.setCursorPosition(0)
+            self._doc_split_line(0)
 
     def _enter_para_focus(self):
         ring = self.line_ring

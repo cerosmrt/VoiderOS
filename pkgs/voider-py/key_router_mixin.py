@@ -180,31 +180,21 @@ class KeyRouterMixin:
         elif self._matches(key, mods, 'file_next'):
             self.show_next_file()
         elif self._matches(key, mods, 'para_prev'):
+            self._f1_persist_entry()
             self.goto_prev_dot()
-            self.entry.setText(self.line_ring.current())
-            self.entry.setCursorPosition(0)
-            self.current_active_line_index = self.line_ring.index
+            self._f1_show_current()
         elif self._matches(key, mods, 'para_next'):
+            self._f1_persist_entry()
             self.goto_next_dot()
-            self.entry.setText(self.line_ring.current())
-            self.entry.setCursorPosition(0)
-            self.current_active_line_index = self.line_ring.index
+            self._f1_show_current()
         elif key == Qt.Key.Key_Up and mods == Qt.KeyboardModifier.NoModifier:
-            # If entry is empty and ring is already at the last sent line, show it first
-            if not self.entry.text() and self.current_active_line_index is None:
-                pass  # don't move, just show current
-            else:
-                self.line_ring.move(-1)
-            self.entry.setText(self.line_ring.current())
-            self.entry.setCursorPosition(len(self.entry.text()))
-            self.current_active_line_index = self.line_ring.index
-            print(f"⬆️ F1: index={self.line_ring.index}")
+            self._f1_persist_entry()
+            self.line_ring.move(-1)
+            self._f1_show_current()
         elif key == Qt.Key.Key_Down and mods == Qt.KeyboardModifier.NoModifier:
+            self._f1_persist_entry()
             self.line_ring.move(1)
-            self.entry.setText(self.line_ring.current())
-            self.entry.setCursorPosition(0)
-            self.current_active_line_index = self.line_ring.index
-            print(f"⬇️ F1: index={self.line_ring.index}")
+            self._f1_show_current()
 
     def _handle_f2_keys(self, key, mods, event):
         # Up/Down/Enter handled by circular_view.editor signals.
