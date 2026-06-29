@@ -92,12 +92,22 @@ def test_no_slash_is_noop(tmp_path):
     assert app._library_lines == before
 
 
-def test_collision_never_overwrites(tmp_path):
-    # 'other' already exists → the new chapter must not clobber it
+def test_collision_merges_into_existing(tmp_path):
+    # 'other' already exists with content → new body APPENDS to it (with a sep)
+    app, cur = _split_app(tmp_path, 'c', ['x', '/', 'other', 'b'], ['c', 'other'])
+    with open(str(tmp_path / 'I' / 'other.txt'), 'w', encoding='utf-8') as f:
+        f.write('old1\nold2\n')
+    app._split_chapter_at_slash()
+    assert not os.path.exists(str(tmp_path / 'I' / 'other-2.txt'))   # no uniquify
+    assert _read(str(tmp_path / 'I' / 'other.txt')) == ['old1', 'old2', '.', 'b']
+    assert app._library_lines.count('other.txt') == 1               # no duplicate entry
+
+
+def test_collision_merge_into_empty_has_no_leading_dot(tmp_path):
+    # existing chapter is empty → merge is just the body (no stray leading '.')
     app, cur = _split_app(tmp_path, 'c', ['x', '/', 'other', 'b'], ['c', 'other'])
     app._split_chapter_at_slash()
-    assert _read(str(tmp_path / 'I' / 'other.txt')) == []        # untouched
-    assert _read(str(tmp_path / 'I' / 'other-2.txt')) == ['b']   # uniquified
+    assert _read(str(tmp_path / 'I' / 'other.txt')) == ['b']
 
 
 def test_slash_at_top_empties_current(tmp_path):

@@ -688,35 +688,53 @@ class IoMixin:
         except ValueError:
             ins = min(self.book_ring.index + 1, len(self._library_lines))
 
-        created = 0
+        created = merged = 0
         for name, body in segments:
             if not name:
                 name = datetime.datetime.now().strftime('%y-%m-%d_%H%M%S')
-            # Never overwrite an existing chapter — uniquify the filename.
-            base, fname = name, name + '.txt'
-            n = 2
-            while os.path.exists(os.path.join(i_dir, fname)) or fname in self._library_lines:
-                fname = f"{base}-{n}.txt"
-                n += 1
-            fpath = os.path.join(i_dir, fname)
+            fname = name + '.txt'
             content = list(body)
             while content and not content[-1].strip():
                 content.pop()
             if not content:
                 content = ['.']
-            if not self._atomic_write_lines(fpath, content):
-                continue
-            self._library_lines.insert(ins, fname)
-            self.book_ring.lines.insert(ins, os.path.splitext(fname)[0])
-            self._library_path_cache[fname] = fpath
-            ins += 1
-            created += 1
+            exists = (fname in self._library_lines
+                      or os.path.exists(os.path.join(i_dir, fname)))
+            if exists:
+                # Name clash → MERGE: append the new body to the existing chapter
+                # (with a '.' separator). The existing chapter keeps its place.
+                fpath = self._library_path_cache.get(fname, os.path.join(i_dir, fname))
+                try:
+                    with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                        existing = [l.rstrip('\n') for l in f]
+                except FileNotFoundError:
+                    existing = []
+                while existing and not existing[-1].strip():
+                    existing.pop()
+                combined = (existing + ['.'] + content) if existing else content
+                if not self._atomic_write_lines(fpath, combined):
+                    continue
+                if fname not in self._library_lines:   # orphan file on disk
+                    self._library_lines.insert(ins, fname)
+                    self.book_ring.lines.insert(ins, os.path.splitext(fname)[0])
+                    self._library_path_cache[fname] = fpath
+                    ins += 1
+                merged += 1
+            else:
+                fpath = os.path.join(i_dir, fname)
+                if not self._atomic_write_lines(fpath, content):
+                    continue
+                self._library_lines.insert(ins, fname)
+                self.book_ring.lines.insert(ins, os.path.splitext(fname)[0])
+                self._library_path_cache[fname] = fpath
+                ins += 1
+                created += 1
 
-        if created:
+        if created or merged:
             self._save_library()
         self.load_doc_lines()
         self._doc_show_editor()
-        print(f"✂️ Split {cur_fname}: {created} new chapter(s).")
+        print(f"✂️ Split {cur_fname}: {created} new, {merged} merged.")
 
     # ── Book order ────────────────────────────────────────────────────────────
 
