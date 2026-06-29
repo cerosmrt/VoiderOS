@@ -37,28 +37,53 @@ class F4Mixin:
                 return max(0, ordinal if is_text else last_para)
         return max(0, last_para)
 
-    def _reading_refresh(self):
-        """Rebuild the F4 book pages from the current file and open on the page
-        holding the paragraph the user is currently reading."""
-        from reading_page import build_reading_document, A5_PT
-        path = self.current_file_path
-        title = os.path.splitext(os.path.basename(path))[0]
+    def _reading_file_lines(self, path):
         try:
             with open(path, 'r', encoding='utf-8') as f:
-                lines = [l.rstrip('\n') for l in f]
+                return [l.rstrip('\n') for l in f]
         except Exception:
-            lines = []
-        # F4 uses its own book serif, independent of the editing font.
+            return []
+
+    def _reading_sections(self):
+        """Return (sections, single_file). On a '.' separator in F3, sections are
+        the whole book below it (one per chapter, '0' portals skipped); otherwise
+        a single section for the active file."""
+        ring = getattr(self, 'book_ring', None)
+        if ring and ring.lines and ring.current() == '.':
+            n = len(self._library_lines)
+            secs, i = [], (ring.index + 1) % n
+            for _ in range(n - 1):
+                fn = self._library_lines[i]
+                if fn == '.':
+                    break
+                if fn != '0.txt':                      # skip scratch portals
+                    fpath = self._library_path_cache.get(fn)
+                    if fpath and os.path.isfile(fpath):
+                        secs.append((os.path.splitext(fn)[0],
+                                     self._reading_file_lines(fpath)))
+                i = (i + 1) % n
+            if secs:
+                return secs, False
+        path = self.current_file_path
+        title = os.path.splitext(os.path.basename(path))[0]
+        return [(title, self._reading_file_lines(path))], True
+
+    def _reading_refresh(self):
+        """Rebuild the F4 book pages. A single chapter opens on the page holding
+        the line you're on; a whole book opens at the first page."""
+        from reading_page import build_reading_document, A5_PT
+        sections, single_file = self._reading_sections()
         reading_font = QFont(self.config.get('reading_font', 'EB Garamond'),
                              int(self.config.get('reading_size', 13)))
         doc, para_blocks, layout = build_reading_document(
-            [(title, lines)], reading_font, page_pt=A5_PT,
+            sections, reading_font, page_pt=A5_PT,
             hyphenate_lang=self.config.get('reading_hyphen_lang', 'auto'))
         self.reading_view.set_document(doc, para_blocks, layout)
-        ring = getattr(self, 'line_ring', None)
-        if ring and ring.lines:
-            p = self._para_ordinal_at(ring.lines, ring.index)
-            self.reading_view.goto_paragraph(p)
+        if single_file:
+            ring = getattr(self, 'line_ring', None)
+            if ring and ring.lines:
+                p = self._para_ordinal_at(ring.lines, ring.index)
+                self.reading_view.goto_paragraph(p)
 
     def _build_reading_html(self, lines, title):
         """Convert Voider line format to prose HTML for F4 reading render.
