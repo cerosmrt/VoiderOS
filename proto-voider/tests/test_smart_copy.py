@@ -47,6 +47,23 @@ def test_dot_with_no_following_paragraph_copies_nothing(qapp):
     assert QApplication.clipboard().text() == 'SENTINEL'   # unchanged
 
 
+def test_copy_whole_book_on_dot_in_f3(tmp_path, qapp):
+    app = _app(['.'], view=2)
+    void = tmp_path
+    (void / 'I').mkdir(exist_ok=True)
+    a, b = str(void / 'I' / 'A.txt'), str(void / 'I' / 'B.txt')
+    with open(a, 'w', encoding='utf-8') as f:
+        f.write('a1\na2\n')
+    with open(b, 'w', encoding='utf-8') as f:
+        f.write('b1\n')
+    app._library_lines = ['.', 'A.txt', 'B.txt']
+    app._library_path_cache = {'A.txt': a, 'B.txt': b}
+    app.book_ring = LineRing(['.', 'A', 'B'])
+    app.book_ring.index = 0          # on the dot → whole book
+    app._smart_copy()
+    assert QApplication.clipboard().text() == 'a1\na2\n.\nb1'
+
+
 def test_copy_chapter_raw_in_f3(tmp_path, qapp):
     app = _app(['.'], view=2)
     void = tmp_path

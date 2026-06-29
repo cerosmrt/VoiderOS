@@ -41,26 +41,42 @@ class TestBuildDocument:
         sections = [('Chap', ['p1', '.', 'p2', '.', 'p3'])]
         doc, para_blocks, layout = rp.build_reading_document(sections, QFont('Consolas', 11))
         assert len(para_blocks) == 3
-        assert doc.pageCount() >= 1
 
     def test_long_document_spans_multiple_pages(self, qapp):
-        # Many paragraphs must overflow a single A5 page.
         lines = []
         for i in range(120):
             lines += [f'Paragraph number {i} with several words to take up space.', '.']
         doc, para_blocks, layout = rp.build_reading_document([('Long', lines)], QFont('Consolas', 11))
-        assert doc.pageCount() > 1
-        # the last paragraph must live on a later page than the first
-        first_pg = rp.page_of_block(doc, para_blocks[0], layout.block_h)
-        last_pg = rp.page_of_block(doc, para_blocks[-1], layout.block_h)
-        assert last_pg > first_pg
+        offsets = rp.compute_page_offsets(doc, layout.block_h, layout.title_blocks)
+        assert len(offsets) > 1
+        # last paragraph sits below the first page break → later page
+        assert rp.block_top(doc, para_blocks[-1]) >= offsets[1]
 
     def test_chapters_page_break(self, qapp):
-        # two chapters → second chapter starts on a new page
         secs = [('One', ['a']), ('Two', ['b'])]
         doc, para_blocks, layout = rp.build_reading_document(secs, QFont('Consolas', 11))
-        assert doc.pageCount() >= 2
-        assert rp.page_of_block(doc, para_blocks[1], layout.block_h) >= 1
+        assert len(layout.title_blocks) == 2
+        offsets = rp.compute_page_offsets(doc, layout.block_h, layout.title_blocks)
+        assert len(offsets) >= 2                       # 2nd chapter forces a page
+        assert rp.block_top(doc, para_blocks[1]) >= offsets[1]
+
+    def test_no_line_split_across_pages(self, qapp):
+        lines = []
+        for i in range(200):
+            lines += [f'Paragraph {i} with several words to consume page space here.', '.']
+        doc, para_blocks, layout = rp.build_reading_document([('Long', lines)], QFont('Consolas', 11))
+        offsets = rp.compute_page_offsets(doc, layout.block_h, layout.title_blocks)
+        # every line must fit entirely inside exactly one page window
+        block = doc.begin()
+        while block.isValid():
+            bl = block.layout()
+            y0 = bl.position().y()
+            for i in range(bl.lineCount()):
+                ln = bl.lineAt(i)
+                top, bottom = y0 + ln.y(), y0 + ln.y() + ln.height()
+                page_top = max(o for o in offsets if o <= top + 0.5)
+                assert bottom - page_top <= layout.block_h + 1.0
+            block = block.next()
 
 
 class TestHyphenation:

@@ -41,15 +41,37 @@ class F2Mixin:
             else:
                 text = cur
         elif self.current_view == 2:
-            fname = self._library_current_fname()
-            if fname:
-                fpath = self._library_path_cache.get(fname)
-                if fpath and os.path.isfile(fpath):
-                    try:
-                        with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
-                            text = f.read().rstrip('\n')
-                    except Exception as e:
-                        print(f"⚠️ Copy error: {e}")
+            ring = self.book_ring
+            if ring and ring.lines and ring.current() == '.':
+                # On a '.' separator → copy the whole book (the group below it),
+                # chapters concatenated with a '.' between, scratch portals skipped.
+                parts = []
+                n = len(self._library_lines)
+                i = (ring.index + 1) % n
+                for _ in range(n - 1):
+                    fn = self._library_lines[i]
+                    if fn == '.':
+                        break
+                    if fn != '0.txt':
+                        fp = self._library_path_cache.get(fn)
+                        if fp and os.path.isfile(fp):
+                            try:
+                                with open(fp, 'r', encoding='utf-8', errors='replace') as f:
+                                    parts.append(f.read().rstrip('\n'))
+                            except Exception as e:
+                                print(f"⚠️ Copy error: {e}")
+                    i = (i + 1) % n
+                text = '\n.\n'.join(parts) if parts else None
+            else:
+                fname = self._library_current_fname()
+                if fname:
+                    fpath = self._library_path_cache.get(fname)
+                    if fpath and os.path.isfile(fpath):
+                        try:
+                            with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                                text = f.read().rstrip('\n')
+                        except Exception as e:
+                            print(f"⚠️ Copy error: {e}")
         if text:
             QApplication.clipboard().setText(text)
             print(f"📋 Copied {len(text)} char(s)")

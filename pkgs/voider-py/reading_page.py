@@ -33,6 +33,9 @@ A5_PT = (mm_to_pt(148), mm_to_pt(210))
 # Book margins in mm: (top, bottom, inner, outer). Equal top/bottom.
 BOOK_MARGINS_MM = (21.0, 21.0, 20.0, 20.0)
 
+# Sink: blank space above a chapter title at the top of its page.
+TITLE_SINK_MM = 24.0
+
 
 class PageLayout:
     """Page + margin geometry, all in points. block_* is the live text area."""
@@ -43,6 +46,7 @@ class PageLayout:
             mm_to_pt(m) for m in margins_mm)
         self.block_w = self.page_w - self.m_inner - self.m_outer
         self.block_h = self.page_h - self.m_top - self.m_bottom
+        self.title_blocks = []   # block numbers of chapter titles (page-break)
 
 
 _HYPHEN_DICTS = {}
@@ -123,7 +127,9 @@ def build_reading_document(sections, font, page_pt=A5_PT,
     doc = QTextDocument()
     doc.setDefaultFont(font)
     doc.setDocumentMargin(0.0)
-    doc.setPageSize(QSizeF(layout.block_w, layout.block_h))
+    # Lay the whole book out as ONE continuous column (huge page) — pagination is
+    # done manually in compute_page_offsets so no line is ever split across a page.
+    doc.setPageSize(QSizeF(layout.block_w, 1_000_000.0))
     doc.setUndoRedoEnabled(False)
 
     cursor = QTextCursor(doc)
@@ -155,13 +161,12 @@ def build_reading_document(sections, font, page_pt=A5_PT,
     for si, (title, lines) in enumerate(sections):
         tf = QTextBlockFormat()
         tf.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        tf.setTopMargin(mm_to_pt(24.0))   # chapter-opening sink
+        tf.setTopMargin(mm_to_pt(TITLE_SINK_MM))   # chapter-opening sink
         tf.setBottomMargin(mm_to_pt(12.0))
-        if si > 0:
-            tf.setPageBreakPolicy(QTextFormat.PageBreakFlag.PageBreak_AlwaysBefore)
         open_block(tf)
         cursor.setCharFormat(title_char)
         cursor.insertText(title or '')
+        layout.title_blocks.append(cursor.block().blockNumber())
 
         for pi, para in enumerate(lines_to_paragraphs(lines)):
             pf = QTextBlockFormat()
@@ -177,13 +182,44 @@ def build_reading_document(sections, font, page_pt=A5_PT,
     return doc, para_blocks, layout
 
 
-def page_of_block(doc, block_number, block_h):
-    """Which 0-based page a given block falls on (block_h = text-block height)."""
-    block = doc.findBlockByNumber(block_number)
-    if not block.isValid() or block_h <= 0:
-        return 0
-    rect = doc.documentLayout().blockBoundingRect(block)
-    return max(0, int(rect.top() // block_h))
+def compute_page_offsets(doc, block_h, title_blocks=()):
+    """Page-top y-offsets (document coords) so that no line is ever split across a
+    page and each chapter title starts a fresh page with its sink intact.
+
+    Walks the continuous layout line by line; a line that wouldn't fit on the
+    current page opens a new page at that line. A title block opens a new page at
+    `sink` above its text, so every chapter title lands at the same spot."""
+    doc.documentLayout().documentSize()   # force layout so line metrics exist
+    titles = set(title_blocks)
+    sink = mm_to_pt(TITLE_SINK_MM)
+    offsets = [0.0]
+    page_top = 0.0
+    block = doc.begin()
+    while block.isValid():
+        bl = block.layout()
+        bpos = bl.position().y()
+        if block.blockNumber() in titles:
+            start = bpos - sink
+            if start > page_top + 0.5:
+                page_top = start
+                offsets.append(page_top)
+        for i in range(bl.lineCount()):
+            line = bl.lineAt(i)
+            top = bpos + line.y()
+            bottom = top + line.height()
+            if bottom - page_top > block_h + 0.5:
+                page_top = top
+                offsets.append(page_top)
+        block = block.next()
+    return offsets
+
+
+def block_top(doc, block_number):
+    """Top y (document coords) of a block (forces layout; reliable)."""
+    b = doc.findBlockByNumber(block_number)
+    if not b.isValid():
+        return 0.0
+    return doc.documentLayout().blockBoundingRect(b).top()
 
 
 class ReadingPageView(QWidget):
@@ -194,6 +230,7 @@ class ReadingPageView(QWidget):
         self._doc = None
         self._para_blocks = []
         self._layout = None
+        self._offsets = [0.0]
         self._page = 0
         self._page_count = 1
         self._paper = QColor('#ffffff')
@@ -206,17 +243,29 @@ class ReadingPageView(QWidget):
         self._doc = doc
         self._para_blocks = list(para_blocks)
         self._layout = layout
-        self._page_count = max(1, doc.pageCount())
+        self._offsets = compute_page_offsets(
+            doc, layout.block_h, getattr(layout, 'title_blocks', ()))
+        self._page_count = max(1, len(self._offsets))
         self._page = 0
         self.update()
+
+    def _page_for_y(self, y):
+        """Largest page index whose top is at or above y."""
+        p = 0
+        for i, off in enumerate(self._offsets):
+            if off <= y + 0.5:
+                p = i
+            else:
+                break
+        return p
 
     def goto_paragraph(self, para_ordinal):
         """Jump to the page holding the given body paragraph (by ordinal)."""
         if not self._doc or not self._para_blocks or self._layout is None:
             return
         k = max(0, min(para_ordinal, len(self._para_blocks) - 1))
-        p = page_of_block(self._doc, self._para_blocks[k], self._layout.block_h)
-        self._page = max(0, min(p, self._page_count - 1))
+        y = block_top(self._doc, self._para_blocks[k])
+        self._page = max(0, min(self._page_for_y(y), self._page_count - 1))
         self.update()
 
     # ── navigation ──────────────────────────────────────────────────────────--
@@ -268,14 +317,15 @@ class ReadingPageView(QWidget):
         # The paper is the full page; the text block sits inset by the margins.
         painter.fillRect(QRectF(ox, oy, draw_w, draw_h), self._paper)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        top = self._offsets[self._page] if self._offsets else 0.0
         painter.save()
         painter.translate(ox, oy)
         painter.scale(scale, scale)
         painter.translate(L.m_inner, L.m_top)
-        painter.translate(0, -self._page * L.block_h)
+        painter.translate(0, -top)
         ctx = QAbstractTextDocumentLayout.PaintContext()
         ctx.palette.setColor(QPalette.ColorRole.Text, self._ink)
-        ctx.clip = QRectF(0, self._page * L.block_h, L.block_w, L.block_h)
+        ctx.clip = QRectF(0, top, L.block_w, L.block_h)
         self._doc.documentLayout().draw(painter, ctx)
         painter.restore()
         painter.end()
