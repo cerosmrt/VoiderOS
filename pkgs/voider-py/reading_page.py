@@ -333,6 +333,10 @@ class ReadingPageView(QWidget):
         painter.scale(scale, scale)
         painter.translate(L.m_inner, L.m_top)
         painter.translate(0, -top)
+        # Hard pixel clip to this page's window — ctx.clip below only CULLS whole
+        # blocks, it does not clip a paragraph that straddles the page boundary, so
+        # without this the straddling lines paint in full on both pages.
+        painter.setClipRect(QRectF(0, top, L.block_w, clip_h))
         ctx = QAbstractTextDocumentLayout.PaintContext()
         ctx.palette.setColor(QPalette.ColorRole.Text, self._ink)
         ctx.clip = QRectF(0, top, L.block_w, clip_h)
