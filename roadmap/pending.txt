@@ -119,6 +119,15 @@ SYSTEM / NIX
 ------------
 - voider.nix FxPanel keybinds (Super+J/K/L) moved — confirm working after rebuild.
 
+- proto-voider hot-reload (deferred): proto-voider/watch.py already auto-restarts
+  the app on any .py change (watchdog). It's intentionally NOT wired into the
+  `proto-voider` launcher because restarting interrupts live writing (text is
+  safe — autosave + atomic writes — but the view resets). Options for later:
+  add an opt-in `proto-voider-watch` launcher (writeShellScriptBin running
+  watch.py) + a Super+Shift+P keybind, keeping plain proto-voider non-watching.
+  Same proto code, just a launcher — not a third app. For ad-hoc use now:
+  cd ~/VoiderOS/proto-voider && <voiderPython>/bin/python3 watch.py
+
 SAFETY / GIT
 ------------
 - Data-integrity audit follow-ups (item 1 DONE: atomic I.txt writes, commit
