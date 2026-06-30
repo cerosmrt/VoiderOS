@@ -50,7 +50,10 @@ class TtsMixin:
         lang = self._detect_lang(text)
         model = self._TTS_MODELS.get(lang, self._TTS_MODELS['en'])
         if not os.path.exists(model):
-            print(f"⚠️ TTS model not found: {model}")
+            warned = self.__dict__.setdefault('_tts_missing_warned', set())
+            if model not in warned:
+                warned.add(model)
+                print(f"⚠️ TTS model not found: {model} — voice disabled for this language.")
             return
         try:
             piper = subprocess.Popen(
