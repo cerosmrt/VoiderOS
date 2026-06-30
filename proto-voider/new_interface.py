@@ -265,7 +265,8 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self.o_reader_view = None   # F6: Reader — circular view of O/ book
         self.o_browser_view = None  # F7: Book browser for O/
         self.oracle_o_view = None   # F8: Oracle from O/
-        self.metronome_view = None  # F9: Metronome/tempo
+        self.metronome_view = None  # F9: Metronome/tempo (retired)
+        self.editor_view = None     # F9: normal prose editor (QPlainTextEdit)
         self._help_overlay = None   # F11: Help/instructions
         self._lock_screen = None    # Esc: lock screen overlay
         self.stack.addWidget(self.normal_view)
@@ -450,6 +451,9 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                 self.scratch_view.edit_mode = False
                 self.scratch_view.editor.hide()
         old_view = self.current_view
+        # Leaving the F9 prose editor: commit the edit back to the active file.
+        if old_view == 8 and view_index != 8:
+            self._editor_save()
         # Remember which F3 entry we were on, so re-entering F3 returns to the same
         # one (e.g. a specific '0' portal) instead of snapping to the first match.
         if old_view == 2 and self.book_ring.lines:
@@ -660,13 +664,25 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self.oracle_o_view.update()
             self._oracle_o_show_editor()
 
-        elif view_index == 8:  # F9 — metronome
-            if not self.metronome_view:
-                self.metronome_view = MetronomeView(self)
-                self.stack.addWidget(self.metronome_view)
-            self.stack.setCurrentWidget(self.metronome_view)
+        elif view_index == 8:  # F9 — normal prose editor of the active file
+            from PyQt6.QtWidgets import QPlainTextEdit
+            from reading_page import lines_to_paragraphs
+            if not self.editor_view:
+                self.editor_view = QPlainTextEdit(self)
+                self.editor_view.setStyleSheet(
+                    "QPlainTextEdit { background:#000000; color:#dddddd; "
+                    "border:none; padding:40px 90px; "
+                    "selection-background-color:#444444; }")
+                self.stack.addWidget(self.editor_view)
+            fam = self.config.get('reading_font', 'EB Garamond')
+            sz = int(self.config.get('reading_size', 13)) + 2
+            self.editor_view.setFont(QFont(fam, sz))
+            lines = self._reading_file_lines(self.current_file_path)
+            self.editor_view.setPlainText('\n\n'.join(lines_to_paragraphs(lines)))
+            self.editor_view.document().setModified(False)
+            self.stack.setCurrentWidget(self.editor_view)
             self.entry.hide()
-            self.metronome_view.activate()
+            self.editor_view.setFocus()
 
         elif view_index == 9:  # Book concat — read-only group view (Enter on dot in F3)
             if not self.book_concat_view:
@@ -793,6 +809,22 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self._void_space_connection = self.entry.spacePressed.connect(self._handle_void_line)
         else:
             self._void_enter_connection = self.entry.returnPressed.connect(self._handle_void_line)
+
+    def _editor_save(self):
+        """F9: convert the edited prose back to the dot-model and write the active
+        file — only when the text was actually changed (viewing leaves it alone)."""
+        ev = getattr(self, 'editor_view', None)
+        if ev is None or not ev.document().isModified():
+            return
+        prose = ev.toPlainText()
+        self._undo_begin()
+        # Write the prose verbatim, then reformat it into the dot-model in place
+        # (paragraphs -> dot groups, sentence-split lines). Grouped as one undo.
+        self._atomic_write_lines(self.current_file_path, prose.split('\n'))
+        self.reformat_active_file()
+        self._undo_commit(key=('editor', self.current_file_path))
+        ev.document().setModified(False)
+        print("📝 F9 prose → saved + reformatted into the active file")
 
     def eventFilter(self, obj, event):
         # Intercept Ctrl+Z / Ctrl+Shift+Z before the focused editor's own field

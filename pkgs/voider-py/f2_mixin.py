@@ -78,7 +78,7 @@ class F2Mixin:
 
     def _doc_show_editor(self):
         """Show F2 editor with current doc line, cursor at start."""
-        if not self.line_ring.lines:
+        if not self.circular_view or not self.line_ring.lines:
             return
         view = self.circular_view
         view.edit_mode = True

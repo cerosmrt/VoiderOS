@@ -158,6 +158,11 @@ class KeyRouterMixin:
                 self.switch_to_view(0); event.accept()
             elif self._matches(key, mods, 'quit'):
                 self._show_lock_screen(); event.accept()
+        elif self.current_view == 8:   # F9 prose editor
+            if key == Qt.Key.Key_S and (mods & Qt.KeyboardModifier.ControlModifier):
+                self._editor_save(); event.accept()
+            elif key == Qt.Key.Key_Escape:
+                self.switch_to_view(1); event.accept()   # save-on-leave handles it
         elif self.current_view == 9:
             if key == Qt.Key.Key_Escape:
                 self.switch_to_view(2); event.accept()
