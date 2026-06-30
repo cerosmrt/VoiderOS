@@ -82,6 +82,9 @@ def make_ring_app(lines, tmp_file=None):
         '_library_path', '_library_current_fname', '_save_library',
         '_build_library_path_cache', '_load_library', '_generate_library',
         '_append_new_files_to_library',
+        # undo/redo (no-op without _undo, which is set only in the real app)
+        '_undo_capture', '_undo_begin', '_undo_commit', '_undo_trackable',
+        '_undo_apply', '_undo_refresh',
         # TTS helpers
         '_tts_cut',
         # print/export helpers

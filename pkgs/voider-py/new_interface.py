@@ -4,7 +4,7 @@ import sys
 
 from PyQt6.QtWidgets import QApplication, QMainWindow, QStackedWidget, QFileDialog, QLineEdit, QTextBrowser
 from PyQt6.QtGui import QFont, QCursor, QShortcut, QKeySequence
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QEvent
 
 import app_config as _app_config
 from app_config import (
@@ -242,6 +242,13 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._book_pending_new = False        # True while user names a new F3 entry
         self._book_last_index = 0             # remembered F3 cursor (for re-entry)
         # Search state — display rings are separate from real rings (never mutated)
+        # Undo / redo of text content (Ctrl+Z / Ctrl+Shift+Z in F1/F2/F5)
+        from undo_manager import UndoManager
+        self._undo = UndoManager()
+        self._undo_last = {}        # path -> last written line list
+        self._undo_applying = False
+        self._undo_txn = None
+        QApplication.instance().installEventFilter(self)
         self._f2_search_active = False
         self._f2_search_saved = None   # saved cursor index before search
         self._f2_display_ring = None   # temp ring shown during search
@@ -786,6 +793,17 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self._void_space_connection = self.entry.spacePressed.connect(self._handle_void_line)
         else:
             self._void_enter_connection = self.entry.returnPressed.connect(self._handle_void_line)
+
+    def eventFilter(self, obj, event):
+        # Intercept Ctrl+Z / Ctrl+Shift+Z before the focused editor's own field
+        # undo, but only in the editing views (F1/F2/F5).
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Z \
+                and (event.modifiers() & Qt.KeyboardModifier.ControlModifier) \
+                and self.current_view in (0, 1, 4):
+            redo = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            self._undo_apply(redo=redo)
+            return True
+        return super().eventFilter(obj, event)
 
     def _handle_void_line(self):
         if self.current_view == 4:

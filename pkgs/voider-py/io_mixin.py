@@ -56,13 +56,14 @@ class IoMixin:
             self.circular_view._offset = 0.0
         print(f"📄 {len(lines)} lines loaded from {os.path.basename(doc_path)}")
 
-    def auto_save_circular(self):
+    def auto_save_circular(self, undo_key=None):
         """Save doc ring state to active file (atomic write)."""
         import tempfile
         if getattr(self, '_doc_load_failed', False):
             print("⛔ Save blocked: active file failed to load; refusing to overwrite it.")
             return
         doc_path = self.current_file_path
+        self._undo_capture(doc_path, self.line_ring.lines, key=undo_key)
         dir_path = os.path.dirname(doc_path) or '.'
         try:
             fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix='.tmp')
@@ -94,6 +95,7 @@ class IoMixin:
                 shutil.copy2(path, path + '.bak')
             except Exception as e:
                 print(f"⚠️ Could not write backup {os.path.basename(path)}.bak: {e}")
+        self._undo_capture(path, lines)
         dir_path = os.path.dirname(path) or '.'
         try:
             fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix='.tmp')
@@ -115,6 +117,86 @@ class IoMixin:
         except Exception as e:
             print(f"❌ Write error on {os.path.basename(path)}: {e}")
             return False
+
+    # ── Undo / redo (text content) ─────────────────────────────────────────────
+
+    def _undo_trackable(self, path):
+        """Only /void text files (chapters + 0.txt) are undoable — not the library
+        index, config, caches, etc."""
+        base = os.path.basename(path).lower()
+        return base.endswith('.txt') and base != 'i.txt'
+
+    def _undo_capture(self, path, after, key=None):
+        """Record a content change for undo. Called from the write primitives;
+        no-ops while applying an undo, when undo is uninitialised (tests), or for
+        non-trackable files. Coalesces consecutive writes sharing `key`."""
+        um = getattr(self, '_undo', None)
+        if um is None or getattr(self, '_undo_applying', False):
+            return
+        if not self._undo_trackable(path):
+            return
+        before = self._undo_last.get(path)
+        if before is None:
+            try:
+                with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                    before = [l.rstrip('\n') for l in f]
+            except FileNotFoundError:
+                before = []
+            except Exception:
+                return
+        after = list(after)
+        txn = getattr(self, '_undo_txn', None)
+        if txn is not None:
+            txn.append((path, list(before), after))
+        else:
+            um.record(path, before, after, key=key)
+        self._undo_last[path] = after
+
+    def _undo_begin(self):
+        """Group the writes until _undo_commit into ONE undo step (e.g. F5 dispatch
+        touches source + target)."""
+        self._undo_txn = []
+
+    def _undo_commit(self, key=None):
+        txn = getattr(self, '_undo_txn', None)
+        self._undo_txn = None
+        if txn and getattr(self, '_undo', None) is not None:
+            self._undo.record_transaction(txn, key=key)
+
+    def _undo_apply(self, redo=False):
+        """Ctrl+Z / Ctrl+Shift+Z: restore the previous (or next) content of every
+        file in the change, atomically, then refresh the active view."""
+        um = getattr(self, '_undo', None)
+        if um is None:
+            return
+        entry = um.redo() if redo else um.undo()
+        if not entry:
+            print("↩️ nothing to " + ("redo" if redo else "undo"))
+            return
+        self._undo_applying = True
+        try:
+            for path, before, after in entry['files']:
+                content = after if redo else before
+                self._atomic_write_lines(path, content)
+                self._undo_last[path] = list(content)
+        finally:
+            self._undo_applying = False
+        self._undo_refresh(entry)
+        print(("↪️ redo" if redo else "↩️ undo") + f" ({len(entry['files'])} file/s)")
+
+    def _undo_refresh(self, entry):
+        """Reload + redraw the active view if it shows a file we just restored."""
+        cur = os.path.abspath(self.current_file_path)
+        if not any(os.path.abspath(p) == cur for p, _, _ in entry['files']):
+            return
+        self.load_doc_lines()
+        v = getattr(self, 'current_view', None)
+        if v == 1 and hasattr(self, '_doc_show_editor'):
+            self._doc_show_editor()
+        elif v == 0 and hasattr(self, '_f1_show_current'):
+            self._f1_show_current()
+        elif v == 4 and hasattr(self, '_triage_enter'):
+            self._triage_enter()
 
     # ── Reformat ─────────────────────────────────────────────────────────────
 

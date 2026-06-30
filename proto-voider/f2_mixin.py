@@ -491,7 +491,8 @@ class F2Mixin:
         """Save on every keystroke in F2 editor."""
         if text.strip():
             self.line_ring.lines[self.line_ring.index] = text
-            self.auto_save_circular()
+            # Coalesce the keystroke burst on this line into one undo step.
+            self.auto_save_circular(undo_key=('doc', self.line_ring.index))
             self.circular_view.update()
 
     def _doc_confirm_edit(self):

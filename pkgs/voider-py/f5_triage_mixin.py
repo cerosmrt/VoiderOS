@@ -231,6 +231,9 @@ class F5TriageMixin:
         para = self._triage_paragraphs[self._triage_para_idx]
         fpath = target['path']
 
+        # Source removal + target append are ONE undo step.
+        self._undo_begin()
+
         # Append paragraph to the target chapter, atomically (+ IPC).
         try:
             with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
@@ -248,6 +251,7 @@ class F5TriageMixin:
         self._triage_para_idx = min(self._triage_para_idx, n - 1) if n else -1
         self._triage_save()
 
+        self._undo_commit(key=('dispatch',))
         print(f'→ {len(para)} line(s) → {target["display"]}')
         self._triage_refresh()
 
