@@ -25,6 +25,46 @@ def _app(tmp_path, names):
     return app
 
 
+def test_swap_commits_edited_title_first(tmp_path, monkeypatch):
+    # rename a chapter in the editor, then Alt-move: the rename must be committed
+    # (file renamed, new name moves with the swap), not reverted.
+    import f3_mixin
+    from new_interface import FullscreenCircleApp
+    monkeypatch.setattr(f3_mixin, '_save_config', lambda *a, **k: None)
+
+    (tmp_path / 'I').mkdir()
+    (tmp_path / 'I' / 'A.txt').write_text('a', encoding='utf-8')
+    (tmp_path / 'I' / 'B.txt').write_text('b', encoding='utf-8')
+
+    app = make_ring_app(['.'])
+    app.void_dir = str(tmp_path)
+    app.book_dir = str(tmp_path / 'I')
+    app.config = {}
+    app.current_file_path = str(tmp_path / 'I' / 'A.txt')
+    app._book_pending_new = False
+    app._library_lines = ['.', 'A.txt', 'B.txt']
+    app.book_ring = LineRing(['.', 'A', 'B'])
+    app.book_ring.index = 2                       # on B
+    app._library_path_cache = {
+        'A.txt': str(tmp_path / 'I' / 'A.txt'),
+        'B.txt': str(tmp_path / 'I' / 'B.txt'),
+    }
+    app._ipc = MagicMock()
+    app.book_view = MagicMock()
+    app.book_view.editor.text.return_value = 'Bee'   # user renamed B -> Bee
+    for nm in METHODS + ('_book_try_rename', '_book_is_portal',
+                         '_library_current_fname', '_library_path'):
+        if hasattr(FullscreenCircleApp, nm):
+            setattr(app, nm, types.MethodType(getattr(FullscreenCircleApp, nm), app))
+
+    app._book_swap_up()
+
+    assert (tmp_path / 'I' / 'Bee.txt').exists()          # rename committed
+    assert not (tmp_path / 'I' / 'B.txt').exists()
+    assert app.book_ring.lines == ['.', 'Bee', 'A']       # new name moved up
+    assert app._library_lines == ['.', 'Bee.txt', 'A.txt']
+
+
 def test_chapter_swaps_with_immediate_neighbour(tmp_path):
     app = _app(tmp_path, ['.', 'A', 'B', 'C'])
     app.book_ring.index = 2          # B

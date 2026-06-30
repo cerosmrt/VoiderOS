@@ -115,6 +115,8 @@ class F3Mixin:
         self._book_show_editor()
 
     def _book_try_rename(self):
+        if not self.book_view:
+            return True
         if self._book_pending_new:
             return True
         # The '0' portal is read-only — never rename it.
@@ -477,6 +479,7 @@ class F3Mixin:
         """Alt+Up in F3: a dot moves its whole book up; a chapter swaps with its
         immediate neighbour (reorders within the book, or crosses into the book
         above when the neighbour is a separator)."""
+        self._book_try_rename()   # commit an edited title before reordering
         idx = self.book_ring.index
         lines = self.book_ring.lines
         if lines[idx] == '.':
@@ -492,6 +495,7 @@ class F3Mixin:
     def _book_swap_down(self):
         """Alt+Down in F3: a dot moves its whole book down; a chapter swaps with
         its immediate neighbour."""
+        self._book_try_rename()   # commit an edited title before reordering
         idx = self.book_ring.index
         lines = self.book_ring.lines
         if lines[idx] == '.':
