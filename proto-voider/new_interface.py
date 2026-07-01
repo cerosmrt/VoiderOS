@@ -845,15 +845,30 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         ev.document().setModified(False)
         print("📝 F9 prose → saved + reformatted into the active file")
 
+    def _f3_mid_edit(self):
+        """True when the F3 title field is being actively typed into (pending new
+        entry / merge name, or a dirty rename) — Ctrl+Z should undo the typing then,
+        not the last library op."""
+        if getattr(self, '_book_pending_new', False) or getattr(self, '_book_pending_merge', False):
+            return True
+        bv = getattr(self, 'book_view', None)
+        if bv and self.book_ring.lines:
+            cur = self.book_ring.current()
+            if cur not in ('.', None) and bv.editor.text().strip() != (cur or '').strip():
+                return True
+        return False
+
     def eventFilter(self, obj, event):
         # Intercept Ctrl+Z / Ctrl+Shift+Z before the focused editor's own field
-        # undo, but only in the editing views (F1/F2/F5).
+        # undo, but only in the editing views (F1/F2/F5) and F3 (library ops,
+        # unless a title is mid-edit — then let the field's own undo run).
         if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Z \
-                and (event.modifiers() & Qt.KeyboardModifier.ControlModifier) \
-                and self.current_view in (0, 1, 4):
-            redo = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-            self._undo_apply(redo=redo)
-            return True
+                and (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+            v = self.current_view
+            if v in (0, 1, 4) or (v == 2 and not self._f3_mid_edit()):
+                redo = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                self._undo_apply(redo=redo)
+                return True
         return super().eventFilter(obj, event)
 
     def _handle_void_line(self):

@@ -133,6 +133,10 @@ class IoMixin:
         um = getattr(self, '_undo', None)
         if um is None or getattr(self, '_undo_applying', False):
             return
+        # Inside an F3 structural transaction the whole change is captured as one
+        # library snapshot — don't also record per-file content steps.
+        if getattr(self, '_f3_txn', None) is not None:
+            return
         if not self._undo_trackable(path):
             return
         before = self._undo_last.get(path)
@@ -163,6 +167,78 @@ class IoMixin:
         if txn and getattr(self, '_undo', None) is not None:
             self._undo.record_transaction(txn, key=key)
 
+    # ── F3 library/structural undo (reorder, rename, delete, merge, split) ──────
+
+    def _read_lines_or_none(self, path):
+        """File content as a line list, or None if the file is absent."""
+        try:
+            with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                return [l.rstrip('\n') for l in f]
+        except FileNotFoundError:
+            return None
+        except Exception:
+            return None
+
+    def _f3_state(self):
+        """Snapshot the F3 library arrays + cursor + path cache (no file bodies)."""
+        return {'lib': list(self._library_lines),
+                'ring': list(self.book_ring.lines),
+                'idx': self.book_ring.index,
+                'cache': dict(self._library_path_cache),
+                'files': {}}
+
+    def _f3_undo_begin(self):
+        """Open an F3 undo transaction; captures library arrays as they are now."""
+        self._f3_txn = self._f3_state()
+
+    def _f3_undo_file(self, path):
+        """Register a file the pending op will touch, capturing its pre-op content
+        (or None if absent). MUST be called before the file is modified/deleted."""
+        txn = getattr(self, '_f3_txn', None)
+        if txn is None or getattr(self, '_undo_applying', False):
+            return
+        if path not in txn['files']:
+            txn['files'][path] = self._read_lines_or_none(path)
+
+    def _f3_undo_commit(self, key=None):
+        """Close the transaction: capture the after-state and record one undo step."""
+        txn = getattr(self, '_f3_txn', None)
+        self._f3_txn = None
+        um = getattr(self, '_undo', None)
+        if txn is None or um is None or getattr(self, '_undo_applying', False):
+            return
+        after = self._f3_state()
+        after['files'] = {p: self._read_lines_or_none(p) for p in txn['files']}
+        um.record_library(txn, after)
+
+    def _f3_restore(self, snap):
+        """Restore a library snapshot: arrays, cursor, cache, touched files, I.txt."""
+        self._undo_applying = True
+        try:
+            self._library_lines = list(snap['lib'])
+            self.book_ring.lines = list(snap['ring'])
+            self.book_ring.index = max(0, min(snap['idx'],
+                                              len(self.book_ring.lines) - 1))
+            self._library_path_cache = dict(snap['cache'])
+            for path, content in snap['files'].items():
+                if content is None:
+                    if os.path.exists(path):
+                        try:
+                            os.remove(path)
+                        except OSError:
+                            pass
+                else:
+                    self._atomic_write_lines(path, content)
+            self._save_library()
+            if self.current_file_path in snap['files']:
+                self.load_doc_lines()
+        finally:
+            self._undo_applying = False
+        if getattr(self, 'current_view', None) == 2 and self.book_view:
+            self.book_view._offset = 0.0
+            if hasattr(self, '_book_show_editor'):
+                self._book_show_editor()
+
     def _undo_apply(self, redo=False):
         """Ctrl+Z / Ctrl+Shift+Z: restore the previous (or next) content of every
         file in the change, atomically, then refresh the active view."""
@@ -172,6 +248,10 @@ class IoMixin:
         entry = um.redo() if redo else um.undo()
         if not entry:
             print("↩️ nothing to " + ("redo" if redo else "undo"))
+            return
+        if entry.get('kind') == 'library':
+            self._f3_restore(entry['after' if redo else 'before'])
+            print(("↪️ redo" if redo else "↩️ undo") + " (F3 library)")
             return
         self._undo_applying = True
         try:
@@ -740,6 +820,8 @@ class IoMixin:
             print("✓ No '/name' markers to split.")
             return
 
+        self._f3_undo_begin()
+        self._f3_undo_file(self.current_file_path)
         self._git_snapshot_void('split')
         i_dir = os.path.join(self.void_dir, 'I')
 
@@ -790,6 +872,7 @@ class IoMixin:
                       or os.path.exists(os.path.join(i_dir, fname)))
             if exists:
                 fpath = self._library_path_cache.get(fname, os.path.join(i_dir, fname))
+                self._f3_undo_file(fpath)
                 try:
                     with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
                         existing = [l.rstrip('\n') for l in f]
@@ -808,6 +891,7 @@ class IoMixin:
                 merged += 1
             else:
                 fpath = os.path.join(i_dir, fname)
+                self._f3_undo_file(fpath)
                 if not self._atomic_write_lines(fpath, content):
                     continue
                 self._library_lines.insert(ins, fname)
@@ -819,6 +903,7 @@ class IoMixin:
                 first_fname = fname
 
         self._save_library()
+        self._f3_undo_commit('split')
         # Keep the active file / cursor sane after the reshuffle.
         if container_removed:
             if first_fname and first_fname in self._library_lines:

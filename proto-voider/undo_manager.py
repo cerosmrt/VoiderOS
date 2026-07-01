@@ -42,6 +42,14 @@ class UndoManager:
                 return
         self._push({'files': [(path, before, after)], 'key': key})
 
+    def record_library(self, before, after):
+        """Record a whole F3 library/structural change (reorder, rename, delete,
+        merge, split) as ONE step. `before`/`after` are state snapshots (dicts with
+        'lib', 'ring', 'idx', 'cache', 'files'); restored wholesale on undo/redo."""
+        if before == after:
+            return
+        self._push({'kind': 'library', 'before': before, 'after': after})
+
     def record_transaction(self, changes, key=None):
         """Record several files changed as ONE undo step (e.g. F5 dispatch:
         source + target). `changes` = iterable of (path, before, after)."""

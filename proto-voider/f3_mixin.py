@@ -148,6 +148,9 @@ class F3Mixin:
             self.book_view.editor.setText(self.book_ring.current())
             return True
         try:
+            self._f3_undo_begin()
+            self._f3_undo_file(old_path)
+            self._f3_undo_file(new_path)
             os.rename(old_path, new_path)
             if self.current_file_path == old_path:
                 self.current_file_path = new_path
@@ -159,8 +162,10 @@ class F3Mixin:
             del self._library_path_cache[fname]
             self._library_path_cache[new_fname] = new_path
             self._save_library()
+            self._f3_undo_commit('rename')
             print(f"📝 Renamed: {fname} → {new_fname}")
         except Exception as e:
+            self._f3_txn = None
             print(f"⚠️ Rename failed: {e}")
             return False
         return True
@@ -275,6 +280,9 @@ class F3Mixin:
             return
         if os.path.abspath(fpath) == os.path.abspath(self.f1_file):
             return
+        self._f3_undo_begin()
+        self._f3_undo_file(self.f1_file)
+        self._f3_undo_file(fpath)
         try:
             with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
                 lines = [l.strip() for l in f if l.strip() and l.strip() != '.']
@@ -307,6 +315,7 @@ class F3Mixin:
         while self.book_ring.current() == '.' and n > 1:
             self.book_ring.index = (self.book_ring.index + 1) % n
         self._save_library()
+        self._f3_undo_commit('delete')
         if self.current_file_path == self.f1_file:
             self.load_doc_lines()
         self.book_view._offset = 0.0
@@ -485,6 +494,7 @@ class F3Mixin:
         self._book_try_rename()   # commit an edited title before reordering
         idx = self.book_ring.index
         lines = self.book_ring.lines
+        self._f3_undo_begin()
         if lines[idx] == '.':
             self._book_move_block(up=True)
         elif idx > 0:
@@ -493,6 +503,7 @@ class F3Mixin:
             if not (lines[j] == '.' and not any(x != '.' for x in lines[:j])):
                 self._book_swap_entries(idx, j)
                 self.book_ring.index = j
+        self._f3_undo_commit('reorder')
         self._book_refresh_editor()
 
     def _book_swap_down(self):
@@ -501,6 +512,7 @@ class F3Mixin:
         self._book_try_rename()   # commit an edited title before reordering
         idx = self.book_ring.index
         lines = self.book_ring.lines
+        self._f3_undo_begin()
         if lines[idx] == '.':
             self._book_move_block(up=False)
         elif idx < len(lines) - 1:
@@ -509,6 +521,7 @@ class F3Mixin:
             if not (lines[j] == '.' and not any(x != '.' for x in lines[j + 1:])):
                 self._book_swap_entries(idx, j)
                 self.book_ring.index = j
+        self._f3_undo_commit('reorder')
         self._book_refresh_editor()
 
     def _book_refresh_editor(self):
@@ -566,6 +579,7 @@ class F3Mixin:
         The dot stays; only meaningful on a separator."""
         if self.book_ring.current() != '.' or getattr(self, '_book_pending_merge', False):
             return
+        self._f3_undo_begin()          # capture the clean book (before the naming line)
         idx = self.book_ring.index
         self._merge_dot_idx = idx
         self.book_ring.lines.insert(idx + 1, '')
@@ -583,6 +597,7 @@ class F3Mixin:
 
     def _book_cancel_merge(self):
         """Remove the blank naming line and leave the book untouched."""
+        self._f3_txn = None            # discard the pending undo transaction
         self._book_pending_merge = False
         ph = getattr(self, '_merge_dot_idx', self.book_ring.index - 1) + 1
         if 0 <= ph < len(self._library_lines) and self._library_lines[ph] == '':
@@ -633,6 +648,10 @@ class F3Mixin:
             cname = f"{name}-{k}.txt"
             cpath = os.path.join(i_dir, cname)
             k += 1
+        # Register every file the merge touches for undo (container + chapters).
+        self._f3_undo_file(cpath)
+        for _, fn in chapters:
+            self._f3_undo_file(self._library_path_cache.get(fn))
         if not self._atomic_write_lines(cpath, merged):
             self._book_cancel_merge()
             return
@@ -655,6 +674,7 @@ class F3Mixin:
         self._book_pending_merge = False
         self.book_ring.index = ph
         self._save_library()
+        self._f3_undo_commit('merge')
         self._book_show_editor()             # stay in F3
         print(f"🔗 Merged {len(chapters)} chapter(s) → {cname}")
 

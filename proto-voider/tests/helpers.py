@@ -85,6 +85,9 @@ def make_ring_app(lines, tmp_file=None):
         # undo/redo (no-op without _undo, which is set only in the real app)
         '_undo_capture', '_undo_begin', '_undo_commit', '_undo_trackable',
         '_undo_apply', '_undo_refresh',
+        # F3 library/structural undo
+        '_f3_state', '_f3_undo_begin', '_f3_undo_file', '_f3_undo_commit',
+        '_f3_restore', '_read_lines_or_none',
         # TTS helpers
         '_tts_cut',
         # print/export helpers
