@@ -167,6 +167,9 @@ class F3Mixin:
 
     def _book_confirm_edit(self):
         """Enter in F3: handle new-entry mode, dot → concat view, title → F2."""
+        if getattr(self, '_book_pending_merge', False):
+            self._book_do_merge()
+            return
         if self._book_pending_new:
             text = self.book_view.editor.text().strip()
             idx = self.book_ring.index
@@ -554,6 +557,124 @@ class F3Mixin:
         self.book_view.editor.setReadOnly(False)
         self.book_view.editor.setCursorPosition(0)
         self.book_view.update()
+
+    # ── Merge a book into one doc (inverse of split) ───────────────────────────
+
+    def _book_merge_prompt(self):
+        """Ctrl+Shift+M on a dot in F3: open a blank naming line right below the dot
+        (an empty caret) to name the merged doc. Enter merges; empty/Esc cancels.
+        The dot stays; only meaningful on a separator."""
+        if self.book_ring.current() != '.' or getattr(self, '_book_pending_merge', False):
+            return
+        idx = self.book_ring.index
+        self._merge_dot_idx = idx
+        self.book_ring.lines.insert(idx + 1, '')
+        self._library_lines.insert(idx + 1, '')
+        self.book_ring.index = idx + 1
+        self._book_pending_merge = True
+        if self.book_view:
+            self.book_view._offset = 0.0
+            self.book_view.editor.setText('')
+            self.book_view.editor.setReadOnly(False)
+            self.book_view.editor.setCursorPosition(0)
+            self.book_view.editor.setFocus()
+            self.book_view.update()
+        print("🔗 Name the merged doc, Enter to merge (empty/Esc cancels).")
+
+    def _book_cancel_merge(self):
+        """Remove the blank naming line and leave the book untouched."""
+        self._book_pending_merge = False
+        ph = getattr(self, '_merge_dot_idx', self.book_ring.index - 1) + 1
+        if 0 <= ph < len(self._library_lines) and self._library_lines[ph] == '':
+            self._library_lines.pop(ph)
+            self.book_ring.lines.pop(ph)
+        self.book_ring.index = max(0, min(ph - 1, len(self.book_ring.lines) - 1))
+        self._book_show_editor()
+
+    def _book_do_merge(self):
+        """Collapse the book (dot -> next dot) into ONE chapter (the named line just
+        typed): each chapter's lines followed by a '/name' seal marker, originals
+        removed. Stays in F3. Re-split (Ctrl+Shift+S) restores it."""
+        name = self.book_view.editor.text().strip() if self.book_view else ''
+        dot_idx = getattr(self, '_merge_dot_idx', self.book_ring.index - 1)
+        ph = dot_idx + 1                     # the blank naming line
+        n = len(self._library_lines)
+        chapters = []                        # (index, fname) after the naming line
+        i = ph + 1
+        while i < n and self._library_lines[i] != '.':
+            fn = self._library_lines[i]
+            if fn not in ('', '0.txt'):
+                chapters.append((i, fn))
+            i += 1
+        if not name or not chapters:
+            self._book_cancel_merge()
+            return
+
+        self._git_snapshot_void('merge')
+        i_dir = os.path.join(self.void_dir, 'I')
+
+        merged = []
+        for _, fn in chapters:
+            fpath = self._library_path_cache.get(fn)
+            try:
+                with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                    lines = [l.rstrip('\n') for l in f]
+            except Exception:
+                lines = []
+            while lines and not lines[-1].strip():
+                lines.pop()
+            merged.extend(lines)
+            merged.append('/' + os.path.splitext(fn)[0])   # seal marker
+
+        cname = name + '.txt'
+        cpath = os.path.join(i_dir, cname)
+        k = 2
+        while os.path.exists(cpath) or cname in self._library_lines:
+            cname = f"{name}-{k}.txt"
+            cpath = os.path.join(i_dir, cname)
+            k += 1
+        if not self._atomic_write_lines(cpath, merged):
+            self._book_cancel_merge()
+            return
+
+        # The blank naming line becomes the merged container.
+        self._library_lines[ph] = cname
+        self.book_ring.lines[ph] = name
+        self._library_path_cache[cname] = cpath
+        # Remove the merged chapters (all after the naming line), reverse order.
+        for idx, fn in sorted(chapters, key=lambda t: t[0], reverse=True):
+            self._library_lines.pop(idx)
+            self.book_ring.lines.pop(idx)
+            p = self._library_path_cache.pop(fn, None)
+            if p and os.path.exists(p):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+
+        self._book_pending_merge = False
+        self.book_ring.index = ph
+        self._save_library()
+        self._book_show_editor()             # stay in F3
+        print(f"🔗 Merged {len(chapters)} chapter(s) → {cname}")
+
+    def _book_split_current(self):
+        """Ctrl+Shift+S in F3: split the highlighted chapter/merged doc at its
+        '/name' markers (activates it, splits, then refreshes the library)."""
+        if self.book_ring.current() == '.' or self._book_is_portal():
+            return
+        self._book_try_rename()
+        fname = self._library_current_fname()
+        if not fname:
+            return
+        fpath = self._library_path_cache.get(fname)
+        if not (fpath and os.path.isfile(fpath)):
+            return
+        self.current_file_path = fpath
+        self._set_f2_file(fpath)
+        self.load_doc_lines()
+        self._split_chapter_at_slash()
+        self._book_show_editor()
 
     def _vault_show_editor(self):
         """Show the vault inline editor with the current vault line, cursor at start."""

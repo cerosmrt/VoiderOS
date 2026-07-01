@@ -261,10 +261,16 @@ class KeyRouterMixin:
         # Up/Down/Enter handled by book_view.editor signals.
         if mods == Qt.KeyboardModifier.ControlModifier and key == Qt.Key.Key_F:
             self._open_f3_search(); event.accept(); return
+        if self._matches(key, mods, 'merge_book'):
+            self._book_merge_prompt(); event.accept(); return
+        if self._matches(key, mods, 'split_chapter'):
+            self._book_split_current(); event.accept(); return
         if key == Qt.Key.Key_Escape and self._f3_search_active:
             self._close_f3_search(restore=True); event.accept(); return
         if key == Qt.Key.Key_Escape:
-            if self._book_pending_new:
+            if getattr(self, '_book_pending_merge', False):
+                self._book_cancel_merge()
+            elif self._book_pending_new:
                 idx = self.book_ring.index
                 self.book_ring.lines.pop(idx)
                 self._library_lines.pop(idx)

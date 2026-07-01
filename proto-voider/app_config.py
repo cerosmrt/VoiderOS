@@ -57,6 +57,7 @@ DEFAULT_CONFIG = {
         "shuffle_zero": "Ctrl+Shift+R",
         "dispatch": "Ctrl+Shift+D",
         "split_chapter": "Ctrl+Shift+S",
+        "merge_book": "Ctrl+Shift+M",
         "backup": "Ctrl+B"
     }
 }
@@ -92,7 +93,10 @@ def _parse_keybinding(s):
     mods = Qt.KeyboardModifier.NoModifier
     for part in parts[:-1]:
         mods |= _MOD_MAP.get(part, Qt.KeyboardModifier.NoModifier)
-    return _KEY_MAP.get(key_str), mods
+    key = _KEY_MAP.get(key_str)
+    if key is None:                       # any single letter/digit → Key_<X>
+        key = getattr(Qt.Key, f'Key_{key_str.upper()}', None)
+    return key, mods
 
 
 def _load_config():

@@ -240,6 +240,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self.book_concat_ring = LineRing(['.'])
         self._book_concat_header_indices = set()
         self._book_pending_new = False        # True while user names a new F3 entry
+        self._book_pending_merge = False      # True while user names a book to merge
         self._book_last_index = 0             # remembered F3 cursor (for re-entry)
         # Search state — display rings are separate from real rings (never mutated)
         # Undo / redo of text content (Ctrl+Z / Ctrl+Shift+Z in F1/F2/F5)
@@ -321,7 +322,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._ipc.file_saved_by_other.connect(self._on_file_saved_by_other)
 
         self.init_ui()
-        self.switch_to_view(0)
+        self._restore_startup_view()
         self.entry.clear()
 
     # ── Directory picker ──────────────────────────────────────────────────────
@@ -409,6 +410,20 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
 
     # ── Views ─────────────────────────────────────────────────────────────────
 
+    def _restore_startup_view(self):
+        """Resume where the user left off: the last restorable view (F1–F4), the
+        active file, and its saved line position. Views outside F1–F4 (triage, O/
+        readers, settings) fall back to F1."""
+        view = self.config.get('last_view', 0)
+        if view not in (0, 1, 2, 3):
+            view = 0
+        # F1/F2/F4 all follow the active file — point at it and restore its line
+        # (load_doc_lines calls _restore_last_line). F3 syncs to it on its own.
+        if view in (0, 1, 3) and self.f2_file and os.path.isfile(self.f2_file):
+            self.current_file_path = self.f2_file
+            self.load_doc_lines()
+        self.switch_to_view(view)
+
     def switch_to_view(self, view_index):
         # Close search bars when leaving their view
         if self._f2_search_active and view_index != 1:
@@ -462,6 +477,10 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             # on exit — not per highlight), so F4/F2/F1 and re-entry all agree.
             self._book_activate_current()
         self.current_view = view_index
+        # Remember the last restorable view (F1–F4) so startup resumes here.
+        if view_index in (0, 1, 2, 3) and self.config.get('last_view') != view_index:
+            self.config['last_view'] = view_index
+            _save_config(self.config)
         print(f"📍 F{old_view+1} → F{view_index+1} | Index: {self.line_ring.index} | Line: '{self.line_ring.current()}'")
 
         if view_index == 0:  # F1 — focus writing on the ACTIVE file
