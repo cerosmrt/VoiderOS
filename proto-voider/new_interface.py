@@ -47,7 +47,7 @@ from f4_mixin import F4Mixin
 from f5678_mixin import F5678Mixin
 from tts_mixin import TtsMixin
 from key_router_mixin import KeyRouterMixin
-from f5_triage_mixin import F5TriageMixin
+from f5_reorder_mixin import F5ReorderMixin
 
 from files import setup_file_handling, void_line
 from ipc import VoiderIPC
@@ -61,7 +61,7 @@ from fx_panel import FxPanel
 from help_overlay import HelpOverlay
 from settings_panel import SettingsPanel
 from lock_screen import LockScreen
-from triage_view import TriageView
+from reorder_view import ReorderView
 
 
 def _zodiac_sign(month, day):
@@ -94,7 +94,7 @@ def _zodiac_sign(month, day):
 
 
 class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
-                          F4Mixin, F5TriageMixin, F5678Mixin, TtsMixin, KeyRouterMixin):
+                          F4Mixin, F5ReorderMixin, F5678Mixin, TtsMixin, KeyRouterMixin):
     """
     F1: center entry — write/navigate active file
     F2: circular view — edit/swap active file lines
@@ -260,9 +260,8 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self.vault_view = None      # (Oracle, no longer on F4)
         self.settings_view = None   # F10: Settings panel
         self.transform_view = None  # F5: Transform — editable O/ line → I/
-        self.triage_view = None     # F5: Paragraph triage (split view)
-        self._triage_paragraphs = []
-        self._triage_para_idx = 0
+        self.reorder_view = None    # F5: linear paragraph reorder view
+        self._f5_para_idx = 0       # F5 current-paragraph cursor
         self.o_reader_view = None   # F6: Reader — circular view of O/ book
         self.o_browser_view = None  # F7: Book browser for O/
         self.oracle_o_view = None   # F8: Oracle from O/
@@ -412,7 +411,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
 
     def _restore_startup_view(self):
         """Resume where the user left off: the last restorable view (F1–F4), the
-        active file, and its saved line position. Views outside F1–F4 (triage, O/
+        active file, and its saved line position. Views outside F1–F4 (F5, O/
         readers, settings) fall back to F1."""
         view = self.config.get('last_view', 0)
         if view not in (0, 1, 2, 3):
@@ -609,15 +608,20 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self.entry.hide()
             self.reading_view.setFocus()
 
-        elif view_index == 4:  # F5 — paragraph triage (split view)
-            if not self.triage_view:
-                self.triage_view = TriageView(self)
-                self.stack.addWidget(self.triage_view)
-            if not self._library_lines:
-                self._load_library()
-            self.stack.setCurrentWidget(self.triage_view)
+        elif view_index == 4:  # F5 — linear paragraph reorder over the active file
+            if not self.reorder_view:
+                self.reorder_view = ReorderView(self)
+                self.reorder_view.setFont(self._app_font)
+                self.stack.addWidget(self.reorder_view)
+            # Follow the same active file as F2 (usually a merged doc).
+            if self.current_file_path != self.f2_file:
+                self.current_file_path = self.f2_file
+                self.load_doc_lines()
+            self.stack.setCurrentWidget(self.reorder_view)
+            self.reorder_view.setGeometry(self.stack.rect())
+            self.reorder_view.setFocus()
             self.entry.hide()
-            self._triage_enter()
+            self._f5_enter()
 
         elif view_index == 5:  # F6 — reader: circular view of O/ book (read-only)
             if not self.o_reader_view:
@@ -797,8 +801,8 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self._lock_screen.setGeometry(self.rect())
         if hasattr(self, '_fx_panel'):
             self._fx_panel.setGeometry(self.rect())
-        if self.triage_view:
-            self.triage_view.setGeometry(self.stack.rect())
+        if self.reorder_view:
+            self.reorder_view.setGeometry(self.stack.rect())
 
     def leaveEvent(self, event):
         """Restore focus to the active editor when the mouse leaves the window."""

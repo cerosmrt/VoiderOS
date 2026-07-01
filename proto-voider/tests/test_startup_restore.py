@@ -40,7 +40,7 @@ def test_restore_f3_does_not_reload_doc(tmp_path):
 
 
 def test_non_restorable_view_falls_back_to_f1(tmp_path):
-    app, f2 = _restore_app(tmp_path, 4)          # F5 triage → not restorable
+    app, f2 = _restore_app(tmp_path, 4)          # F5 → not restorable
     app._restore_startup_view()
     app.switch_to_view.assert_called_once_with(0)
 

@@ -275,8 +275,8 @@ class IoMixin:
             self._doc_show_editor()
         elif v == 0 and hasattr(self, '_f1_show_current'):
             self._f1_show_current()
-        elif v == 4 and hasattr(self, '_triage_enter'):
-            self._triage_enter()
+        elif v == 4 and hasattr(self, '_f5_enter'):
+            self._f5_enter()
 
     # ── Reformat ─────────────────────────────────────────────────────────────
 
