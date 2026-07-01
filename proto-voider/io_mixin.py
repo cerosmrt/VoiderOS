@@ -724,52 +724,58 @@ class IoMixin:
             print(f"⚠️ Snapshot failed: {e}")
 
     def _split_chapter_at_slash(self):
-        """Split the current file at every bare '/' line.
+        """Split the current file at '/name' markers.
 
-        Each '/' cuts: the text after it (until the next '/' or EOF) becomes a
-        NEW chapter, named after the first non-empty line following the '/' — that
-        line is CONSUMED as the name, not kept as text. New chapters are inserted
-        in the library right below the current chapter, in order. Text before the
-        first '/' stays in the current file. Existing chapters are never
-        overwritten (a colliding name is uniquified). Atomic writes + a snapshot.
+        A line '/name' SEALS everything above it (back to the previous marker or
+        the file start) into a chapter called 'name' (the name is right after the
+        slash; a bare '/' auto-names). Text after the LAST marker stays in the
+        current file; if that remainder is empty, the emptied container chapter is
+        removed (so a merged book re-splits cleanly). Sealed chapters are inserted
+        in order at the container's slot, preserving reading order. A name clash
+        appends into the existing chapter. Atomic writes + a /void snapshot.
         """
         lines = list(self.line_ring.lines)
-        slash_idx = [i for i, l in enumerate(lines) if l.strip() == '/']
-        if not slash_idx:
-            print("✓ No '/' lines to split.")
+        markers = [i for i, l in enumerate(lines) if l.strip().startswith('/')]
+        if not markers:
+            print("✓ No '/name' markers to split.")
             return
 
-        i_dir = os.path.join(self.void_dir, 'I')
-        before = lines[:slash_idx[0]]
-        bounds = slash_idx + [len(lines)]
-        segments = []  # (name, body_lines)
-        for k in range(len(slash_idx)):
-            seg = lines[bounds[k] + 1: bounds[k + 1]]
-            name, body_start = '', 0
-            for j, s in enumerate(seg):
-                if s.strip():
-                    name = s.strip()
-                    body_start = j + 1
-                    break
-            segments.append((name, seg[body_start:]))
-
         self._git_snapshot_void('split')
+        i_dir = os.path.join(self.void_dir, 'I')
 
-        # Current file keeps everything before the first '/'.
-        cur = list(before)
-        while cur and not cur[-1].strip():
-            cur.pop()
-        if not cur:
-            cur = ['.']
-        self._atomic_write_lines(self.current_file_path, cur)
+        segments, start = [], 0            # (name, content-above-the-marker)
+        for m in markers:
+            name = lines[m].strip()[1:].strip()
+            segments.append((name, lines[start:m]))
+            start = m + 1
+        trailing = lines[start:]
 
-        # Insert new chapters right below the current chapter in the library.
         cur_fname = os.path.basename(self.current_file_path)
         try:
-            ins = self._library_lines.index(cur_fname) + 1
+            cur_idx = self._library_lines.index(cur_fname)
         except ValueError:
-            ins = min(self.book_ring.index + 1, len(self._library_lines))
+            cur_idx = min(self.book_ring.index, max(0, len(self._library_lines) - 1))
 
+        # Container = the trailing remainder. Empty (and not the scratch) → drop it.
+        cur = list(trailing)
+        while cur and not cur[-1].strip():
+            cur.pop()
+        is_scratch = os.path.abspath(self.current_file_path) == os.path.abspath(self.f1_file)
+        container_removed = False
+        if not cur and not is_scratch and cur_fname in self._library_lines:
+            self._library_lines.pop(cur_idx)
+            self.book_ring.lines.pop(cur_idx)
+            self._library_path_cache.pop(cur_fname, None)
+            try:
+                os.remove(self.current_file_path)
+            except OSError:
+                pass
+            container_removed = True
+        else:
+            self._atomic_write_lines(self.current_file_path, cur or ['.'])
+
+        ins = cur_idx                      # sealed chapters take the container's slot
+        first_fname = None
         created = merged = 0
         for name, body in segments:
             if not name:
@@ -783,8 +789,6 @@ class IoMixin:
             exists = (fname in self._library_lines
                       or os.path.exists(os.path.join(i_dir, fname)))
             if exists:
-                # Name clash → MERGE: append the new body to the existing chapter
-                # (with a '.' separator). The existing chapter keeps its place.
                 fpath = self._library_path_cache.get(fname, os.path.join(i_dir, fname))
                 try:
                     with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
@@ -796,7 +800,7 @@ class IoMixin:
                 combined = (existing + ['.'] + content) if existing else content
                 if not self._atomic_write_lines(fpath, combined):
                     continue
-                if fname not in self._library_lines:   # orphan file on disk
+                if fname not in self._library_lines:
                     self._library_lines.insert(ins, fname)
                     self.book_ring.lines.insert(ins, os.path.splitext(fname)[0])
                     self._library_path_cache[fname] = fpath
@@ -811,12 +815,26 @@ class IoMixin:
                 self._library_path_cache[fname] = fpath
                 ins += 1
                 created += 1
+            if first_fname is None:
+                first_fname = fname
 
-        if created or merged:
-            self._save_library()
+        self._save_library()
+        # Keep the active file / cursor sane after the reshuffle.
+        if container_removed:
+            if first_fname and first_fname in self._library_lines:
+                self.book_ring.index = self._library_lines.index(first_fname)
+                self.current_file_path = self._library_path_cache.get(
+                    first_fname, self.f1_file)
+            else:
+                self.current_file_path = self.f1_file
+        elif cur_fname in self._library_lines:
+            self.book_ring.index = self._library_lines.index(cur_fname)
+        self.book_ring.index = max(0, min(self.book_ring.index,
+                                          len(self.book_ring.lines) - 1))
         self.load_doc_lines()
         self._doc_show_editor()
-        print(f"✂️ Split {cur_fname}: {created} new, {merged} merged.")
+        print(f"✂️ Split {cur_fname}: {created} new, {merged} merged"
+              + (" (container removed)" if container_removed else "") + ".")
 
     # ── Book order ────────────────────────────────────────────────────────────
 

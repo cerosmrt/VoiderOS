@@ -1,6 +1,7 @@
-"""Slash-split: a bare '/' line cuts the current chapter; the text after it
-becomes a NEW chapter named by the first following line (consumed), inserted in
-the library right below the current chapter. All '/' markers split."""
+"""Slash-split (new spec): a '/name' line SEALS the text above it (back to the
+previous marker or the file start) into a chapter 'name'. The trailing remainder
+stays in the current file; if that remainder is empty, the container is removed.
+Sealed chapters take the container's slot, in order."""
 import os
 import types
 from unittest.mock import MagicMock
@@ -53,38 +54,53 @@ def _read(path):
         return [l.rstrip('\n') for l in f]
 
 
-def test_single_split(tmp_path):
+def test_seals_text_above(tmp_path):
     app, cur = _split_app(tmp_path, 'chapA',
-                          ['keep1', 'keep2', '/', 'NewTitle', 'b1', 'b2'],
+                          ['before1', 'before2', '/Sealed', 'after1'],
                           ['chapA', 'other'])
     app._split_chapter_at_slash()
-    assert _read(cur) == ['keep1', 'keep2']
-    newp = str(tmp_path / 'I' / 'NewTitle.txt')
-    assert os.path.exists(newp)
-    assert _read(newp) == ['b1', 'b2']
+    assert _read(str(tmp_path / 'I' / 'Sealed.txt')) == ['before1', 'before2']
+    assert _read(cur) == ['after1']                       # trailing stays
     li = app._library_lines
-    assert li.index('NewTitle.txt') == li.index('chapA.txt') + 1
+    assert li.index('Sealed.txt') < li.index('chapA.txt')  # sealed above container
 
 
-def test_name_is_consumed_not_in_body(tmp_path):
-    app, cur = _split_app(tmp_path, 'c', ['x', '/', 'Title', 'b'], ['c'])
+def test_multiple_markers_in_order(tmp_path):
+    app, cur = _split_app(tmp_path, 'c', ['a', '/X', 'b', '/Y', 'c'], ['c'])
     app._split_chapter_at_slash()
-    assert _read(str(tmp_path / 'I' / 'Title.txt')) == ['b']
-
-
-def test_multiple_splits_in_order(tmp_path):
-    app, cur = _split_app(tmp_path, 'c',
-                          ['head', '/', 'A', 'a1', '/', 'B', 'b1'], ['c', 'z'])
-    app._split_chapter_at_slash()
-    assert _read(cur) == ['head']
-    assert _read(str(tmp_path / 'I' / 'A.txt')) == ['a1']
-    assert _read(str(tmp_path / 'I' / 'B.txt')) == ['b1']
+    assert _read(str(tmp_path / 'I' / 'X.txt')) == ['a']
+    assert _read(str(tmp_path / 'I' / 'Y.txt')) == ['b']
+    assert _read(cur) == ['c']
     li = app._library_lines
-    assert li.index('A.txt') == li.index('c.txt') + 1
-    assert li.index('B.txt') == li.index('A.txt') + 1
+    assert li.index('X.txt') < li.index('Y.txt') < li.index('c.txt')
 
 
-def test_no_slash_is_noop(tmp_path):
+def test_all_sealed_removes_container(tmp_path):
+    # merge round-trip: everything sealed, no trailing -> container removed
+    app, cur = _split_app(tmp_path, 'MERGED', ['a', '/X', 'b', '/Y'],
+                          ['MERGED', 'z'])
+    app._split_chapter_at_slash()
+    assert app._library_lines == ['X.txt', 'Y.txt', 'z.txt']
+    assert not os.path.exists(cur)
+    assert _read(str(tmp_path / 'I' / 'X.txt')) == ['a']
+    assert _read(str(tmp_path / 'I' / 'Y.txt')) == ['b']
+
+
+def test_name_with_spaces(tmp_path):
+    app, cur = _split_app(tmp_path, 'c', ['a', '/El Tercer Templo', 't'], ['c'])
+    app._split_chapter_at_slash()
+    assert _read(str(tmp_path / 'I' / 'El Tercer Templo.txt')) == ['a']
+
+
+def test_bare_slash_auto_names(tmp_path):
+    app, cur = _split_app(tmp_path, 'c', ['a', '/', 't'], ['c'])
+    app._split_chapter_at_slash()
+    made = [f for f in os.listdir(str(tmp_path / 'I'))
+            if f not in ('c.txt', '0.txt')]
+    assert len(made) == 1                                  # one auto-named chapter
+
+
+def test_no_marker_is_noop(tmp_path):
     app, cur = _split_app(tmp_path, 'c', ['a', 'b'], ['c'])
     before = list(app._library_lines)
     app._split_chapter_at_slash()
@@ -92,33 +108,18 @@ def test_no_slash_is_noop(tmp_path):
     assert app._library_lines == before
 
 
-def test_collision_merges_into_existing(tmp_path):
-    # 'other' already exists with content → new body APPENDS to it (with a sep)
-    app, cur = _split_app(tmp_path, 'c', ['x', '/', 'other', 'b'], ['c', 'other'])
+def test_clash_merges_into_existing(tmp_path):
+    app, cur = _split_app(tmp_path, 'c', ['x', '/other', 't'], ['c', 'other'])
     with open(str(tmp_path / 'I' / 'other.txt'), 'w', encoding='utf-8') as f:
         f.write('old1\nold2\n')
     app._split_chapter_at_slash()
-    assert not os.path.exists(str(tmp_path / 'I' / 'other-2.txt'))   # no uniquify
-    assert _read(str(tmp_path / 'I' / 'other.txt')) == ['old1', 'old2', '.', 'b']
-    assert app._library_lines.count('other.txt') == 1               # no duplicate entry
-
-
-def test_collision_merge_into_empty_has_no_leading_dot(tmp_path):
-    # existing chapter is empty → merge is just the body (no stray leading '.')
-    app, cur = _split_app(tmp_path, 'c', ['x', '/', 'other', 'b'], ['c', 'other'])
-    app._split_chapter_at_slash()
-    assert _read(str(tmp_path / 'I' / 'other.txt')) == ['b']
-
-
-def test_slash_at_top_empties_current(tmp_path):
-    app, cur = _split_app(tmp_path, 'c', ['/', 'T', 'b'], ['c'])
-    app._split_chapter_at_slash()
-    assert _read(cur) == ['.']
-    assert _read(str(tmp_path / 'I' / 'T.txt')) == ['b']
+    assert not os.path.exists(str(tmp_path / 'I' / 'other-2.txt'))
+    assert _read(str(tmp_path / 'I' / 'other.txt')) == ['old1', 'old2', '.', 'x']
+    assert app._library_lines.count('other.txt') == 1
 
 
 def test_writes_are_atomic_no_tmp_left(tmp_path):
-    app, cur = _split_app(tmp_path, 'c', ['k', '/', 'New', 'b'], ['c'])
+    app, cur = _split_app(tmp_path, 'c', ['k', '/New', 't'], ['c'])
     app._split_chapter_at_slash()
     leftovers = [p for p in os.listdir(str(tmp_path / 'I')) if p.endswith('.tmp')]
     assert leftovers == []
