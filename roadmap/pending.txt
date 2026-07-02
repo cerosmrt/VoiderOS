@@ -88,6 +88,17 @@ RENAME
 
 F3 / LIBRARY
 ------------
+- Ctrl+D — duplicate (context-sensitive):
+  * In F2 (doc view): duplicate the current line, inserting the copy directly
+    below it; cursor moves to the copy. Autosave + content-undo (Ctrl+Z).
+  * In F3 (library): duplicate the highlighted chapter file — write a copy next
+    to it (e.g. "<name>-2.txt", uniquified) and insert its entry right after the
+    original in the library. Atomic write; undoable via the F3 library-undo lane
+    (wrap in _f3_undo_begin/_f3_undo_file/_f3_undo_commit like the other F3 ops).
+  Note: Ctrl+Shift+D is the (currently broken) dispatch binding — keep Ctrl+D
+  distinct from it. Also confirm Ctrl+D doesn't collide with an existing editor
+  binding (e.g. deleteLineToZero) before wiring.
+
 - F3 dot separator Ctrl+Delete: pressing Ctrl+Delete on a '.' line in F3 (the
   separator between two chapter groups) should delete only that separator, merging
   the two adjacent groups into one. Should NOT delete the text that follows.
@@ -107,6 +118,17 @@ VIEWS
 
 - Oracle as Tab key on F1/F5 instead of dedicated F8 view — discussed,
   not decided. Would free F8 for other uses.
+
+F5 / REORDER
+------------
+- D3 — direct "send paragraph to chapter X": in F5 (linear paragraph reorder
+  over a merged book), instead of only Alt+Up/Down one-swap-at-a-time across the
+  visible '/name' fences, let the user pick a target chapter fence and move the
+  current paragraph straight into it (non-adjacent move). Complements the swap.
+  Design sketch: a key opens a fence picker (the '/name' markers of the current
+  merged doc); choosing one relocates the current paragraph just above/below that
+  fence, cursor follows, autosave + undo as usual. Reuses the F5 token model
+  (paragraphs + fixed fences) already in f5_reorder_mixin.py.
 
 DATABASE / O/ READER
 --------------------
