@@ -10,35 +10,19 @@ import app_config as _app_config
 from app_config import (
     CONFIG_PATH, DEFAULT_CONFIG, _KEY_MAP, _MOD_MAP,
     _parse_keybinding, _clean_book_title, _qt_msg_handler,
+    _load_config_from, _save_config_to,
 )
 
 
+# Thin wrappers over the shared implementation, bound to new_interface.CONFIG_PATH
+# so tests can patch this module's path (see tests/conftest.py). The committed
+# config and the git-ignored runtime state (state.json) split lives in app_config.
 def _load_config():
-    """Load config from new_interface.CONFIG_PATH (allows test patching)."""
-    import json
-    if os.path.exists(CONFIG_PATH):
-        try:
-            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            config = dict(DEFAULT_CONFIG)
-            config.update(data)
-            merged_kb = dict(DEFAULT_CONFIG['keybindings'])
-            merged_kb.update(data.get('keybindings', {}))
-            config['keybindings'] = merged_kb
-            return config
-        except Exception as e:
-            print(f"⚠️ Error loading config: {e}")
-    return dict(DEFAULT_CONFIG)
+    return _load_config_from(CONFIG_PATH)
 
 
 def _save_config(config):
-    """Save config to new_interface.CONFIG_PATH (allows test patching)."""
-    import json
-    try:
-        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
-    except Exception as e:
-        print(f"⚠️ Error saving config: {e}")
+    _save_config_to(CONFIG_PATH, config)
 from io_mixin import IoMixin
 from f1_mixin import F1Mixin
 from f2_mixin import F2Mixin

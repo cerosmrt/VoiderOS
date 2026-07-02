@@ -1,10 +1,12 @@
 {
   "void_dir": "/home/federico/void",
   "book_dir": "/home/federico/void/I",
-  "active_file": "/home/federico/void/I/0.txt",
   "void_key": "enter",
-  "font_family": "Consolas",
-  "font_size": 11,
+  "font_family": "EB Garamond",
+  "font_size": 22,
+  "reading_font": "EB Garamond",
+  "reading_size": 13,
+  "reading_hyphen_lang": "auto",
   "text_color": "#ffffff",
   "working_set_size": 100,
   "keybindings": {
@@ -41,6 +43,8 @@
     "reformat_file": "Ctrl+Shift+F",
     "shuffle_zero": "Ctrl+Shift+R",
     "dispatch": "Ctrl+Shift+D",
+    "split_chapter": "Ctrl+Shift+S",
+    "merge_book": "Ctrl+Shift+M",
     "backup": "Ctrl+B"
   }
 }
