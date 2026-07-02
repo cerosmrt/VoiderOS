@@ -21,6 +21,24 @@ BUGS
   lines. Cheap fix once (1) is verified. See print/export in f5678_mixin /
   reading_page.py.
 
+- F4 "save PDF" expectation mismatch: user expects Ctrl+P in F4 to save a PDF,
+  but it doesn't — nothing gets written. Actual wiring (key_router_mixin.py /
+  io_mixin.py):
+    * Ctrl+P (F4) → print_vault() → _printer_from_dialog() → QPrintDialog to a
+      PHYSICAL printer. No file saved unless the user manually picks "Print to
+      File". This is why "the file didn't save".
+    * Ctrl+S (F4) → export_vault() → _printer_from_save_dialog() → QPrinter in
+      PdfFormat → writes <chapter>.pdf into void_dir. THIS is the save path.
+    * Both render the ACTIVE FILE AS PROSE via _build_doc_html — neither
+      reproduces the on-screen F4 paginated layout (reading_page.py: EB Garamond
+      pages, folios).
+  Undecided (pick when resumed):
+    (a) rebind F4 Ctrl+P → save-PDF (route to export_vault) so Ctrl+P matches the
+        user's expectation; prose content, engine-paginated. Small.
+    (b) keep Ctrl+S as the PDF save; leave Ctrl+P = print. Zero change.
+    (c) render the TRUE F4 view to PDF (EB Garamond pagination + folios) instead
+        of prose — larger; folds into the "print with folios" backlog item.
+
 - Ctrl+Backspace word deletion: when caret is NOT at position 0, Ctrl+Backspace
   should delete the previous word only (standard behaviour), not the whole line.
   Currently _delete_line_to_zero fires when caret is at end of line, which is
