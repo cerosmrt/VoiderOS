@@ -64,6 +64,11 @@ class IoMixin:
             return
         doc_path = self.current_file_path
         self._undo_capture(doc_path, self.line_ring.lines, key=undo_key)
+        # Safety net: if this save would drop a large fraction of the file's
+        # content, keep a *.rescue copy of the previous on-disk version first. Never
+        # blocks the save (normal deletes are fine) — it just makes a catastrophic
+        # silent shrink recoverable.
+        self._rescue_on_large_shrink(doc_path, self.line_ring.lines)
         dir_path = os.path.dirname(doc_path) or '.'
         try:
             fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix='.tmp')
@@ -81,6 +86,25 @@ class IoMixin:
                 ipc.notify_saved(doc_path)
         except Exception as e:
             print(f"❌ Save error: {e}")
+
+    def _rescue_on_large_shrink(self, path, new_lines):
+        """If `new_lines` loses at least half of the file's content lines (and the
+        file was non-trivial), copy the current on-disk file to path+'.rescue' so a
+        catastrophic drop is recoverable. Best-effort; never raises."""
+        try:
+            old = self._read_lines_or_none(path)
+            if old is None:
+                return
+            def nb(ls):
+                return sum(1 for l in ls if l.strip() and l.strip() != '.')
+            old_n, new_n = nb(old), nb(new_lines)
+            if old_n >= 10 and new_n < old_n and (old_n - new_n) >= old_n // 2:
+                import shutil
+                shutil.copy2(path, path + '.rescue')
+                print(f"🛟 Large shrink on {os.path.basename(path)} "
+                      f"({old_n}→{new_n} lines); kept a .rescue copy.")
+        except Exception:
+            pass
 
     def _atomic_write_lines(self, path, lines, backup=False):
         """Write lines to path crash-safely (temp file + os.replace).

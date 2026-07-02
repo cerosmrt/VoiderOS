@@ -340,10 +340,39 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         print(f"📁 Void dir changed to: {new_dir}")
 
     def _on_file_saved_by_other(self, path: str):
-        if os.path.abspath(path) == os.path.abspath(self.current_file_path):
+        ap = os.path.abspath(path)
+        if ap == os.path.abspath(self.current_file_path):
             self.load_doc_lines()
             if self.circular_view:
                 self.circular_view.update()
+            return
+        # Another instance rewrote the library index (reorder/rename/delete/merge/
+        # split). Reload it so this instance's F3 doesn't clobber those changes.
+        if ap == os.path.abspath(self._library_path()):
+            self._reload_library_from_other()
+
+    def _reload_library_from_other(self):
+        """Re-read I.txt after another instance changed it, preserving the current
+        selection by name. Deferred while this instance is mid-edit in F3 (naming a
+        new entry / merge, or a dirty rename) so we don't stomp unsaved intent."""
+        if getattr(self, '_book_pending_new', False) or getattr(self, '_book_pending_merge', False):
+            return
+        if self.current_view == 2 and self._f3_mid_edit():
+            return
+        sel = None
+        if self._library_lines and 0 <= self.book_ring.index < len(self._library_lines):
+            sel = self._library_lines[self.book_ring.index]
+        self._load_library()
+        if sel is not None:
+            try:
+                self.book_ring.index = self._library_lines.index(sel)
+            except ValueError:
+                self.book_ring.index = min(self.book_ring.index,
+                                           len(self.book_ring.lines) - 1)
+        if self.current_view == 2 and self.book_view:
+            self.book_view.ring = self.book_ring
+            self.book_view._offset = 0.0
+            self.book_view.update()
 
     # ── Settings ──────────────────────────────────────────────────────────────
 
