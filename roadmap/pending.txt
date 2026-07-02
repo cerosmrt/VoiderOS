@@ -9,6 +9,18 @@ ACTIVE — ready to implement next
 
 BUGS
 ----
+- F4 Ctrl+P (save PDF) floods stderr: on print/export from the F4 reader, Qt
+  emits a wall of 'OpenType support missing for "<font>", script 18' (one per
+  installed font) plus Wayland 'QWaylandTextInputv3::disableSurface' warnings.
+  Almost certainly cosmetic — Qt's PDF engine probes every font for a script it
+  doesn't need (script 18 ≈ Kannada; the text is Spanish/Latin). TODO:
+  (1) confirm the PDF actually renders correctly — EB Garamond body + accented
+  Spanish chars (á/é/í/ó/ú/ñ) intact, no tofu; (2) silence the noise by
+  extending _qt_msg_handler in app_config.py (already filters "Painter not
+  active") to also drop "OpenType support missing" and the Wayland disableSurface
+  lines. Cheap fix once (1) is verified. See print/export in f5678_mixin /
+  reading_page.py.
+
 - Ctrl+Backspace word deletion: when caret is NOT at position 0, Ctrl+Backspace
   should delete the previous word only (standard behaviour), not the whole line.
   Currently _delete_line_to_zero fires when caret is at end of line, which is
