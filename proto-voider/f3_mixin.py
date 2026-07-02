@@ -534,6 +534,32 @@ class F3Mixin:
         self.book_view.editor.setCursorPosition(0)
         self.book_view.update()
 
+    def _resolve_f3_index(self, active_fname):
+        """Where the F3 cursor should land on entry: the remembered entry (by exact
+        index, then by name so it survives reordering between sessions), else the
+        active file's row, else the top. Fixes the reopen/re-entry reset to index 0."""
+        lib = self._library_lines
+        n = len(lib)
+        if n == 0:
+            return 0
+        last = getattr(self, '_book_last_index', None)
+        entry = getattr(self, '_book_last_entry', None)
+        # 1) exact: the remembered index still holds the remembered entry
+        #    (also how a specific '.' separator or '0' portal position is kept).
+        if last is not None and 0 <= last < n and entry is not None and lib[last] == entry:
+            return last
+        # 2) find the remembered real file by name (order may have changed)
+        if entry and entry not in ('.', '', '0.txt'):
+            try:
+                return lib.index(entry)
+            except ValueError:
+                pass
+        # 3) fall back to the active file's row
+        try:
+            return lib.index(active_fname)
+        except ValueError:
+            return 0
+
     def _book_activate_current(self):
         """Make the highlighted chapter the active file. Called when LEAVING F3
         (any exit — Enter, F2, F4, …), NOT on every navigation, so browsing the

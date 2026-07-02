@@ -241,7 +241,10 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._book_concat_header_indices = set()
         self._book_pending_new = False        # True while user names a new F3 entry
         self._book_pending_merge = False      # True while user names a book to merge
-        self._book_last_index = 0             # remembered F3 cursor (for re-entry)
+        # Remembered F3 cursor (for re-entry + reopen). None → resolve to the active
+        # chapter, never the top. Seeded from config so it survives a restart.
+        self._book_last_index = self.config.get('last_book_index')
+        self._book_last_entry = self.config.get('last_book_entry')
         # Search state — display rings are separate from real rings (never mutated)
         # Undo / redo of text content (Ctrl+Z / Ctrl+Shift+Z in F1/F2/F5)
         from undo_manager import UndoManager
@@ -471,10 +474,17 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         # Remember which F3 entry we were on, so re-entering F3 returns to the same
         # one (e.g. a specific '0' portal) instead of snapping to the first match.
         if old_view == 2 and self.book_ring.lines:
-            self._book_last_index = self.book_ring.index
             # Leaving F3 marks the highlighted chapter as the active file (once,
             # on exit — not per highlight), so F4/F2/F1 and re-entry all agree.
             self._book_activate_current()
+            idx = self.book_ring.index
+            self._book_last_index = idx
+            self._book_last_entry = (self._library_lines[idx]
+                                     if 0 <= idx < len(self._library_lines) else None)
+            # Persist the F3 cursor so it survives a restart (like last_view).
+            self.config['last_book_index'] = self._book_last_index
+            self.config['last_book_entry'] = self._book_last_entry
+            _save_config(self.config)
         self.current_view = view_index
         # Remember the last restorable view (F1–F4) so startup resumes here.
         if view_index in (0, 1, 2, 3) and self.config.get('last_view') != view_index:
@@ -579,20 +589,12 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             # last sat on still points at that same file (e.g. the specific '0'
             # portal we used), return to it instead of snapping to the first match —
             # so multiple '0' portals are each individually reachable.
+            # Return to the remembered entry (by exact index, then by name so it
+            # survives reordering), else the active file's row, else the top — never
+            # snapping to index 0 on reopen. See _resolve_f3_index.
             active_fname = os.path.basename(self.f2_file)
-            last = getattr(self, '_book_last_index', None)
-            # Return to where you left F3 when that spot was the active chapter OR
-            # a non-file position (a '.' separator or a '0' portal) — those don't
-            # change the active file, so they'd otherwise be lost on re-entry.
-            if (last is not None and 0 <= last < len(self._library_lines)
-                    and (self._library_lines[last] == active_fname
-                         or self._library_lines[last] in ('.', '0.txt'))):
-                self.book_ring.index = last
-            else:
-                try:
-                    self.book_ring.index = self._library_lines.index(active_fname)
-                except ValueError:
-                    pass
+            self.book_ring.index = min(self._resolve_f3_index(active_fname),
+                                       len(self.book_ring.lines) - 1)
             self.stack.setCurrentWidget(self.book_view)
             self.entry.hide()
             self.book_view.update()
