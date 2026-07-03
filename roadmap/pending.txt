@@ -182,6 +182,22 @@ SYSTEM / NIX
 
 SAFETY / GIT
 ------------
+- Ctrl+B "BACKUP" → pendrive (rework of _backup_vault): today Ctrl+B opens a
+  folder dialog and copies ONLY the .txt files (loses .git history, O/, tts).
+  Wanted: plug a pendrive, hit BACKUP, and get the whole /void onto it —
+  faithful mirror WITH git history. Design (build later, test-first):
+    1. git commit /void first so nothing uncommitted is left behind.
+    2. Auto-detect the mounted pendrive (scan /run/media/$USER/*; if several,
+       ask which).
+    2b. CONFIRM step: show the detected pendrive and let the user ACCEPT it
+        before copying (por las dudas — avoid writing to the wrong drive).
+    3. Copy /void EXACTLY AS-IS (rsync-style: .txt + .git history + O/ + tts) to
+       the pendrive. Faithful copy (option 1), so it's readable directly AND
+       carries the full version history via the copied .git.
+    4. Report on screen (files/size copied, destination).
+  Pairs with the auto-commit item below: git = version history on the internal
+  disk; Ctrl+B = physical off-machine copy (with history) to external media.
+
 - Data-integrity audit follow-ups (item 1 DONE: atomic I.txt writes, commit
   d85f94e). Remaining, ranked:
     * (HIGH) Cross-instance I.txt sync: _save_library now notifies via IPC
