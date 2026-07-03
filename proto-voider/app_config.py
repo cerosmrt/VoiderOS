@@ -58,6 +58,7 @@ DEFAULT_CONFIG = {
         "dispatch": "Ctrl+Shift+D",
         "split_chapter": "Ctrl+Shift+S",
         "merge_book": "Ctrl+Shift+M",
+        "commit_void": "Ctrl+Shift+G",
         "backup": "Ctrl+B"
     }
 }

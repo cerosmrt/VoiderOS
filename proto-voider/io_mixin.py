@@ -816,6 +816,27 @@ class IoMixin:
 
     # ── Slash-split a chapter ──────────────────────────────────────────────────
 
+    def commit_void(self):
+        """Ctrl+Shift+G: commit the whole /void repo by hand, with a timestamp
+        message. Reports on screen whether it committed, was already up to date,
+        or failed."""
+        ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        try:
+            subprocess.run(['git', '-C', self.void_dir, 'add', '-A'],
+                           capture_output=True, timeout=20)
+            r = subprocess.run(['git', '-C', self.void_dir, 'commit',
+                                '-m', f'snapshot {ts}'],
+                               capture_output=True, timeout=20, text=True)
+            out = (r.stdout or '') + (r.stderr or '')
+            if r.returncode == 0:
+                print(f"✅ Void commit: snapshot {ts}")
+            elif 'nothing to commit' in out.lower():
+                print("✓ Nada para commitear (void ya está al día).")
+            else:
+                print(f"⚠️ Commit falló: {out.strip()}")
+        except Exception as e:
+            print(f"⚠️ Commit error: {e}")
+
     def _git_snapshot_void(self, label='snapshot'):
         """One git snapshot of /void's I/ before a destructive write (safety)."""
         ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')

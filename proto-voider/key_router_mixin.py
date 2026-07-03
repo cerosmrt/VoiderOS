@@ -135,6 +135,10 @@ class KeyRouterMixin:
         if self._matches(key, mods, 'open_screenshots'):
             self.open_screenshots_folder(); event.accept(); return
 
+        if self._matches(key, mods, 'commit_void'):
+            self.commit_void()
+            event.accept(); return
+
         if self._matches(key, mods, 'backup'):
             self._backup_vault()
             event.accept(); return
