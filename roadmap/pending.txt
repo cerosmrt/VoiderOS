@@ -129,6 +129,22 @@ F3 / LIBRARY
   distinct from it. Also confirm Ctrl+D doesn't collide with an existing editor
   binding (e.g. deleteLineToZero) before wiring.
 
+- New-entry name clash → MERGE into the existing chapter (instead of a phantom
+  duplicate row): today _book_confirm_edit (f3_mixin.py ~200) on Shift+Enter, if
+  the typed name already exists, does NOT overwrite the file but STILL adds a
+  second library row pointing at the same file — F3 shows the name twice, both
+  editing the same text. Wanted: if the name already exists, merge the new entry
+  INTO the existing chapter (append, mirroring the split name-clash behaviour:
+  existing + '.' + new content) and put the cursor on that existing entry — no
+  duplicate row. An empty new entry over an existing name = just jump to it.
+  Related duplicate-name hardening (surfaced together; C4 from the integrity
+  audit): many ops resolve a chapter by bare name via .index(fname) → FIRST match,
+  so duplicate names make the cursor/selection (A1 restore, B3 reload) and edits
+  land on the wrong row; and two files sharing a basename across I/ subfolders
+  leave the second shadowed/unreachable (_build_library_path_cache keeps the
+  first, warns "Duplicate basename"). Longer-term: resolve by (index+name) or a
+  stable id instead of bare name.
+
 - F3 dot separator Ctrl+Delete: pressing Ctrl+Delete on a '.' line in F3 (the
   separator between two chapter groups) should delete only that separator, merging
   the two adjacent groups into one. Should NOT delete the text that follows.
