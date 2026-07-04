@@ -75,6 +75,29 @@ def test_multiple_markers_in_order(tmp_path):
     assert li.index('X.txt') < li.index('Y.txt') < li.index('c.txt')
 
 
+def test_many_paragraphs_to_same_existing_chapter_append_in_order(tmp_path):
+    # The real "pileta" workflow: several paragraphs sealed to the SAME existing
+    # chapter across one split. Each appends to that chapter, in order, after its
+    # prior content — the program does NOT go crazy nor overwrite.
+    app, cur = _split_app(
+        tmp_path, 'pileta',
+        ['p1', '/El Logos', 'p2', '/El Logos', 'p3', '/Otro', 'p4', '/El Logos'],
+        ['El Logos', 'Otro', 'pileta'])
+    # chapters already have content
+    with open(tmp_path / 'I' / 'El Logos.txt', 'w', encoding='utf-8') as f:
+        f.write('viejo\n')
+    with open(tmp_path / 'I' / 'Otro.txt', 'w', encoding='utf-8') as f:
+        f.write('x\n')
+
+    app._split_chapter_at_slash()
+
+    assert _read(str(tmp_path / 'I' / 'El Logos.txt')) == \
+        ['viejo', '.', 'p1', '.', 'p2', '.', 'p4']   # all three, in order
+    assert _read(str(tmp_path / 'I' / 'Otro.txt')) == ['x', '.', 'p3']
+    assert app._library_lines.count('El Logos.txt') == 1   # no duplicate row
+    assert not os.path.exists(cur)                          # empty container gone
+
+
 def test_all_sealed_removes_container(tmp_path):
     # merge round-trip: everything sealed, no trailing -> container removed
     app, cur = _split_app(tmp_path, 'MERGED', ['a', '/X', 'b', '/Y'],
