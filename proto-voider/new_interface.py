@@ -843,9 +843,12 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
 
     def _connect_void_key(self):
         self._disconnect_void_key()
-        if self.use_spacebar_for_void:
-            self._void_space_connection = self.entry.spacePressed.connect(self._handle_void_line)
-        else:
+        # Spacebar voids in dedicated spacebar-mode OR (scriptio continua) whenever
+        # Caps Lock is on — the entry only emits spacePressed in those cases, so
+        # this connection is harmless otherwise. Enter voids too, except in
+        # dedicated spacebar-mode.
+        self._void_space_connection = self.entry.spacePressed.connect(self._handle_void_line)
+        if not self.use_spacebar_for_void:
             self._void_enter_connection = self.entry.returnPressed.connect(self._handle_void_line)
 
     def _editor_save(self):

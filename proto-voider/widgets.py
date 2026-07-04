@@ -27,9 +27,12 @@ class CustomLineEdit(QLineEdit):
             event.accept()
             return  # IMPORTANTE: return para no seguir procesando
 
-        # Manejo de spacebar para void
+        # Manejo de spacebar para void. Suelta la línea al void en modo spacebar
+        # global, o (scriptio continua) cuando Caps Lock está prendido — ahí la
+        # barra no tipea espacio, sino que manda la línea.
         if key == Qt.Key.Key_Space:
-            if self.parent.use_spacebar_for_void:
+            caps = getattr(self.parent, '_capslock_on', None)
+            if self.parent.use_spacebar_for_void or (caps and caps()):
                 self.spacePressed.emit()
                 event.accept()
                 return

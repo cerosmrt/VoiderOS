@@ -6,6 +6,28 @@ from circular_view import CircularView
 
 class F1Mixin:
 
+    # Where the kernel exposes the Caps Lock LED state (0/1). Read directly so the
+    # scriptio-continua mode matches the physical light exactly, sidestepping
+    # Wayland (which doesn't expose lock state to clients). Overridable in tests.
+    _CAPSLOCK_LED_GLOB = '/sys/class/leds/*capslock*/brightness'
+
+    def _capslock_on(self):
+        """True if Caps Lock is on (any keyboard's LED lit). Best-effort: False if
+        the sysfs LED isn't readable. Drives F1 scriptio-continua: with Caps on,
+        the spacebar releases the line to the void instead of typing a space."""
+        import glob
+        try:
+            for p in glob.glob(self._CAPSLOCK_LED_GLOB):
+                try:
+                    with open(p) as f:
+                        if f.read().strip() not in ('', '0'):
+                            return True
+                except OSError:
+                    continue
+        except Exception:
+            pass
+        return False
+
     # ── F1 focus writing on the active file ─────────────────────────────────────
 
     def _f1_commit_line(self, text):
