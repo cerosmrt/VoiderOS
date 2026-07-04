@@ -149,14 +149,22 @@ F3 / LIBRARY
   distinct from it. Also confirm Ctrl+D doesn't collide with an existing editor
   binding (e.g. deleteLineToZero) before wiring.
 
-- New-entry name clash → MERGE into the existing chapter (instead of a phantom
-  duplicate row): today _book_confirm_edit (f3_mixin.py ~200) on Shift+Enter, if
-  the typed name already exists, does NOT overwrite the file but STILL adds a
-  second library row pointing at the same file — F3 shows the name twice, both
-  editing the same text. Wanted: if the name already exists, merge the new entry
-  INTO the existing chapter (append, mirroring the split name-clash behaviour:
-  existing + '.' + new content) and put the cursor on that existing entry — no
-  duplicate row. An empty new entry over an existing name = just jump to it.
+- New-entry name clash → jump to the existing chapter (no phantom duplicate row).
+  DECIDED: the EXISTING chapter always survives (keeps its slot + name); the
+  intruder is absorbed. Since a new entry is EMPTY when named, "merge" here is
+  simply: put the cursor on the existing chapter, do NOT add a second row.
+  Today _book_confirm_edit (f3_mixin.py ~200) on Shift+Enter, if the typed name
+  already exists, does NOT overwrite the file but STILL adds a second library row
+  pointing at the same file — F3 shows the name twice, both editing the same text.
+  That is the bug to fix (jump instead of duplicate row).
+  DECIDED scope of "same name → append":
+    * Split (/name marker): append into existing — already works (explicit intent).
+    * New-entry over existing name: just jump (empty, nothing to lose).
+    * RENAME to an existing name: KEEP REFUSING (today's behaviour). Do NOT
+      auto-merge — a real chapter with content would silently vanish from view,
+      which is surprising/dangerous. No change needed here. The DELIBERATE way to
+      combine two chapters already exists: enclose both under a dot and MERGE
+      them (Ctrl+Shift+M). So refusing the rename loses nothing.
   Related duplicate-name hardening (surfaced together; C4 from the integrity
   audit): many ops resolve a chapter by bare name via .index(fname) → FIRST match,
   so duplicate names make the cursor/selection (A1 restore, B3 reload) and edits
