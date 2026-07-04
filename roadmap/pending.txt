@@ -62,6 +62,26 @@ BUGS
 
 WRITING / F2
 ------------
+- F1 should edit like F2 (minus the line-break behaviour) [DESIGN LATER]:
+  going F2 -> F1 to keep writing should feel the same. Two blockers today:
+    * Different editor widgets with the SAME name: F1's self.entry is
+      widgets.CustomLineEdit (simple: space/tab/enter/basic arrows), while F2 uses
+      circular_view.CustomLineEdit (rich: Alt+Left/Right word-move, join/split,
+      Home/End, smart-copy, etc.). F1 is missing the rich verbs.
+    * F1 keeps its OWN loop-writing mechanic that must NOT be lost: Enter = release
+      the line to the void (NOT split), Tab = recycle a random line, Alt+Up/Down =
+      change file. So this is ADDITIVE: bring F2's editing verbs that don't collide.
+  Wanted (user's words): "que se comporte como F2 pero no en linebreak" — same
+  editing power, but Enter still voids the line (no Enter-split), no F2 pagination.
+  Candidate verbs to add to F1: Alt+Left/Right move word, backspace-at-start join,
+  Ctrl+Backspace/Delete, Home/End doc jumps, Ctrl+C contextual copy. Skip: Enter
+  split, Alt+Up/Down swap (both collide). Approach options: give self.entry the
+  rich editor class, or add the missing signals/handlers to widgets.CustomLineEdit
+  and wire F1-adapted handlers.
+  ALSO here: cursor continuity F1<->F2 (land on the same line when switching; they
+  share line_ring, so it mostly works — watch the _save_last_line -1 lag that also
+  offsets reopen by a line: _doc_navigate saves BEFORE it moves).
+
 - Ctrl+Delete on a dispatch separator line (e.g. "/chapter-name" in 0.txt or F2):
   currently untested — need to verify it deletes only the separator line itself,
   NOT the paragraph group that follows it. Expected: separator is removed from the
