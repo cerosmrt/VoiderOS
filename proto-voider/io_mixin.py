@@ -293,7 +293,12 @@ class IoMixin:
         cur = os.path.abspath(self.current_file_path)
         if not any(os.path.abspath(p) == cur for p, _, _ in entry['files']):
             return
+        # Keep the cursor where the user is. load_doc_lines() would otherwise snap
+        # it to the last-saved nav line (which lags by one), so undo looked like it
+        # moved the cursor up a line.
+        keep = self.line_ring.index
         self.load_doc_lines()
+        self.line_ring.index = max(0, min(keep, len(self.line_ring.lines) - 1))
         v = getattr(self, 'current_view', None)
         if v == 1 and hasattr(self, '_doc_show_editor'):
             self._doc_show_editor()
