@@ -58,6 +58,17 @@ class TestReformatActiveFile:
         assert 'First line.' in lines
         assert 'Second line.' in lines
 
+    def test_slash_marker_stays_on_own_line(self, tmp_path):
+        """A '/Chapter' line inside a paragraph block must NOT be collapsed onto the
+        prose — it's a split marker, so it stays on its own line (approach B), ready
+        for Ctrl+Shift+S to seal the paragraph above it."""
+        content = "El texto del parrafo.\n/El Logos\n\nOtro parrafo.\n/El Altar\n"
+        app, p = _make_reformat_app(tmp_path, content)
+        app.reformat_active_file()
+        lines = p.read_text(encoding='utf-8').splitlines()
+        assert lines == ['.', 'El texto del parrafo.', '/El Logos',
+                         '.', 'Otro parrafo.', '/El Altar']
+
     def test_voider_format_consecutive_dot_lines_collapsed(self, tmp_path):
         """Two consecutive '.' separator lines → collapsed to one."""
         content = ".\nFirst line.\n.\n.\nSecond line.\n"

@@ -630,24 +630,35 @@ class IoMixin:
         # Split into paragraphs (one or more blank lines)
         paragraphs = re.split(r'\n\s*\n+', raw.strip())
 
+        def flush_prose(buf, out):
+            if buf:
+                joined = re.sub(r'\s+', ' ', ' '.join(buf)).strip()
+                if joined:
+                    out.extend(split_sentences(joined))
+                buf.clear()
+
         result_lines = []
-        for para_idx, para in enumerate(paragraphs):
-            # Collapse internal newlines/whitespace into single spaces
-            text = re.sub(r'\s+', ' ', para.strip())
-
-            if not text:
+        for para in paragraphs:
+            if not para.strip():
                 continue
-
-            # If paragraph is just a dot separator, keep it
-            if text == '.':
+            # Dot separator between paragraphs (not before the first).
+            if result_lines:
                 result_lines.append('.')
+            if para.strip() == '.':
                 continue
-
-            # Add dot separator between paragraphs (not before the first)
-            if para_idx > 0:
-                result_lines.append('.')
-
-            result_lines.extend(split_sentences(text))
+            # Within a paragraph, a line that starts with '/' is a chapter MARKER,
+            # not prose — keep it on its own line instead of collapsing it into the
+            # surrounding sentences, so 'text\n/Chapter' stays split and ready for
+            # Ctrl+Shift+S. Prose runs are collapsed + sentence-split as before.
+            prose = []
+            for raw_line in para.splitlines():
+                s = raw_line.strip()
+                if s.startswith('/'):
+                    flush_prose(prose, result_lines)
+                    result_lines.append(s)
+                elif s:
+                    prose.append(s)
+            flush_prose(prose, result_lines)
 
         # Ensure leading dot
         if result_lines and result_lines[0] != '.':
