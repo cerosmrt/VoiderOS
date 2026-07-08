@@ -22,6 +22,7 @@ class CircularView(QWidget):
         self.insert_mode = False  # Nueva: modo insertar línea debajo
         self.focus_indices = None  # set of absolute ring indices to highlight in focus mode
         self.zero_marker = False   # if True, dot at ring index 0 renders in red
+        self.send_marker = False   # if True, draw '>' left of centre (F5 send mode)
         self.search_mode = False             # if True, clamp rendering — don't wrap beyond list bounds
         self.search_highlight_center = False # if True, full alpha at center, 30% elsewhere
         
@@ -242,6 +243,14 @@ class CircularView(QWidget):
                 painter.drawText(gx, draw_y + line_ascent, glyph)
             else:
                 painter.drawText(draw_x, draw_y + line_ascent, text)
+
+        # F5 send mode: a '>' to the left of the centred title = "send the paragraph
+        # to this chapter". Drawn outside the text clip so it sits in the margin.
+        if getattr(self, 'send_marker', False):
+            painter.setClipping(False)
+            painter.setPen(QColor(110, 160, 110))
+            painter.drawText(margin - fm.horizontalAdvance('>') - 10,
+                             center_y + fm.ascent() - fm.height() // 2, '>')
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

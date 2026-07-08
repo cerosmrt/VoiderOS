@@ -106,6 +106,12 @@ class ReorderView(QWidget):
             else:
                 current = (u['ordinal'] == self._para_idx)
                 self._draw_para(painter, wl, by, pad, text_w, lh, fm, current)
+                if current:
+                    # '>' output cue to the right: Right arrow sends this paragraph.
+                    painter.setPen(QColor(110, 160, 110))
+                    painter.drawText(QRect(W - pad, by, pad - 12, bh),
+                                     Qt.AlignmentFlag.AlignVCenter
+                                     | Qt.AlignmentFlag.AlignHCenter, '>')
         painter.end()
 
     def _draw_para(self, painter, wl, by, pad, text_w, lh, fm, current):

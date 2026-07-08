@@ -263,6 +263,13 @@ class KeyRouterMixin:
 
     def _handle_f3_keys(self, key, mods, event):
         # Up/Down/Enter handled by book_view.editor signals.
+        # F5 send mode: F3 only picks a destination — navigate (editor Up/Down) and
+        # Enter (→ _book_confirm_edit → send) work; Esc cancels; every other F3
+        # action key is swallowed so nothing structural fires.
+        if getattr(self, '_f5_send_mode', False):
+            if key == Qt.Key.Key_Escape:
+                self._f5_cancel_send()
+            event.accept(); return
         if mods == Qt.KeyboardModifier.ControlModifier and key == Qt.Key.Key_F:
             self._open_f3_search(); event.accept(); return
         if self._matches(key, mods, 'merge_book'):
@@ -334,6 +341,9 @@ class KeyRouterMixin:
             self._f5_prev_para(); event.accept(); return
         if key == K.Key_Down and mods == No:
             self._f5_next_para(); event.accept(); return
+        # Right → '>' output: open F3 to pick a chapter to send this paragraph to.
+        if key == K.Key_Right and mods == No:
+            self._f5_begin_send(); event.accept(); return
         # Enter → jump to F2 on this paragraph.
         if key in (K.Key_Return, K.Key_Enter):
             self._f5_enter_to_f2(); event.accept(); return

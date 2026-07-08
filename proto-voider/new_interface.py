@@ -249,6 +249,9 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self.transform_view = None  # F5: Transform — editable O/ line → I/
         self.reorder_view = None    # F5: linear paragraph reorder view
         self._f5_para_idx = 0       # F5 current-paragraph cursor
+        self._f5_send_mode = False  # True while F3 is picking a send-destination
+        self._f5_send_para = 0      # paragraph ordinal being sent
+        self._f5_send_source = None # source file the paragraph is moving out of
         self.o_reader_view = None   # F6: Reader — circular view of O/ book
         self.o_browser_view = None  # F7: Book browser for O/
         self.oracle_o_view = None   # F8: Oracle from O/
