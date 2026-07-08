@@ -263,6 +263,59 @@ SAFETY / GIT
   post-save hook that runs: git -C ~/void add -A && git -C ~/void commit -m
   "autosave YYYY-MM-DD HH:MM:SS". Decide: timer-based or on-save trigger.
 
+WEB / godplaystheartist.com  (proyecto aparte)
+----------------------------------------------
+Estado (jul 2026): el sitio es una app PHP real en Hostinger (plan más barato,
+FTP sí, SSH probablemente no). Copia local del CÓDIGO clonada a
+~/godplaystheartist/ (repo git propio, remoto GitHub cerosmrt/godPlaysTheArtist).
+La carpeta original XAMPP (partición Windows nvme0n1p3 "OS" → /mnt/win/xampp/
+htdocs/godPlaysTheArtist) queda intacta. El código pesa ~49KB; el void del server
+(2.5GB, media) NO se copia.
+
+Qué hace el sitio hoy: Voider web (círculo + input). Endpoints PHP:
+  - getRandomLine.php / readfile.php → una línea al azar (loop writing en la web).
+  - append_line.php → visitantes "voidean" una línea (POST, rate-limit, 2-280,
+    sin HTML/URLs) → void/.txt/0.txt.
+  - uploadFile.php → formulario autor/libro/email + .txt → void/.txt/<autor>/.
+  - savefile.php → agrega línea a un archivo.  ⚠️ INSEGURO: toma ?file= como ruta
+    arbitraria y appendea por GET (path traversal / escritura arbitraria). TAPAR:
+    token secreto + validar que la ruta caiga dentro de void/.
+  - download*.php, getAudioFiles.php, v01der.php (sirve el voider.exe más nuevo).
+  Mapeo server: repo ~/godplaystheartist/ ↔ /public_html/ ; textos en
+  /public_html/void/.
+
+SYNC de textos (LISTO, en ~/godplaystheartist/sync_void.py, gitignored):
+  - Espejo ESTRICTAMENTE una dirección: LOCAL /void -> server. Solo LEE local,
+    solo ESCRIBE server. Nunca toca/borra el /void local, nunca descarga. El
+    /void local es el master sagrado.
+  - Apunta a /home/federico/void. Excluye O/ (symlink a corpus de gigas), tts/,
+    screenshots/, .git, _0txt_versions/, 0/ (scratch), *.bak, *.json, caches.
+    Saltea 0.txt (autoritativo en el server: contribuciones públicas).
+  - Decidido: publicar TODO I/ (795 .txt, ~21.5MB). "Que el mundo sea testigo."
+  - os.walk(followlinks=False) → nunca desciende el symlink O/. Guarda anti-corpus.
+  - Credenciales en ~/godplaystheartist/.secrets.env (gitignored, chmod 600; host
+    godplaystheartist.com, user u213767010). NO hardcodeadas, NO en git.
+  - `python3 sync_void.py --dry-run` = OFFLINE, lista qué subiría sin conectarse.
+    `python3 sync_void.py` = sube de verdad. La subida real la corre EL USUARIO
+    (es hacia afuera, con sus credenciales) — el agente no la dispara.
+  - Hoy es SOLO-SUBIR (agrega/actualiza; NO borra del server). "Borrado-espejo"
+    (borrar en server lo borrado en local) = paso aparte y delicado, pendiente.
+
+PENDIENTES web (para cuando haya tiempo):
+  - [ ] Correr la primera subida real del void (usuario).
+  - [ ] LECTOR por capítulo: página que muestre /public_html/void/I/<cap> con la
+        estética del sitio en godplaystheartist.com/<nombre>. HOY NO EXISTE (el
+        sitio es "línea al azar", no un lector de capítulos). Es la mitad que
+        falta para "ver el libro en HTML". Ajustar también qué globea el PHP para
+        que agarre void/I/ (hoy mira void/* y void/.txt/).
+  - [ ] sync_site.py: subir el CÓDIGO del sitio (html/php/css/js/.htaccess) por
+        FTP desde ~/godplaystheartist/ a /public_html/, excluyendo void/, .git,
+        sync_void.py, .secrets.env. OJO: el código PISA lo live → hacer dry-run
+        que COMPARE local vs server (solo lectura) antes de sobrescribir. No es
+        obligatorio el File Manager: FTP hace lo mismo.
+  - [ ] Asegurar savefile.php (ver arriba).
+  - [ ] Usar FTPS (FTP sobre TLS) en vez de FTP plano si Hostinger lo ofrece.
+
 LONG-TERM / DEFERRED
 --------------------
 - Void scanner: on startup, scan /void recursively, index all .txt files.
