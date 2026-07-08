@@ -245,12 +245,17 @@ class CircularView(QWidget):
                 painter.drawText(draw_x, draw_y + line_ascent, text)
 
         # F5 send mode: a '>' to the left of the centred title = "send the paragraph
-        # to this chapter". Drawn outside the text clip so it sits in the margin.
+        # to this chapter". Drawn with the clip fully reset so it isn't cut off.
         if getattr(self, 'send_marker', False):
-            painter.setClipping(False)
-            painter.setPen(QColor(110, 160, 110))
-            painter.drawText(margin - fm.horizontalAdvance('>') - 10,
-                             center_y + fm.ascent() - fm.height() // 2, '>')
+            painter.setClipRect(0, 0, w, h)
+            mf = QFont(self.font())
+            mf.setBold(True)
+            painter.setFont(mf)
+            mfm = QFontMetrics(mf)
+            painter.setPen(QColor(120, 210, 120))
+            painter.drawText(max(8, margin - mfm.horizontalAdvance('>') - 12),
+                             center_y + mfm.ascent() - mfm.height() // 2, '>')
+            painter.setFont(self.font())
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
