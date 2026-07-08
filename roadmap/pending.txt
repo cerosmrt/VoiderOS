@@ -195,7 +195,9 @@ VIEWS
 
 F5 / REORDER
 ------------
-- D3 — direct "send paragraph to chapter X": in F5 (linear paragraph reorder
+- D3 — DONE (commit 4033375): F5 '>' → Right → F3 send mode → Enter moves the
+  paragraph to the chosen chapter, back to F5 on the next one.
+- D3 (original note) — direct "send paragraph to chapter X": in F5 (linear paragraph reorder
   over a merged book), instead of only Alt+Up/Down one-swap-at-a-time across the
   visible '/name' fences, let the user pick a target chapter fence and move the
   current paragraph straight into it (non-adjacent move). Complements the swap.
