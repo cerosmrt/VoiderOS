@@ -108,7 +108,7 @@ class ReorderView(QWidget):
                 self._draw_para(painter, wl, by, pad, text_w, lh, fm, current)
                 if current:
                     # '>' output cue to the right: Right arrow sends this paragraph.
-                    painter.setPen(QColor(110, 160, 110))
+                    painter.setPen(QColor(255, 255, 255))
                     painter.drawText(QRect(W - pad, by, pad - 12, bh),
                                      Qt.AlignmentFlag.AlignVCenter
                                      | Qt.AlignmentFlag.AlignHCenter, '>')

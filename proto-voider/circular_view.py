@@ -252,7 +252,7 @@ class CircularView(QWidget):
             mf.setBold(True)
             painter.setFont(mf)
             mfm = QFontMetrics(mf)
-            painter.setPen(QColor(120, 210, 120))
+            painter.setPen(QColor(255, 255, 255))
             painter.drawText(max(8, margin - mfm.horizontalAdvance('>') - 12),
                              center_y + mfm.ascent() - mfm.height() // 2, '>')
             painter.setFont(self.font())
