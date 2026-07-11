@@ -15,6 +15,22 @@ class ReorderView(QWidget):
         self._units = []          # [{'kind':'para','ordinal':i,'text':..} | {'kind':'mark','name':..}]
         self._para_idx = 0
         self._app_font = QFont('Consolas', 13)
+        # In-view chapter picker (right panel), shown while sending a paragraph.
+        self._picker_open = False
+        self._pick_filter = ''
+        self._pick_matches = []
+        self._pick_match_idx = 0
+        self._pick_is_new = False
+        self._pick_target = ''
+
+    def set_picker_state(self, is_open, filter_str, matches, match_idx, is_new, target):
+        self._picker_open = is_open
+        self._pick_filter = filter_str
+        self._pick_matches = list(matches)
+        self._pick_match_idx = match_idx
+        self._pick_is_new = is_new
+        self._pick_target = target
+        self.update()
 
     def event(self, e):
         if e.type() == QEvent.Type.KeyPress and e.key() in (
@@ -68,8 +84,10 @@ class ReorderView(QWidget):
         painter.setFont(font)
         fm = QFontMetrics(font)
         lh = int(fm.height() * 1.5)
-        pad = max(48, int(W * 0.14))
-        text_w = W - 2 * pad
+        # When the picker is open, paragraphs use the left ~62%; the picker the rest.
+        PW = int(W * 0.62) if self._picker_open else W
+        pad = max(48, int(PW * 0.14))
+        text_w = PW - 2 * pad
         gap = lh                                  # blank line between units
 
         # Pre-wrap every unit and measure its block height.
@@ -102,16 +120,21 @@ class ReorderView(QWidget):
             if by + bh < -lh or by > H + lh:
                 continue                          # off-screen
             if u['kind'] == 'mark':
-                self._draw_mark(painter, u['name'], by, W, pad, fm, lh)
+                self._draw_mark(painter, u['name'], by, PW, pad, fm, lh)
             else:
                 current = (u['ordinal'] == self._para_idx)
                 self._draw_para(painter, wl, by, pad, text_w, lh, fm, current)
                 if current:
                     # '>' output cue to the right: Right arrow sends this paragraph.
                     painter.setPen(QColor(255, 255, 255))
-                    painter.drawText(QRect(W - pad, by, pad - 12, bh),
+                    painter.drawText(QRect(PW - pad, by, pad - 12, bh),
                                      Qt.AlignmentFlag.AlignVCenter
                                      | Qt.AlignmentFlag.AlignHCenter, '>')
+
+        if self._picker_open:
+            painter.setPen(QColor(40, 40, 40))
+            painter.drawLine(PW, 0, PW, H)        # divider
+            self._draw_picker(painter, font, PW, W - PW, H)
         painter.end()
 
     def _draw_para(self, painter, wl, by, pad, text_w, lh, fm, current):
@@ -127,14 +150,70 @@ class ReorderView(QWidget):
             y += lh
 
     def _draw_mark(self, painter, name, by, W, pad, fm, lh):
-        # A faint accent rule with the chapter name — a fixed fence.
-        painter.setPen(QColor(120, 90, 40))
+        # A faint grey rule with the chapter name — a fixed fence (black & white).
+        painter.setPen(QColor(60, 60, 60))
         label = f"/{name}" if name else "/"
         tw = fm.horizontalAdvance(label)
         cx = W // 2
         mid = by + lh // 2
         painter.drawLine(pad, mid, cx - tw // 2 - 12, mid)
         painter.drawLine(cx + tw // 2 + 12, mid, W - pad, mid)
-        painter.setPen(QColor(170, 130, 60))
+        painter.setPen(QColor(180, 180, 180))
         painter.drawText(QRect(cx - tw // 2 - 8, by, tw + 16, lh),
                          Qt.AlignmentFlag.AlignCenter, label)
+
+    @staticmethod
+    def _elide(text, max_w, fm):
+        return fm.elidedText(text, Qt.TextElideMode.ElideRight, max_w)
+
+    def _draw_picker(self, painter, font, x, w, h):
+        """Right-side type-to-filter chapter picker (black & white)."""
+        small = QFont(font.family(), max(font.pointSize() - 2, 9))
+        fm = QFontMetrics(font)
+        sfm = QFontMetrics(small)
+        pad = 16
+        text_w = w - 2 * pad
+        lh = int(sfm.height() * 1.9)
+        cy = h // 2
+
+        painter.setFont(small)
+        painter.setPen(QColor(150, 150, 150))
+        prompt = (self._pick_filter + '▏') if self._pick_filter else 'escribí para filtrar…'
+        painter.drawText(QRect(x + pad, pad, text_w, sfm.height() + 4),
+                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+                         self._elide(prompt, text_w, sfm))
+
+        if self._pick_is_new and self._pick_filter.strip():
+            painter.setFont(font)
+            painter.setPen(QColor(235, 235, 235))
+            label = self._elide('⏎ crear  ' + self._pick_target, text_w, fm)
+            painter.drawText(QRect(x + pad, cy - fm.height() // 2, text_w, fm.height() + 4),
+                             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+                             label)
+        elif self._pick_matches:
+            names = self._pick_matches
+            cur = self._pick_match_idx % len(names)
+            visible = max(1, h // lh)
+            first = max(0, cur - visible // 2)
+            for j in range(first, min(len(names), first + visible)):
+                dist = j - cur
+                yj = cy + dist * lh
+                if dist == 0:
+                    painter.setPen(QColor(235, 235, 235))
+                else:
+                    a = max(45, 110 - abs(dist) * 22)
+                    painter.setPen(QColor(a, a, a))
+                painter.setFont(small)
+                painter.drawText(QRect(x + pad, yj - sfm.ascent(), text_w, lh),
+                                 Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+                                 self._elide(names[j], text_w, sfm))
+        else:
+            painter.setFont(small)
+            painter.setPen(QColor(70, 70, 70))
+            painter.drawText(QRect(x, 0, w, h), Qt.AlignmentFlag.AlignCenter, 'ø')
+
+        painter.setFont(small)
+        painter.setPen(QColor(70, 70, 70))
+        painter.drawText(QRect(x + pad, h - 34, text_w, 22),
+                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+                         '→ enviar   ⏎ nuevo   ⇥ ciclar')

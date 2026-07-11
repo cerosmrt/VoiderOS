@@ -155,27 +155,7 @@ class F5ReorderMixin:
         self.line_ring.index = self._f5_line_of_para(self._f5_para_idx)
         self.switch_to_view(1)
 
-    # ── Send a paragraph to another chapter (F5 → '>' → F3 → Enter) ─────────────
-
-    def _f5_begin_send(self):
-        """Right arrow in F5: remember the current paragraph and open F3 to pick a
-        destination chapter (send mode). Esc cancels, Enter sends."""
-        if self._f5_para_count() == 0:
-            return
-        self._f5_send_mode = True
-        self._f5_send_para = self._f5_para_idx
-        self._f5_send_source = self.current_file_path
-        self.switch_to_view(2)
-        if self.book_view:
-            self.book_view.send_marker = True
-            self.book_view.update()
-
-    def _f5_cancel_send(self):
-        """Esc in F3 send mode: back to F5 on the same paragraph, nothing moved."""
-        self._f5_send_mode = False
-        if self.book_view:
-            self.book_view.send_marker = False
-        self.switch_to_view(4)
+    # ── Send a paragraph to a chapter via the in-view picker (F5 → '>' → pick) ──
 
     def _f5_collapse_dots(self, lines):
         out = []
@@ -187,28 +167,17 @@ class F5ReorderMixin:
             out.pop()                         # drop trailing separator
         return out
 
-    def _f5_confirm_send(self):
-        """Enter in F3 send mode: MOVE the remembered paragraph out of the source
-        file and append it to the highlighted chapter (source '.' para). Snapshot +
-        one undo step. Returns to F5 on the paragraph that now takes its place."""
-        if not getattr(self, '_f5_send_mode', False):
-            return
-        if self.book_ring.current() == '.' or self._book_is_portal():
-            return                            # can't send to a separator / portal
-        target_fname = self._library_current_fname()
-        if not target_fname:
-            return
-        target_path = self._library_path_cache.get(target_fname)
-        src = self._f5_send_source
-        if not target_path or os.path.abspath(target_path) == os.path.abspath(src):
-            return                            # invalid / same file: ignore
-
+    def _f5_move_current_to(self, target_path):
+        """MOVE the current paragraph out of the active file and append it to
+        target_path (existing '.' para). One snapshot + one undo step. Leaves the
+        cursor on the paragraph that now takes its place. Returns True on success."""
         toks = self._f5_tokens(self.line_ring.lines)
         paras = self._f5_para_positions(toks)
-        i = self._f5_send_para
+        i = self._f5_para_idx
         if not (0 <= i < len(paras)):
-            self._f5_cancel_send()
-            return
+            return False
+        if os.path.abspath(target_path) == os.path.abspath(self.current_file_path):
+            return False                      # same file: ignore
         para_lines = list(toks[paras[i]][1])
         del toks[paras[i]]
         new_source = self._f5_collapse_dots(self._f5_flatten(toks)) or ['.']
@@ -228,15 +197,95 @@ class F5ReorderMixin:
         if self.line_ring.index >= len(self.line_ring.lines):
             self.line_ring.index = max(0, len(self.line_ring.lines) - 1)
         self.auto_save_circular()             # persist the shrunk source
-        self._undo_commit(key=('f5send', target_fname))
+        self._undo_commit(key=('f5send', os.path.basename(target_path)))
 
-        self._f5_send_mode = False
-        if self.book_view:
-            self.book_view.send_marker = False
-        self.switch_to_view(4)
         n = self._f5_para_count()
         self._f5_para_idx = max(0, min(i, n - 1)) if n else 0
+        return True
+
+    # ── In-view chapter picker (opens on the right of F5) ───────────────────────
+
+    def _f5_open_picker(self):
+        """Right in F5: open the in-view type-to-filter chapter picker."""
+        if self._f5_para_count() == 0:
+            return
+        self._f5_picker_open = True
+        self._f5_pick_filter = ''
+        self._f5_pick_match_idx = 0
         self._f5_refresh()
+
+    def _f5_close_picker(self):
+        self._f5_picker_open = False
+        self._f5_refresh()
+
+    def _f5_pick_matches(self):
+        """[(fname, display)] of chapters whose name contains the filter — never the
+        separators, the '0' portal, or the source file itself."""
+        flt = self._f5_pick_filter.strip().lower()
+        src = os.path.basename(self.current_file_path or '')
+        out = []
+        for fname in self._library_lines:
+            if fname in ('.', '0.txt') or fname == src:
+                continue
+            display = os.path.splitext(fname)[0]
+            if flt in display.lower():
+                out.append((fname, display))
+        return out
+
+    def _f5_pick_target(self):
+        """Resolve the destination: an existing match, else create-new from a
+        non-empty filter, else None."""
+        matches = self._f5_pick_matches()
+        if matches:
+            fname, display = matches[self._f5_pick_match_idx % len(matches)]
+            return {'fname': fname, 'display': display,
+                    'path': self._library_path_cache.get(fname), 'is_new': False}
+        flt = self._f5_pick_filter.strip()
+        if flt:
+            fname = flt + '.txt'
+            return {'fname': fname, 'display': flt,
+                    'path': os.path.join(self.void_dir, 'I', fname), 'is_new': True}
+        return None
+
+    def _f5_pick_filter_add(self, ch):
+        self._f5_pick_filter += ch
+        self._f5_pick_match_idx = 0
+        self._f5_refresh()
+
+    def _f5_pick_filter_backspace(self):
+        if self._f5_pick_filter:
+            self._f5_pick_filter = self._f5_pick_filter[:-1]
+            self._f5_pick_match_idx = 0
+            self._f5_refresh()
+
+    def _f5_pick_cycle(self, delta):
+        matches = self._f5_pick_matches()
+        if matches:
+            self._f5_pick_match_idx = (self._f5_pick_match_idx + delta) % len(matches)
+            self._f5_refresh()
+
+    def _f5_pick_confirm(self):
+        """Enter/→ in the picker: send the current paragraph to the resolved target
+        (creating the chapter first if the typed name is new), then close + advance."""
+        if not getattr(self, '_f5_picker_open', False):
+            return
+        target = self._f5_pick_target()
+        if not target or not target['path']:
+            return
+        if target['is_new']:                  # create the new chapter first
+            path = target['path']
+            if not os.path.exists(path):
+                open(path, 'w', encoding='utf-8').close()
+            if target['fname'] not in self._library_lines:
+                ins = self.book_ring.index
+                if not (0 <= ins < len(self._library_lines)):
+                    ins = len(self._library_lines)
+                self._library_lines.insert(ins, target['fname'])
+                self.book_ring.lines.insert(ins, target['display'])
+                self._library_path_cache[target['fname']] = path
+                self._save_library()
+        self._f5_move_current_to(target['path'])
+        self._f5_close_picker()
 
     # ── View state ────────────────────────────────────────────────────────────
 
@@ -255,5 +304,15 @@ class F5ReorderMixin:
 
     def _f5_refresh(self):
         view = getattr(self, 'reorder_view', None)
-        if view is not None:
-            view.set_state(self._f5_units(), self._f5_para_idx)
+        if view is None:
+            return
+        view.set_state(self._f5_units(), self._f5_para_idx)
+        if getattr(self, '_f5_picker_open', False):
+            matches = self._f5_pick_matches()
+            target = self._f5_pick_target()
+            view.set_picker_state(True, self._f5_pick_filter,
+                                  [d for _, d in matches], self._f5_pick_match_idx,
+                                  bool(target and target.get('is_new')),
+                                  target['display'] if target else '')
+        else:
+            view.set_picker_state(False, '', [], 0, False, '')

@@ -263,13 +263,6 @@ class KeyRouterMixin:
 
     def _handle_f3_keys(self, key, mods, event):
         # Up/Down/Enter handled by book_view.editor signals.
-        # F5 send mode: F3 only picks a destination — navigate (editor Up/Down) and
-        # Enter (→ _book_confirm_edit → send) work; Esc cancels; every other F3
-        # action key is swallowed so nothing structural fires.
-        if getattr(self, '_f5_send_mode', False):
-            if key == Qt.Key.Key_Escape:
-                self._f5_cancel_send()
-            event.accept(); return
         if mods == Qt.KeyboardModifier.ControlModifier and key == Qt.Key.Key_F:
             self._open_f3_search(); event.accept(); return
         if self._matches(key, mods, 'merge_book'):
@@ -326,11 +319,28 @@ class KeyRouterMixin:
             self._show_lock_screen()
 
     def _handle_f5_keys(self, key, mods, event):
-        """F5 — linear paragraph reorder (read-only). Up/Down navigate paragraphs,
-        Alt+Up/Down swap them, Enter jumps to F2 on the current paragraph."""
+        """F5 — linear paragraph reorder. Up/Down navigate, Alt+Up/Down swap, Enter
+        → F2. Right opens the in-view chapter picker to send the current paragraph."""
         Alt = Qt.KeyboardModifier.AltModifier
+        Ctrl = Qt.KeyboardModifier.ControlModifier
         No = Qt.KeyboardModifier.NoModifier
         K = Qt.Key
+        # In-view chapter picker (send mode): type-to-filter, cycle, send, cancel.
+        if getattr(self, '_f5_picker_open', False):
+            if key == K.Key_Escape:
+                self._f5_close_picker(); event.accept(); return
+            if key in (K.Key_Return, K.Key_Enter, K.Key_Right):
+                self._f5_pick_confirm(); event.accept(); return
+            if key in (K.Key_Tab, K.Key_Down):
+                self._f5_pick_cycle(1); event.accept(); return
+            if key in (K.Key_Backtab, K.Key_Up):
+                self._f5_pick_cycle(-1); event.accept(); return
+            if key == K.Key_Backspace:
+                self._f5_pick_filter_backspace(); event.accept(); return
+            text = event.text()
+            if text and text.isprintable() and not (mods & (Ctrl | Alt)):
+                self._f5_pick_filter_add(text); event.accept(); return
+            event.accept(); return
         # Swap the current paragraph up/down (fences are crossed, not moved).
         if key == K.Key_Up and (mods & Alt):
             self._f5_swap_up(); event.accept(); return
@@ -341,9 +351,9 @@ class KeyRouterMixin:
             self._f5_prev_para(); event.accept(); return
         if key == K.Key_Down and mods == No:
             self._f5_next_para(); event.accept(); return
-        # Right → '>' output: open F3 to pick a chapter to send this paragraph to.
+        # Right → open the in-view picker to send this paragraph to a chapter.
         if key == K.Key_Right and mods == No:
-            self._f5_begin_send(); event.accept(); return
+            self._f5_open_picker(); event.accept(); return
         # Enter → jump to F2 on this paragraph.
         if key in (K.Key_Return, K.Key_Enter):
             self._f5_enter_to_f2(); event.accept(); return

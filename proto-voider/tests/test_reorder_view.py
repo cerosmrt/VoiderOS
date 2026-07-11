@@ -44,3 +44,12 @@ def test_highlight_index_out_of_visible_range(qapp):
              for i in range(50)]
     v.set_state(units, 40)
     _render(v)
+
+
+def test_picker_panel_paints(qapp):
+    v = ReorderView()
+    v.set_state([{'kind': 'para', 'ordinal': 0, 'text': 'un parrafo'}], 0)
+    v.set_picker_state(True, 'log', ['El Logos', 'El Logro'], 0, False, 'El Logos')
+    _render(v)
+    v.set_picker_state(True, 'Nuevo', [], 0, True, 'Nuevo')   # create-new state
+    _render(v)

@@ -1,5 +1,5 @@
-"""F5 → '>' → F3 → Enter: MOVE the current paragraph out of the active file and
-append it to the chosen chapter, then return to F5 on the next paragraph."""
+"""F5 in-view chapter picker: Right opens a type-to-filter picker; Enter/→ MOVES
+the current paragraph to the chosen (or newly created) chapter and stays in F5."""
 import os
 import types
 from unittest.mock import MagicMock
@@ -9,11 +9,13 @@ from undo_manager import UndoManager
 from helpers import make_ring_app
 
 _METHODS = (
-    '_f5_begin_send', '_f5_cancel_send', '_f5_confirm_send', '_f5_collapse_dots',
-    '_f5_tokens', '_f5_flatten', '_f5_para_positions', '_f5_para_count',
-    '_f5_refresh', '_undo_begin', '_undo_commit', '_undo_capture',
-    '_undo_trackable', '_atomic_write_lines', 'auto_save_circular',
-    '_read_lines_or_none', '_rescue_on_large_shrink', '_library_current_fname',
+    '_f5_move_current_to', '_f5_collapse_dots', '_f5_tokens', '_f5_flatten',
+    '_f5_para_positions', '_f5_para_count', '_f5_refresh', '_f5_open_picker',
+    '_f5_close_picker', '_f5_pick_matches', '_f5_pick_target', '_f5_pick_filter_add',
+    '_f5_pick_filter_backspace', '_f5_pick_cycle', '_f5_pick_confirm',
+    '_undo_begin', '_undo_commit', '_undo_capture', '_undo_trackable',
+    '_atomic_write_lines', 'auto_save_circular', '_read_lines_or_none',
+    '_rescue_on_large_shrink', '_save_library', '_library_path',
 )
 
 
@@ -22,18 +24,16 @@ def _read(p):
         return [l.rstrip('\n') for l in f]
 
 
-def _send_app(tmp_path, source_lines, library=('.', 'Dest.txt')):
+def _app(tmp_path, source_lines, library=('.', 'Dest.txt', 'Other.txt')):
     from new_interface import FullscreenCircleApp
     app = make_ring_app(list(source_lines))
     (tmp_path / 'I').mkdir(exist_ok=True)
     app.void_dir = str(tmp_path)
     app.f1_file = str(tmp_path / 'I' / '0.txt'); open(app.f1_file, 'w').close()
-
     src = tmp_path / 'I' / 'src.txt'
     src.write_text('\n'.join(source_lines) + '\n', encoding='utf-8')
     app.current_file_path = str(src)
     app.line_ring = LineRing(list(source_lines))
-
     app._library_lines = list(library)
     app.book_ring = LineRing(['.' if x == '.' else x[:-4] for x in library])
     app._library_path_cache = {}
@@ -44,77 +44,83 @@ def _send_app(tmp_path, source_lines, library=('.', 'Dest.txt')):
         if not p.exists():
             p.write_text('', encoding='utf-8')
         app._library_path_cache[fn] = str(p)
-
     app._ipc = MagicMock()
     app._undo = UndoManager(); app._undo_last = {}
     app._undo_applying = False; app._undo_txn = None; app._f3_txn = None
     app.reorder_view = None
-    app.switched = []
-    app.switch_to_view = lambda v: app.switched.append(v)
     app._git_snapshot_void = MagicMock()
-    app._book_is_portal = lambda *a: False
-    app._f5_send_mode = False
-    app._f5_send_para = 0
-    app._f5_send_source = app.current_file_path
     app._f5_para_idx = 0
+    app._f5_picker_open = False
+    app._f5_pick_filter = ''
+    app._f5_pick_match_idx = 0
     for nm in _METHODS:
         setattr(app, nm, types.MethodType(getattr(FullscreenCircleApp, nm), app))
     return app, str(src)
 
 
-def _target(app, fname):
-    app.book_ring.index = app._library_lines.index(fname)
+# ── move core ─────────────────────────────────────────────────────────────────
+
+def test_move_current_to_moves_and_advances(tmp_path):
+    app, src = _app(tmp_path, ['.', 'a', '.', 'b', '.', 'c'])
+    app._f5_para_idx = 1                         # 'b'
+    ok = app._f5_move_current_to(str(tmp_path / 'I' / 'Dest.txt'))
+    assert ok is True
+    assert _read(str(tmp_path / 'I' / 'Dest.txt')) == ['b']
+    assert 'b' not in _read(src)
+    assert app._f5_para_idx == 1                 # now on 'c' (the next)
 
 
-def test_send_moves_paragraph_to_target(tmp_path):
-    app, src = _send_app(tmp_path, ['.', 'a', '.', 'b', '.', 'c'])
-    app._f5_send_mode = True
-    app._f5_send_para = 1                      # 'b'
-    _target(app, 'Dest.txt')
-    app._f5_confirm_send()
-
-    assert _read(str(tmp_path / 'I' / 'Dest.txt')) == ['b']   # appended to target
-    assert 'b' not in _read(src)                              # removed from source
-    assert app._f5_para_idx == 1                              # now on 'c' (the next)
-    assert app._f5_send_mode is False
-    assert app.switched[-1] == 4                              # back to F5
-
-
-def test_send_appends_after_existing_target_content(tmp_path):
-    app, src = _send_app(tmp_path, ['.', 'a', '.', 'b'])
-    with open(tmp_path / 'I' / 'Dest.txt', 'w', encoding='utf-8') as f:
-        f.write('viejo\n')
-    app._f5_send_mode = True
-    app._f5_send_para = 0                       # 'a'
-    _target(app, 'Dest.txt')
-    app._f5_confirm_send()
-    assert _read(str(tmp_path / 'I' / 'Dest.txt')) == ['viejo', '.', 'a']
-
-
-def test_send_to_separator_is_ignored(tmp_path):
-    app, src = _send_app(tmp_path, ['.', 'a', '.', 'b'], library=('.', 'Dest.txt'))
-    app._f5_send_mode = True
-    app._f5_send_para = 0
-    app.book_ring.index = 0                      # on the '.' separator
-    app._f5_confirm_send()
-    assert _read(str(tmp_path / 'I' / 'Dest.txt')) == []      # untouched (empty)
-    assert app._f5_send_mode is True             # still choosing
-
-
-def test_send_to_same_file_ignored(tmp_path):
-    app, src = _send_app(tmp_path, ['.', 'a', '.', 'b'], library=('.', 'src.txt'))
-    app._f5_send_mode = True
-    app._f5_send_para = 0
-    _target(app, 'src.txt')                      # same as source
-    app._f5_confirm_send()
-    assert _read(src) == ['.', 'a', '.', 'b']    # unchanged
-    assert app._f5_send_mode is True
-
-
-def test_cancel_send_returns_without_moving(tmp_path):
-    app, src = _send_app(tmp_path, ['.', 'a', '.', 'b'])
-    app._f5_send_mode = True
-    app._f5_cancel_send()
-    assert app._f5_send_mode is False
-    assert app.switched == [4]
+def test_move_to_same_file_ignored(tmp_path):
+    app, src = _app(tmp_path, ['.', 'a', '.', 'b'])
+    assert app._f5_move_current_to(src) is False
     assert _read(src) == ['.', 'a', '.', 'b']
+
+
+# ── picker filter / target ────────────────────────────────────────────────────
+
+def test_pick_matches_filters_and_excludes(tmp_path):
+    app, src = _app(tmp_path, ['.', 'a'],
+                    library=('.', 'Dest.txt', 'Other.txt', '0.txt', 'src.txt'))
+    app._f5_pick_filter = 'o'
+    got = [d for _, d in app._f5_pick_matches()]
+    assert got == ['Other']                      # 'o' matches Other; not 0/./src
+
+
+def test_pick_target_create_new(tmp_path):
+    app, src = _app(tmp_path, ['.', 'a'])
+    app._f5_pick_filter = 'Nuevo Capitulo'
+    t = app._f5_pick_target()
+    assert t['is_new'] is True and t['fname'] == 'Nuevo Capitulo.txt'
+
+
+# ── confirm from the picker ───────────────────────────────────────────────────
+
+def test_confirm_sends_to_existing(tmp_path):
+    app, src = _app(tmp_path, ['.', 'a', '.', 'b'])
+    app._f5_open_picker()
+    app._f5_pick_filter = 'Dest'
+    app._f5_para_idx = 0                          # 'a'
+    app._f5_pick_confirm()
+    assert _read(str(tmp_path / 'I' / 'Dest.txt')) == ['a']
+    assert app._f5_picker_open is False           # closed after send
+
+
+def test_confirm_creates_new_chapter_and_sends(tmp_path):
+    app, src = _app(tmp_path, ['.', 'a', '.', 'b'])
+    app._f5_open_picker()
+    app._f5_pick_filter = 'Fresh'
+    app._f5_para_idx = 0
+    app._f5_pick_confirm()
+    assert os.path.exists(str(tmp_path / 'I' / 'Fresh.txt'))
+    assert _read(str(tmp_path / 'I' / 'Fresh.txt')) == ['a']
+    assert 'Fresh.txt' in app._library_lines      # new library entry
+    assert app._f5_picker_open is False
+
+
+def test_close_picker(tmp_path):
+    app, src = _app(tmp_path, ['.', 'a', '.', 'b'])
+    app._f5_open_picker()
+    assert app._f5_picker_open is True
+    app._f5_close_picker()
+    assert app._f5_picker_open is False
+    assert _read(src) == ['.', 'a', '.', 'b']     # nothing moved

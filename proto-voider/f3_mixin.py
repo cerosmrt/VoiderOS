@@ -54,8 +54,6 @@ class F3Mixin:
     def _book_random(self):
         """Tab in F3: jump to a random real book title (skip '.' separators and
         the read-only '0' portals)."""
-        if getattr(self, '_f5_send_mode', False):
-            return
         if self._book_pending_new:
             return
         self._book_try_rename()
@@ -117,8 +115,6 @@ class F3Mixin:
         self._book_show_editor()
 
     def _book_try_rename(self):
-        if getattr(self, '_f5_send_mode', False):
-            return True                       # no renames while picking a send-target
         if not self.book_view:
             return True
         if self._book_pending_new:
@@ -176,9 +172,6 @@ class F3Mixin:
 
     def _book_confirm_edit(self):
         """Enter in F3: handle new-entry mode, dot → concat view, title → F2."""
-        if getattr(self, '_f5_send_mode', False):
-            self._f5_confirm_send()           # Enter = send the F5 paragraph here
-            return
         if getattr(self, '_book_pending_merge', False):
             self._book_do_merge()
             return
@@ -243,8 +236,6 @@ class F3Mixin:
 
     def _book_new_entry(self):
         """Shift+Enter in F3: insert a blank entry below current for the user to name."""
-        if getattr(self, '_f5_send_mode', False):
-            return
         if self._book_pending_new:
             return
         self._book_try_rename()
@@ -261,8 +252,6 @@ class F3Mixin:
 
     def _book_send_to_zero(self):
         """Ctrl+Delete in F3: on dot → delete separator; on title → send lines to 0.txt and delete file."""
-        if getattr(self, '_f5_send_mode', False):
-            return
         if self._book_pending_new:
             return
         if self.book_ring.current() == '.':
@@ -335,8 +324,6 @@ class F3Mixin:
 
     def _book_insert_separator(self):
         """Tab in F3: insert a group separator dot above the current position."""
-        if getattr(self, '_f5_send_mode', False):
-            return
         if self.book_ring.current() == '.':
             return
         self._book_try_rename()
