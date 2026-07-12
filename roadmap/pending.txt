@@ -305,11 +305,14 @@ SYNC de textos (LISTO, en ~/godplaystheartist/sync_void.py, gitignored):
 
 PENDIENTES web (para cuando haya tiempo):
   - [ ] Correr la primera subida real del void (usuario).
-  - [ ] LECTOR por capítulo: página que muestre /public_html/void/I/<cap> con la
-        estética del sitio en godplaystheartist.com/<nombre>. HOY NO EXISTE (el
-        sitio es "línea al azar", no un lector de capítulos). Es la mitad que
-        falta para "ver el libro en HTML". Ajustar también qué globea el PHP para
-        que agarre void/I/ (hoy mira void/* y void/.txt/).
+  - [~] LECTOR por capítulo — HECHO local (repo web, commit 1c03e22): read.php
+        renderiza void/I/<nombre>.txt como prosa (dot-model '.' = párrafo), B&N,
+        serif EB Garamond, columna centrada, título + link '◦ void'. .htaccess:
+        /<nombre> -> read.php?ch=<nombre> (archivos existentes y /v01der se sirven
+        directo). Anti path-traversal (strip + realpath dentro de void/I/).
+        router.php (gitignored) para probar con `php -S`. FALTA para verlo live:
+        (a) subir el void (sync_void.py) y (b) deployar read.php + .htaccess al
+        server (sync_site.py). Probado local con capítulos de muestra.
   - [ ] sync_site.py: subir el CÓDIGO del sitio (html/php/css/js/.htaccess) por
         FTP desde ~/godplaystheartist/ a /public_html/, excluyendo void/, .git,
         sync_void.py, .secrets.env. OJO: el código PISA lo live → hacer dry-run
