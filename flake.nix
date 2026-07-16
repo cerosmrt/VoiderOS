@@ -25,6 +25,7 @@
       hardware.nvidia.modesetting.enable = lib.mkForce false;
       hardware.nvidia.open               = lib.mkForce false;
       hardware.nvidia.nvidiaSettings     = lib.mkForce false;
+      hardware.nvidia.powerManagement.enable = lib.mkForce false;
 
       fileSystems."/" = {
         device = "/dev/disk/by-label/nixos";

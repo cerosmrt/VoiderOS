@@ -49,6 +49,7 @@
     modesetting.enable = true;
     open               = false;
     nvidiaSettings     = true;
+    powerManagement.enable = true;   # preserve VRAM across suspend (fixes HDMI black on resume)
   };
   hardware.graphics.enable = true;
 
