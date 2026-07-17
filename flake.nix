@@ -27,6 +27,14 @@
       services.xserver.videoDrivers          = lib.mkForce [ "modesetting" ];
     };
 
+    # Removes the /mnt/data mount (TUF's Windows partition by UUID).
+    # Machines without that extra disk should not wait on it at boot.
+    noMntDataOverrides = { lib, ... }: {
+      fileSystems = lib.mkForce (
+        removeAttrs (lib.optionalAttrs true {}) [ ]
+      );
+    };
+
     # VM overrides — no NVIDIA, no physical disk, no EFI
     # Hyprland uses wlroots, same env vars as Sway for software rendering
     vmOverrides = { pkgs, ... }: {
@@ -59,13 +67,23 @@
     # Reusable builder for any physical VoiderOS machine.
     #   hardwareConfig : path to that machine's hardware-configuration.nix
     #   hasNvidia      : whether to keep the NVIDIA driver config (default true)
+    #   hasMntData     : whether this machine has the extra /mnt/data disk (default true)
     #   extraModules   : any additional machine-specific modules
-    mkVoiderSystem = { hardwareConfig, hasNvidia ? true, extraModules ? [] }:
+    mkVoiderSystem = { hardwareConfig, hasNvidia ? true, hasMntData ? true, extraModules ? [] }:
       lib.nixosSystem {
         inherit system;
         modules = baseModules
           ++ [ hardwareConfig ]
           ++ lib.optionals (!hasNvidia) [ noNvidiaOverrides ]
+          ++ lib.optionals (!hasMntData) [
+               ({ lib, ... }: {
+                 fileSystems."/mnt/data" = lib.mkForce {
+                   device  = "none";
+                   fsType  = "tmpfs";
+                   options = [ "defaults" "nofail" ];
+                 };
+               })
+             ]
           ++ extraModules;
       };
 
@@ -82,16 +100,18 @@
 
     nixosConfigurations = {
 
-      # TUF (main machine, NVIDIA GPU)
+      # TUF (main machine, NVIDIA GPU, has Windows /mnt/data disk)
       voider = mkVoiderSystem {
         hardwareConfig = ./nix/hardware-configuration.nix;
         hasNvidia = true;
+        hasMntData = true;
       };
 
-      # Lenovo (writing laptop, no NVIDIA)
+      # Lenovo (writing laptop, no NVIDIA, single disk — no /mnt/data)
       voider-lenovo = mkVoiderSystem {
         hardwareConfig = ./nix/hardware-configuration-lenovo.nix;
         hasNvidia = false;
+        hasMntData = false;
       };
 
       # QEMU test VM
