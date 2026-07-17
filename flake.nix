@@ -27,14 +27,6 @@
       services.xserver.videoDrivers          = lib.mkForce [ "modesetting" ];
     };
 
-    # Removes the /mnt/data mount (TUF's Windows partition by UUID).
-    # Machines without that extra disk should not wait on it at boot.
-    noMntDataOverrides = { lib, ... }: {
-      fileSystems = lib.mkForce (
-        removeAttrs (lib.optionalAttrs true {}) [ ]
-      );
-    };
-
     # VM overrides — no NVIDIA, no physical disk, no EFI
     # Hyprland uses wlroots, same env vars as Sway for software rendering
     vmOverrides = { pkgs, ... }: {
