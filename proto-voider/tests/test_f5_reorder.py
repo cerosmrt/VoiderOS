@@ -17,6 +17,7 @@ def _app(lines, idx=0, para=0):
     a.auto_save_circular = lambda undo_key=None: a.saved.append(list(a.line_ring.lines))
     a.switched = []
     a.switch_to_view = lambda v: a.switched.append(v)
+    a.current_file_path = '/void/I/Primero.txt'
     return a
 
 
@@ -98,3 +99,29 @@ def test_enter_to_f2_positions_and_switches():
     a._f5_enter_to_f2()
     assert a.line_ring.index == 5            # first line of paragraph 'c'
     assert a.switched == [1]                 # jumped to F2
+
+
+# ── Fixed title header (chapter the current paragraph sits under) ──────────────
+
+def test_current_title_uses_file_name_when_no_fence():
+    a = _app(['.', 'a', '.', 'b'], para=1)
+    a.current_file_path = '/void/I/Capitulo III.txt'
+    assert a._f5_current_title() == 'Capitulo III'   # no fence → active file
+
+
+def test_current_title_uses_fence_the_paragraph_is_under():
+    a = _app(['a', '/Segundo', 'b'], para=1)         # 'b' sits under /Segundo
+    a.current_file_path = '/void/I/Primero.txt'
+    assert a._f5_current_title() == 'Segundo'
+
+
+def test_current_title_before_first_fence_uses_file_name():
+    a = _app(['a', '/Segundo', 'b'], para=0)         # 'a' precedes the fence
+    a.current_file_path = '/void/I/Primero.txt'
+    assert a._f5_current_title() == 'Primero'
+
+
+def test_current_title_empty_file_still_names_the_file():
+    a = _app([], para=0)
+    a.current_file_path = '/void/I/Vacio.txt'
+    assert a._f5_current_title() == 'Vacio'

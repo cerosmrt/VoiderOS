@@ -287,6 +287,26 @@ class F5ReorderMixin:
         self._f5_move_current_to(target['path'])
         self._f5_close_picker()
 
+    # ── Fixed title header (chapter the current paragraph sits under) ──────────
+
+    def _f5_current_title(self):
+        """Title pinned at the top of F5: the '/name' fence the current paragraph
+        sits under, or the active file's name (no extension) if it sits under
+        none. In the usual single-chapter file this is always the file name."""
+        toks = self._f5_tokens(self.line_ring.lines)
+        ordinal, mark = -1, None
+        for kind, val in toks:
+            if kind == 'mark':
+                mark = val.strip()[1:].strip()
+            elif kind == 'para':
+                ordinal += 1
+                if ordinal == self._f5_para_idx:
+                    if mark:
+                        return mark
+                    break
+        base = os.path.basename(getattr(self, 'current_file_path', '') or '')
+        return os.path.splitext(base)[0]
+
     # ── View state ────────────────────────────────────────────────────────────
 
     def _f5_units(self):
@@ -306,7 +326,7 @@ class F5ReorderMixin:
         view = getattr(self, 'reorder_view', None)
         if view is None:
             return
-        view.set_state(self._f5_units(), self._f5_para_idx)
+        view.set_state(self._f5_units(), self._f5_para_idx, self._f5_current_title())
         if getattr(self, '_f5_picker_open', False):
             matches = self._f5_pick_matches()
             target = self._f5_pick_target()

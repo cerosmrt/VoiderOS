@@ -46,6 +46,19 @@ def test_highlight_index_out_of_visible_range(qapp):
     _render(v)
 
 
+def test_title_header_paints(qapp):
+    v = ReorderView()
+    v.set_state([{'kind': 'para', 'ordinal': 0, 'text': 'un parrafo ' * 8}],
+                0, 'CAPITULO III')
+    _render(v)
+
+
+def test_title_header_paints_when_empty(qapp):
+    v = ReorderView()
+    v.set_state([], 0, 'VACIO')
+    _render(v)
+
+
 def test_picker_panel_paints(qapp):
     v = ReorderView()
     v.set_state([{'kind': 'para', 'ordinal': 0, 'text': 'un parrafo'}], 0)

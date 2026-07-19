@@ -14,6 +14,7 @@ class ReorderView(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._units = []          # [{'kind':'para','ordinal':i,'text':..} | {'kind':'mark','name':..}]
         self._para_idx = 0
+        self._title = ''          # chapter/file name pinned (centred) at the top
         self._app_font = QFont('Consolas', 13)
         # In-view chapter picker (right panel), shown while sending a paragraph.
         self._picker_open = False
@@ -42,9 +43,10 @@ class ReorderView(QWidget):
     def keyPressEvent(self, event):
         event.ignore()           # propagate to QMainWindow
 
-    def set_state(self, units, para_idx):
+    def set_state(self, units, para_idx, title=''):
         self._units = list(units)
         self._para_idx = para_idx
+        self._title = title or ''
         self.update()
 
     # ── layout helpers ────────────────────────────────────────────────────────
@@ -99,6 +101,7 @@ class ReorderView(QWidget):
         if not blocks:
             painter.setPen(QColor(45, 45, 45))
             painter.drawText(QRect(0, 0, W, H), Qt.AlignmentFlag.AlignCenter, 'ø')
+            self._draw_header(painter, font, PW, H)
             painter.end()
             return
 
@@ -135,7 +138,34 @@ class ReorderView(QWidget):
             painter.setPen(QColor(40, 40, 40))
             painter.drawLine(PW, 0, PW, H)        # divider
             self._draw_picker(painter, font, PW, W - PW, H)
+        self._draw_header(painter, font, PW, H)   # fixed title (paints over the top)
         painter.end()
+
+    def _draw_header(self, painter, base_font, W, H):
+        """Pin the chapter/file name centred at the top of the paragraph column:
+        ALL CAPS, a touch larger than the prose, with a '.' below it separating
+        the title from the paragraphs (the /void separator style)."""
+        title = (self._title or '').upper()
+        hf = QFont(base_font.family(), base_font.pointSize() + 3)
+        hfm = QFontMetrics(hf)
+        dfm = QFontMetrics(base_font)
+        top = 22
+        th, dh = hfm.height(), dfm.height()
+        gap = int(th * 0.4)
+        band_h = top + th + gap + dh + 14
+        # Opaque band so paragraphs scroll cleanly *under* the fixed title.
+        painter.fillRect(0, 0, W, band_h, QColor(0, 0, 0))
+        if title:
+            painter.setFont(hf)
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(QRect(0, top, W, th),
+                             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+                             title)
+        painter.setFont(base_font)
+        painter.setPen(QColor(120, 120, 120))
+        painter.drawText(QRect(0, top + th + gap, W, dh),
+                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+                         '.')
 
     def _draw_para(self, painter, wl, by, pad, text_w, lh, fm, current):
         if current:
