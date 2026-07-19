@@ -148,7 +148,6 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         # Window setup
         self.setWindowTitle("Voider")
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
-        self.setCursor(QCursor(Qt.CursorShape.BlankCursor))
         self.setStyleSheet("background-color: black; color: white;")
 
         # Entry (F1)
@@ -237,6 +236,9 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._undo_applying = False
         self._undo_txn = None
         QApplication.instance().installEventFilter(self)
+        # Auto-hide the mouse pointer while typing; show it on any mouse activity.
+        from cursor_autohide import CursorAutohide
+        self._cursor_autohide = CursorAutohide(QApplication.instance(), hidden=True)
         self._f2_search_active = False
         self._f2_search_saved = None   # saved cursor index before search
         self._f2_display_ring = None   # temp ring shown during search
@@ -884,6 +886,10 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         return False
 
     def eventFilter(self, obj, event):
+        # Mouse pointer follows typing vs. mouse activity (never consumes events).
+        ah = getattr(self, '_cursor_autohide', None)
+        if ah is not None:
+            ah.handle_event_type(event.type())
         # Intercept Ctrl+Z / Ctrl+Shift+Z before the focused editor's own field
         # undo, but only in the editing views (F1/F2/F5) and F3 (library ops,
         # unless a title is mid-edit — then let the field's own undo run).
