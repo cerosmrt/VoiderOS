@@ -57,6 +57,8 @@ DEFAULT_CONFIG = {
         "shuffle_zero": "Ctrl+Shift+R",
         "dispatch": "Ctrl+Shift+D",
         "split_chapter": "Ctrl+Shift+S",
+        "merge_book": "Ctrl+Shift+M",
+        "commit_void": "Ctrl+Shift+G",
         "backup": "Ctrl+B"
     }
 }
@@ -92,31 +94,82 @@ def _parse_keybinding(s):
     mods = Qt.KeyboardModifier.NoModifier
     for part in parts[:-1]:
         mods |= _MOD_MAP.get(part, Qt.KeyboardModifier.NoModifier)
-    return _KEY_MAP.get(key_str), mods
+    key = _KEY_MAP.get(key_str)
+    if key is None:                       # any single letter/digit → Key_<X>
+        key = getattr(Qt.Key, f'Key_{key_str.upper()}', None)
+    return key, mods
+
+
+# Volatile, per-session runtime state. These live in a separate, git-ignored
+# state file (state.json) next to config.json — never in the committed config —
+# so a runtime write can't churn or truncate the committed defaults/keybindings
+# (and can never wipe void_dir, which would break launch).
+STATE_KEYS = ('active_file', 'last_view', 'last_book_index', 'last_book_entry',
+              'bg_color')
+
+
+def _state_path_for(config_path):
+    return os.path.join(os.path.dirname(config_path), 'state.json')
+
+
+def _write_json(path, obj):
+    """Atomic JSON write (tmp + os.replace) so a crash can't truncate the file."""
+    try:
+        tmp = path + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(obj, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, path)
+    except Exception as e:
+        print(f"⚠️ Error writing {os.path.basename(path)}: {e}")
+
+
+def _load_config_from(config_path):
+    """Committed config (merged over DEFAULT_CONFIG), then runtime state overlaid
+    on top. One merged dict — callers keep using self.config[...] unchanged."""
+    config = dict(DEFAULT_CONFIG)
+    data = {}
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except Exception as e:
+            print(f"⚠️ Error loading config: {e}")
+    config.update(data)
+    merged_kb = dict(DEFAULT_CONFIG['keybindings'])
+    merged_kb.update(data.get('keybindings', {}))
+    config['keybindings'] = merged_kb
+    sp = _state_path_for(config_path)
+    if os.path.exists(sp):
+        try:
+            with open(sp, 'r', encoding='utf-8') as f:
+                config.update(json.load(f))
+        except Exception as e:
+            print(f"⚠️ Error loading state: {e}")
+    return config
+
+
+def _save_config_to(config_path, config):
+    """Runtime-state keys → state.json (always). Non-state keys → config.json only
+    when their content actually changed, so ordinary navigation never rewrites the
+    committed config (no git churn, no truncation risk)."""
+    _write_json(_state_path_for(config_path),
+                {k: config[k] for k in STATE_KEYS if k in config})
+    rest = {k: v for k, v in config.items() if k not in STATE_KEYS}
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            cur = json.load(f)
+    except Exception:
+        cur = None
+    if cur != rest:
+        _write_json(config_path, rest)
 
 
 def _load_config():
-    if os.path.exists(CONFIG_PATH):
-        try:
-            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            config = dict(DEFAULT_CONFIG)
-            config.update(data)
-            merged_kb = dict(DEFAULT_CONFIG['keybindings'])
-            merged_kb.update(data.get('keybindings', {}))
-            config['keybindings'] = merged_kb
-            return config
-        except Exception as e:
-            print(f"⚠️ Error loading config: {e}")
-    return dict(DEFAULT_CONFIG)
+    return _load_config_from(CONFIG_PATH)
 
 
 def _save_config(config):
-    try:
-        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
-    except Exception as e:
-        print(f"⚠️ Error saving config: {e}")
+    _save_config_to(CONFIG_PATH, config)
 
 
 def _clean_book_title(fname):

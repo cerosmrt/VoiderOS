@@ -10,35 +10,19 @@ import app_config as _app_config
 from app_config import (
     CONFIG_PATH, DEFAULT_CONFIG, _KEY_MAP, _MOD_MAP,
     _parse_keybinding, _clean_book_title, _qt_msg_handler,
+    _load_config_from, _save_config_to,
 )
 
 
+# Thin wrappers over the shared implementation, bound to new_interface.CONFIG_PATH
+# so tests can patch this module's path (see tests/conftest.py). The committed
+# config and the git-ignored runtime state (state.json) split lives in app_config.
 def _load_config():
-    """Load config from new_interface.CONFIG_PATH (allows test patching)."""
-    import json
-    if os.path.exists(CONFIG_PATH):
-        try:
-            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            config = dict(DEFAULT_CONFIG)
-            config.update(data)
-            merged_kb = dict(DEFAULT_CONFIG['keybindings'])
-            merged_kb.update(data.get('keybindings', {}))
-            config['keybindings'] = merged_kb
-            return config
-        except Exception as e:
-            print(f"⚠️ Error loading config: {e}")
-    return dict(DEFAULT_CONFIG)
+    return _load_config_from(CONFIG_PATH)
 
 
 def _save_config(config):
-    """Save config to new_interface.CONFIG_PATH (allows test patching)."""
-    import json
-    try:
-        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
-    except Exception as e:
-        print(f"⚠️ Error saving config: {e}")
+    _save_config_to(CONFIG_PATH, config)
 from io_mixin import IoMixin
 from f1_mixin import F1Mixin
 from f2_mixin import F2Mixin
@@ -47,7 +31,7 @@ from f4_mixin import F4Mixin
 from f5678_mixin import F5678Mixin
 from tts_mixin import TtsMixin
 from key_router_mixin import KeyRouterMixin
-from f5_triage_mixin import F5TriageMixin
+from f5_reorder_mixin import F5ReorderMixin
 
 from files import setup_file_handling, void_line
 from ipc import VoiderIPC
@@ -61,7 +45,7 @@ from fx_panel import FxPanel
 from help_overlay import HelpOverlay
 from settings_panel import SettingsPanel
 from lock_screen import LockScreen
-from triage_view import TriageView
+from reorder_view import ReorderView
 
 
 def _zodiac_sign(month, day):
@@ -94,7 +78,7 @@ def _zodiac_sign(month, day):
 
 
 class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
-                          F4Mixin, F5TriageMixin, F5678Mixin, TtsMixin, KeyRouterMixin):
+                          F4Mixin, F5ReorderMixin, F5678Mixin, TtsMixin, KeyRouterMixin):
     """
     F1: center entry — write/navigate active file
     F2: circular view — edit/swap active file lines
@@ -164,7 +148,6 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         # Window setup
         self.setWindowTitle("Voider")
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
-        self.setCursor(QCursor(Qt.CursorShape.BlankCursor))
         self.setStyleSheet("background-color: black; color: white;")
 
         # Entry (F1)
@@ -240,7 +223,11 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self.book_concat_ring = LineRing(['.'])
         self._book_concat_header_indices = set()
         self._book_pending_new = False        # True while user names a new F3 entry
-        self._book_last_index = 0             # remembered F3 cursor (for re-entry)
+        self._book_pending_merge = False      # True while user names a book to merge
+        # Remembered F3 cursor (for re-entry + reopen). None → resolve to the active
+        # chapter, never the top. Seeded from config so it survives a restart.
+        self._book_last_index = self.config.get('last_book_index')
+        self._book_last_entry = self.config.get('last_book_entry')
         # Search state — display rings are separate from real rings (never mutated)
         # Undo / redo of text content (Ctrl+Z / Ctrl+Shift+Z in F1/F2/F5)
         from undo_manager import UndoManager
@@ -249,6 +236,9 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._undo_applying = False
         self._undo_txn = None
         QApplication.instance().installEventFilter(self)
+        # Auto-hide the mouse pointer while typing; show it on any mouse activity.
+        from cursor_autohide import CursorAutohide
+        self._cursor_autohide = CursorAutohide(QApplication.instance(), hidden=True)
         self._f2_search_active = False
         self._f2_search_saved = None   # saved cursor index before search
         self._f2_display_ring = None   # temp ring shown during search
@@ -259,9 +249,11 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self.vault_view = None      # (Oracle, no longer on F4)
         self.settings_view = None   # F10: Settings panel
         self.transform_view = None  # F5: Transform — editable O/ line → I/
-        self.triage_view = None     # F5: Paragraph triage (split view)
-        self._triage_paragraphs = []
-        self._triage_para_idx = 0
+        self.reorder_view = None    # F5: linear paragraph reorder view
+        self._f5_para_idx = 0       # F5 current-paragraph cursor
+        self._f5_picker_open = False  # True while the in-view chapter picker is open
+        self._f5_pick_filter = ''     # type-to-filter text in the picker
+        self._f5_pick_match_idx = 0   # highlighted match in the picker
         self.o_reader_view = None   # F6: Reader — circular view of O/ book
         self.o_browser_view = None  # F7: Book browser for O/
         self.oracle_o_view = None   # F8: Oracle from O/
@@ -321,7 +313,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._ipc.file_saved_by_other.connect(self._on_file_saved_by_other)
 
         self.init_ui()
-        self.switch_to_view(0)
+        self._restore_startup_view()
         self.entry.clear()
 
     # ── Directory picker ──────────────────────────────────────────────────────
@@ -353,10 +345,39 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         print(f"📁 Void dir changed to: {new_dir}")
 
     def _on_file_saved_by_other(self, path: str):
-        if os.path.abspath(path) == os.path.abspath(self.current_file_path):
+        ap = os.path.abspath(path)
+        if ap == os.path.abspath(self.current_file_path):
             self.load_doc_lines()
             if self.circular_view:
                 self.circular_view.update()
+            return
+        # Another instance rewrote the library index (reorder/rename/delete/merge/
+        # split). Reload it so this instance's F3 doesn't clobber those changes.
+        if ap == os.path.abspath(self._library_path()):
+            self._reload_library_from_other()
+
+    def _reload_library_from_other(self):
+        """Re-read I.txt after another instance changed it, preserving the current
+        selection by name. Deferred while this instance is mid-edit in F3 (naming a
+        new entry / merge, or a dirty rename) so we don't stomp unsaved intent."""
+        if getattr(self, '_book_pending_new', False) or getattr(self, '_book_pending_merge', False):
+            return
+        if self.current_view == 2 and self._f3_mid_edit():
+            return
+        sel = None
+        if self._library_lines and 0 <= self.book_ring.index < len(self._library_lines):
+            sel = self._library_lines[self.book_ring.index]
+        self._load_library()
+        if sel is not None:
+            try:
+                self.book_ring.index = self._library_lines.index(sel)
+            except ValueError:
+                self.book_ring.index = min(self.book_ring.index,
+                                           len(self.book_ring.lines) - 1)
+        if self.current_view == 2 and self.book_view:
+            self.book_view.ring = self.book_ring
+            self.book_view._offset = 0.0
+            self.book_view.update()
 
     # ── Settings ──────────────────────────────────────────────────────────────
 
@@ -409,6 +430,20 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
 
     # ── Views ─────────────────────────────────────────────────────────────────
 
+    def _restore_startup_view(self):
+        """Resume where the user left off: the last restorable view (F1–F4), the
+        active file, and its saved line position. Views outside F1–F4 (F5, O/
+        readers, settings) fall back to F1."""
+        view = self.config.get('last_view', 0)
+        if view not in (0, 1, 2, 3):
+            view = 0
+        # F1/F2/F4 all follow the active file — point at it and restore its line
+        # (load_doc_lines calls _restore_last_line). F3 syncs to it on its own.
+        if view in (0, 1, 3) and self.f2_file and os.path.isfile(self.f2_file):
+            self.current_file_path = self.f2_file
+            self.load_doc_lines()
+        self.switch_to_view(view)
+
     def switch_to_view(self, view_index):
         # Close search bars when leaving their view
         if self._f2_search_active and view_index != 1:
@@ -457,11 +492,22 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         # Remember which F3 entry we were on, so re-entering F3 returns to the same
         # one (e.g. a specific '0' portal) instead of snapping to the first match.
         if old_view == 2 and self.book_ring.lines:
-            self._book_last_index = self.book_ring.index
             # Leaving F3 marks the highlighted chapter as the active file (once,
             # on exit — not per highlight), so F4/F2/F1 and re-entry all agree.
             self._book_activate_current()
+            idx = self.book_ring.index
+            self._book_last_index = idx
+            self._book_last_entry = (self._library_lines[idx]
+                                     if 0 <= idx < len(self._library_lines) else None)
+            # Persist the F3 cursor so it survives a restart (like last_view).
+            self.config['last_book_index'] = self._book_last_index
+            self.config['last_book_entry'] = self._book_last_entry
+            _save_config(self.config)
         self.current_view = view_index
+        # Remember the last restorable view (F1–F4) so startup resumes here.
+        if view_index in (0, 1, 2, 3) and self.config.get('last_view') != view_index:
+            self.config['last_view'] = view_index
+            _save_config(self.config)
         print(f"📍 F{old_view+1} → F{view_index+1} | Index: {self.line_ring.index} | Line: '{self.line_ring.current()}'")
 
         if view_index == 0:  # F1 — focus writing on the ACTIVE file
@@ -561,20 +607,12 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             # last sat on still points at that same file (e.g. the specific '0'
             # portal we used), return to it instead of snapping to the first match —
             # so multiple '0' portals are each individually reachable.
+            # Return to the remembered entry (by exact index, then by name so it
+            # survives reordering), else the active file's row, else the top — never
+            # snapping to index 0 on reopen. See _resolve_f3_index.
             active_fname = os.path.basename(self.f2_file)
-            last = getattr(self, '_book_last_index', None)
-            # Return to where you left F3 when that spot was the active chapter OR
-            # a non-file position (a '.' separator or a '0' portal) — those don't
-            # change the active file, so they'd otherwise be lost on re-entry.
-            if (last is not None and 0 <= last < len(self._library_lines)
-                    and (self._library_lines[last] == active_fname
-                         or self._library_lines[last] in ('.', '0.txt'))):
-                self.book_ring.index = last
-            else:
-                try:
-                    self.book_ring.index = self._library_lines.index(active_fname)
-                except ValueError:
-                    pass
+            self.book_ring.index = min(self._resolve_f3_index(active_fname),
+                                       len(self.book_ring.lines) - 1)
             self.stack.setCurrentWidget(self.book_view)
             self.entry.hide()
             self.book_view.update()
@@ -590,15 +628,20 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self.entry.hide()
             self.reading_view.setFocus()
 
-        elif view_index == 4:  # F5 — paragraph triage (split view)
-            if not self.triage_view:
-                self.triage_view = TriageView(self)
-                self.stack.addWidget(self.triage_view)
-            if not self._library_lines:
-                self._load_library()
-            self.stack.setCurrentWidget(self.triage_view)
+        elif view_index == 4:  # F5 — linear paragraph reorder over the active file
+            if not self.reorder_view:
+                self.reorder_view = ReorderView(self)
+                self.reorder_view.setFont(self._app_font)
+                self.stack.addWidget(self.reorder_view)
+            # Follow the same active file as F2 (usually a merged doc).
+            if self.current_file_path != self.f2_file:
+                self.current_file_path = self.f2_file
+                self.load_doc_lines()
+            self.stack.setCurrentWidget(self.reorder_view)
+            self.reorder_view.setGeometry(self.stack.rect())
+            self.reorder_view.setFocus()
             self.entry.hide()
-            self._triage_enter()
+            self._f5_enter()
 
         elif view_index == 5:  # F6 — reader: circular view of O/ book (read-only)
             if not self.o_reader_view:
@@ -778,8 +821,8 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self._lock_screen.setGeometry(self.rect())
         if hasattr(self, '_fx_panel'):
             self._fx_panel.setGeometry(self.rect())
-        if self.triage_view:
-            self.triage_view.setGeometry(self.stack.rect())
+        if self.reorder_view:
+            self.reorder_view.setGeometry(self.stack.rect())
 
     def leaveEvent(self, event):
         """Restore focus to the active editor when the mouse leaves the window."""
@@ -805,9 +848,12 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
 
     def _connect_void_key(self):
         self._disconnect_void_key()
-        if self.use_spacebar_for_void:
-            self._void_space_connection = self.entry.spacePressed.connect(self._handle_void_line)
-        else:
+        # Spacebar voids in dedicated spacebar-mode OR (scriptio continua) whenever
+        # Caps Lock is on — the entry only emits spacePressed in those cases, so
+        # this connection is harmless otherwise. Enter voids too, except in
+        # dedicated spacebar-mode.
+        self._void_space_connection = self.entry.spacePressed.connect(self._handle_void_line)
+        if not self.use_spacebar_for_void:
             self._void_enter_connection = self.entry.returnPressed.connect(self._handle_void_line)
 
     def _editor_save(self):
@@ -826,15 +872,34 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         ev.document().setModified(False)
         print("📝 F9 prose → saved + reformatted into the active file")
 
-    def eventFilter(self, obj, event):
-        # Intercept Ctrl+Z / Ctrl+Shift+Z before the focused editor's own field
-        # undo, but only in the editing views (F1/F2/F5).
-        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Z \
-                and (event.modifiers() & Qt.KeyboardModifier.ControlModifier) \
-                and self.current_view in (0, 1, 4):
-            redo = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-            self._undo_apply(redo=redo)
+    def _f3_mid_edit(self):
+        """True when the F3 title field is being actively typed into (pending new
+        entry / merge name, or a dirty rename) — Ctrl+Z should undo the typing then,
+        not the last library op."""
+        if getattr(self, '_book_pending_new', False) or getattr(self, '_book_pending_merge', False):
             return True
+        bv = getattr(self, 'book_view', None)
+        if bv and self.book_ring.lines:
+            cur = self.book_ring.current()
+            if cur not in ('.', None) and bv.editor.text().strip() != (cur or '').strip():
+                return True
+        return False
+
+    def eventFilter(self, obj, event):
+        # Mouse pointer follows typing vs. mouse activity (never consumes events).
+        ah = getattr(self, '_cursor_autohide', None)
+        if ah is not None:
+            ah.handle_event_type(event.type())
+        # Intercept Ctrl+Z / Ctrl+Shift+Z before the focused editor's own field
+        # undo, but only in the editing views (F1/F2/F5) and F3 (library ops,
+        # unless a title is mid-edit — then let the field's own undo run).
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Z \
+                and (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+            v = self.current_view
+            if v in (0, 1, 4) or (v == 2 and not self._f3_mid_edit()):
+                redo = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                self._undo_apply(redo=redo)
+                return True
         return super().eventFilter(obj, event)
 
     def _handle_void_line(self):

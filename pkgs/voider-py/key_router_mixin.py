@@ -135,6 +135,10 @@ class KeyRouterMixin:
         if self._matches(key, mods, 'open_screenshots'):
             self.open_screenshots_folder(); event.accept(); return
 
+        if self._matches(key, mods, 'commit_void'):
+            self.commit_void()
+            event.accept(); return
+
         if self._matches(key, mods, 'backup'):
             self._backup_vault()
             event.accept(); return
@@ -261,10 +265,16 @@ class KeyRouterMixin:
         # Up/Down/Enter handled by book_view.editor signals.
         if mods == Qt.KeyboardModifier.ControlModifier and key == Qt.Key.Key_F:
             self._open_f3_search(); event.accept(); return
+        if self._matches(key, mods, 'merge_book'):
+            self._book_merge_prompt(); event.accept(); return
+        if self._matches(key, mods, 'split_chapter'):
+            self._book_split_current(); event.accept(); return
         if key == Qt.Key.Key_Escape and self._f3_search_active:
             self._close_f3_search(restore=True); event.accept(); return
         if key == Qt.Key.Key_Escape:
-            if self._book_pending_new:
+            if getattr(self, '_book_pending_merge', False):
+                self._book_cancel_merge()
+            elif self._book_pending_new:
                 idx = self.book_ring.index
                 self.book_ring.lines.pop(idx)
                 self._library_lines.pop(idx)
@@ -309,54 +319,48 @@ class KeyRouterMixin:
             self._show_lock_screen()
 
     def _handle_f5_keys(self, key, mods, event):
+        """F5 — linear paragraph reorder. Up/Down navigate, Alt+Up/Down swap, Enter
+        → F2. Right opens the in-view chapter picker to send the current paragraph."""
         Alt = Qt.KeyboardModifier.AltModifier
         Ctrl = Qt.KeyboardModifier.ControlModifier
         No = Qt.KeyboardModifier.NoModifier
         K = Qt.Key
-        # Reorder
-        if key == K.Key_Up and mods == Alt:
-            self._triage_swap_up(); event.accept(); return
-        if key == K.Key_Down and mods == Alt:
-            self._triage_swap_down(); event.accept(); return
-        # Paragraph navigation
-        if key == K.Key_Up and mods == No:
-            self._triage_prev_para(); event.accept(); return
-        if key == K.Key_Down and mods == No:
-            self._triage_next_para(); event.accept(); return
-        # Dispatch current paragraph to the highlighted existing chapter
-        if key == K.Key_Right:
-            self._triage_dispatch(); event.accept(); return
-        # Create a new chapter from the typed name (no paragraph moves)
-        if key in (K.Key_Return, K.Key_Enter):
-            self._triage_create(); event.accept(); return
-        # Navigate filtered chapter list (Shift+Up/Down)
-        Shift = Qt.KeyboardModifier.ShiftModifier
-        if key == K.Key_Up and mods == Shift:
-            self._triage_cycle_match(-1); event.accept(); return
-        if key == K.Key_Down and mods == Shift:
-            self._triage_cycle_match(1); event.accept(); return
-        # Cycle filtered matches
-        if key == K.Key_Tab:
-            self._triage_cycle_match(1); event.accept(); return
-        if key == K.Key_Backtab:
-            self._triage_cycle_match(-1); event.accept(); return
-        # Filter editing
-        if key == K.Key_Backspace:
-            self._triage_filter_backspace(); event.accept(); return
-        if key == K.Key_Escape:
-            if self._triage_filter:
-                self._triage_filter = ''
-                self._triage_match_idx = 0
-                self._triage_refresh()
-            else:
-                self.switch_to_view(0)
+        # In-view chapter picker (send mode): type-to-filter, cycle, send, cancel.
+        if getattr(self, '_f5_picker_open', False):
+            if key == K.Key_Escape:
+                self._f5_close_picker(); event.accept(); return
+            if key in (K.Key_Return, K.Key_Enter, K.Key_Right):
+                self._f5_pick_confirm(); event.accept(); return
+            if key in (K.Key_Tab, K.Key_Down):
+                self._f5_pick_cycle(1); event.accept(); return
+            if key in (K.Key_Backtab, K.Key_Up):
+                self._f5_pick_cycle(-1); event.accept(); return
+            if key == K.Key_Backspace:
+                self._f5_pick_filter_backspace(); event.accept(); return
+            text = event.text()
+            if text and text.isprintable() and not (mods & (Ctrl | Alt)):
+                self._f5_pick_filter_add(text); event.accept(); return
             event.accept(); return
+        # Swap the current paragraph up/down (fences are crossed, not moved).
+        if key == K.Key_Up and (mods & Alt):
+            self._f5_swap_up(); event.accept(); return
+        if key == K.Key_Down and (mods & Alt):
+            self._f5_swap_down(); event.accept(); return
+        # Navigate paragraphs (linear, clamped at the ends).
+        if key == K.Key_Up and mods == No:
+            self._f5_prev_para(); event.accept(); return
+        if key == K.Key_Down and mods == No:
+            self._f5_next_para(); event.accept(); return
+        # Right → open the in-view picker to send this paragraph to a chapter.
+        if key == K.Key_Right and mods == No:
+            self._f5_open_picker(); event.accept(); return
+        # Enter → jump to F2 on this paragraph.
+        if key in (K.Key_Return, K.Key_Enter):
+            self._f5_enter_to_f2(); event.accept(); return
+        if key == K.Key_Escape:
+            self.switch_to_view(0); event.accept(); return
         if self._matches(key, mods, 'quit'):
             self._show_lock_screen(); event.accept(); return
-        # Printable character → append to filter (no Ctrl/Alt)
-        text = event.text()
-        if text and text.isprintable() and not (mods & (Ctrl | Alt)):
-            self._triage_filter_add(text); event.accept(); return
 
     def _handle_f4_keys(self, key, mods, event):
         # F4 is a paginated book reader: flip pages, never scroll.

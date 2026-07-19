@@ -64,6 +64,11 @@ class IoMixin:
             return
         doc_path = self.current_file_path
         self._undo_capture(doc_path, self.line_ring.lines, key=undo_key)
+        # Safety net: if this save would drop a large fraction of the file's
+        # content, keep a *.rescue copy of the previous on-disk version first. Never
+        # blocks the save (normal deletes are fine) — it just makes a catastrophic
+        # silent shrink recoverable.
+        self._rescue_on_large_shrink(doc_path, self.line_ring.lines)
         dir_path = os.path.dirname(doc_path) or '.'
         try:
             fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix='.tmp')
@@ -81,6 +86,25 @@ class IoMixin:
                 ipc.notify_saved(doc_path)
         except Exception as e:
             print(f"❌ Save error: {e}")
+
+    def _rescue_on_large_shrink(self, path, new_lines):
+        """If `new_lines` loses at least half of the file's content lines (and the
+        file was non-trivial), copy the current on-disk file to path+'.rescue' so a
+        catastrophic drop is recoverable. Best-effort; never raises."""
+        try:
+            old = self._read_lines_or_none(path)
+            if old is None:
+                return
+            def nb(ls):
+                return sum(1 for l in ls if l.strip() and l.strip() != '.')
+            old_n, new_n = nb(old), nb(new_lines)
+            if old_n >= 10 and new_n < old_n and (old_n - new_n) >= old_n // 2:
+                import shutil
+                shutil.copy2(path, path + '.rescue')
+                print(f"🛟 Large shrink on {os.path.basename(path)} "
+                      f"({old_n}→{new_n} lines); kept a .rescue copy.")
+        except Exception:
+            pass
 
     def _atomic_write_lines(self, path, lines, backup=False):
         """Write lines to path crash-safely (temp file + os.replace).
@@ -133,6 +157,10 @@ class IoMixin:
         um = getattr(self, '_undo', None)
         if um is None or getattr(self, '_undo_applying', False):
             return
+        # Inside an F3 structural transaction the whole change is captured as one
+        # library snapshot — don't also record per-file content steps.
+        if getattr(self, '_f3_txn', None) is not None:
+            return
         if not self._undo_trackable(path):
             return
         before = self._undo_last.get(path)
@@ -163,6 +191,78 @@ class IoMixin:
         if txn and getattr(self, '_undo', None) is not None:
             self._undo.record_transaction(txn, key=key)
 
+    # ── F3 library/structural undo (reorder, rename, delete, merge, split) ──────
+
+    def _read_lines_or_none(self, path):
+        """File content as a line list, or None if the file is absent."""
+        try:
+            with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                return [l.rstrip('\n') for l in f]
+        except FileNotFoundError:
+            return None
+        except Exception:
+            return None
+
+    def _f3_state(self):
+        """Snapshot the F3 library arrays + cursor + path cache (no file bodies)."""
+        return {'lib': list(self._library_lines),
+                'ring': list(self.book_ring.lines),
+                'idx': self.book_ring.index,
+                'cache': dict(self._library_path_cache),
+                'files': {}}
+
+    def _f3_undo_begin(self):
+        """Open an F3 undo transaction; captures library arrays as they are now."""
+        self._f3_txn = self._f3_state()
+
+    def _f3_undo_file(self, path):
+        """Register a file the pending op will touch, capturing its pre-op content
+        (or None if absent). MUST be called before the file is modified/deleted."""
+        txn = getattr(self, '_f3_txn', None)
+        if txn is None or getattr(self, '_undo_applying', False):
+            return
+        if path not in txn['files']:
+            txn['files'][path] = self._read_lines_or_none(path)
+
+    def _f3_undo_commit(self, key=None):
+        """Close the transaction: capture the after-state and record one undo step."""
+        txn = getattr(self, '_f3_txn', None)
+        self._f3_txn = None
+        um = getattr(self, '_undo', None)
+        if txn is None or um is None or getattr(self, '_undo_applying', False):
+            return
+        after = self._f3_state()
+        after['files'] = {p: self._read_lines_or_none(p) for p in txn['files']}
+        um.record_library(txn, after)
+
+    def _f3_restore(self, snap):
+        """Restore a library snapshot: arrays, cursor, cache, touched files, I.txt."""
+        self._undo_applying = True
+        try:
+            self._library_lines = list(snap['lib'])
+            self.book_ring.lines = list(snap['ring'])
+            self.book_ring.index = max(0, min(snap['idx'],
+                                              len(self.book_ring.lines) - 1))
+            self._library_path_cache = dict(snap['cache'])
+            for path, content in snap['files'].items():
+                if content is None:
+                    if os.path.exists(path):
+                        try:
+                            os.remove(path)
+                        except OSError:
+                            pass
+                else:
+                    self._atomic_write_lines(path, content)
+            self._save_library()
+            if self.current_file_path in snap['files']:
+                self.load_doc_lines()
+        finally:
+            self._undo_applying = False
+        if getattr(self, 'current_view', None) == 2 and self.book_view:
+            self.book_view._offset = 0.0
+            if hasattr(self, '_book_show_editor'):
+                self._book_show_editor()
+
     def _undo_apply(self, redo=False):
         """Ctrl+Z / Ctrl+Shift+Z: restore the previous (or next) content of every
         file in the change, atomically, then refresh the active view."""
@@ -172,6 +272,10 @@ class IoMixin:
         entry = um.redo() if redo else um.undo()
         if not entry:
             print("↩️ nothing to " + ("redo" if redo else "undo"))
+            return
+        if entry.get('kind') == 'library':
+            self._f3_restore(entry['after' if redo else 'before'])
+            print(("↪️ redo" if redo else "↩️ undo") + " (F3 library)")
             return
         self._undo_applying = True
         try:
@@ -189,14 +293,19 @@ class IoMixin:
         cur = os.path.abspath(self.current_file_path)
         if not any(os.path.abspath(p) == cur for p, _, _ in entry['files']):
             return
+        # Keep the cursor where the user is. load_doc_lines() would otherwise snap
+        # it to the last-saved nav line (which lags by one), so undo looked like it
+        # moved the cursor up a line.
+        keep = self.line_ring.index
         self.load_doc_lines()
+        self.line_ring.index = max(0, min(keep, len(self.line_ring.lines) - 1))
         v = getattr(self, 'current_view', None)
         if v == 1 and hasattr(self, '_doc_show_editor'):
             self._doc_show_editor()
         elif v == 0 and hasattr(self, '_f1_show_current'):
             self._f1_show_current()
-        elif v == 4 and hasattr(self, '_triage_enter'):
-            self._triage_enter()
+        elif v == 4 and hasattr(self, '_f5_enter'):
+            self._f5_enter()
 
     # ── Reformat ─────────────────────────────────────────────────────────────
 
@@ -521,24 +630,35 @@ class IoMixin:
         # Split into paragraphs (one or more blank lines)
         paragraphs = re.split(r'\n\s*\n+', raw.strip())
 
+        def flush_prose(buf, out):
+            if buf:
+                joined = re.sub(r'\s+', ' ', ' '.join(buf)).strip()
+                if joined:
+                    out.extend(split_sentences(joined))
+                buf.clear()
+
         result_lines = []
-        for para_idx, para in enumerate(paragraphs):
-            # Collapse internal newlines/whitespace into single spaces
-            text = re.sub(r'\s+', ' ', para.strip())
-
-            if not text:
+        for para in paragraphs:
+            if not para.strip():
                 continue
-
-            # If paragraph is just a dot separator, keep it
-            if text == '.':
+            # Dot separator between paragraphs (not before the first).
+            if result_lines:
                 result_lines.append('.')
+            if para.strip() == '.':
                 continue
-
-            # Add dot separator between paragraphs (not before the first)
-            if para_idx > 0:
-                result_lines.append('.')
-
-            result_lines.extend(split_sentences(text))
+            # Within a paragraph, a line that starts with '/' is a chapter MARKER,
+            # not prose — keep it on its own line instead of collapsing it into the
+            # surrounding sentences, so 'text\n/Chapter' stays split and ready for
+            # Ctrl+Shift+S. Prose runs are collapsed + sentence-split as before.
+            prose = []
+            for raw_line in para.splitlines():
+                s = raw_line.strip()
+                if s.startswith('/'):
+                    flush_prose(prose, result_lines)
+                    result_lines.append(s)
+                elif s:
+                    prose.append(s)
+            flush_prose(prose, result_lines)
 
         # Ensure leading dot
         if result_lines and result_lines[0] != '.':
@@ -712,6 +832,27 @@ class IoMixin:
 
     # ── Slash-split a chapter ──────────────────────────────────────────────────
 
+    def commit_void(self):
+        """Ctrl+Shift+G: commit the whole /void repo by hand, with a timestamp
+        message. Reports on screen whether it committed, was already up to date,
+        or failed."""
+        ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        try:
+            subprocess.run(['git', '-C', self.void_dir, 'add', '-A'],
+                           capture_output=True, timeout=20)
+            r = subprocess.run(['git', '-C', self.void_dir, 'commit',
+                                '-m', f'snapshot {ts}'],
+                               capture_output=True, timeout=20, text=True)
+            out = (r.stdout or '') + (r.stderr or '')
+            if r.returncode == 0:
+                print(f"✅ Void commit: snapshot {ts}")
+            elif 'nothing to commit' in out.lower():
+                print("✓ Nada para commitear (void ya está al día).")
+            else:
+                print(f"⚠️ Commit falló: {out.strip()}")
+        except Exception as e:
+            print(f"⚠️ Commit error: {e}")
+
     def _git_snapshot_void(self, label='snapshot'):
         """One git snapshot of /void's I/ before a destructive write (safety)."""
         ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -740,6 +881,8 @@ class IoMixin:
             print("✓ No '/name' markers to split.")
             return
 
+        self._f3_undo_begin()
+        self._f3_undo_file(self.current_file_path)
         self._git_snapshot_void('split')
         i_dir = os.path.join(self.void_dir, 'I')
 
@@ -790,6 +933,7 @@ class IoMixin:
                       or os.path.exists(os.path.join(i_dir, fname)))
             if exists:
                 fpath = self._library_path_cache.get(fname, os.path.join(i_dir, fname))
+                self._f3_undo_file(fpath)
                 try:
                     with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
                         existing = [l.rstrip('\n') for l in f]
@@ -808,6 +952,7 @@ class IoMixin:
                 merged += 1
             else:
                 fpath = os.path.join(i_dir, fname)
+                self._f3_undo_file(fpath)
                 if not self._atomic_write_lines(fpath, content):
                     continue
                 self._library_lines.insert(ins, fname)
@@ -819,6 +964,7 @@ class IoMixin:
                 first_fname = fname
 
         self._save_library()
+        self._f3_undo_commit('split')
         # Keep the active file / cursor sane after the reshuffle.
         if container_removed:
             if first_fname and first_fname in self._library_lines:
