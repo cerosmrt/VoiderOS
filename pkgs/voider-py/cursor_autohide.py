@@ -1,5 +1,23 @@
 from PyQt6.QtCore import Qt, QEvent
-from PyQt6.QtGui import QCursor
+from PyQt6.QtGui import QCursor, QPixmap, QPainter, QPen, QColor
+
+
+def make_ring_cursor(diameter=26, thickness=2):
+    """A white ring with a transparent centre, so you can see what's behind the
+    pointer. Hot spot at the centre of the ring."""
+    pm = QPixmap(diameter, diameter)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = QPen(QColor(255, 255, 255))
+    pen.setWidth(thickness)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    inset = thickness
+    p.drawEllipse(inset, inset, diameter - 2 * inset, diameter - 2 * inset)
+    p.end()
+    return QCursor(pm, diameter // 2, diameter // 2)
+
 
 # Mouse activity that brings the pointer back.
 _MOUSE_EVENTS = (
@@ -19,9 +37,13 @@ class CursorAutohide:
     repeated keypresses or mouse moves never unbalance it.
     """
 
-    def __init__(self, app, hidden=True):
+    def __init__(self, app, visible_cursor=None, hidden=True):
         self._app = app
         self._hidden = False
+        # A permanent base override (e.g. the ring cursor). hide()/show() push and
+        # pop a blank cursor on top of it, so the base is what shows when visible.
+        if visible_cursor is not None:
+            app.setOverrideCursor(visible_cursor)
         if hidden:
             self.hide()
 

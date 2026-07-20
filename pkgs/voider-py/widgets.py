@@ -4,6 +4,13 @@ from PyQt6.QtWidgets import QLineEdit, QWidget
 from PyQt6.QtGui import QPainter, QPixmap, QImage
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 
+
+def hide_scrollbars(widget):
+    """Hide both scrollbars on a scroll-area widget. Content still scrolls via
+    the wheel and keys — only the bars go invisible."""
+    widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
 class CustomLineEdit(QLineEdit):
     """QLineEdit personalizado con soporte para spacebar como tecla de void"""
     spacePressed = pyqtSignal()

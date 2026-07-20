@@ -237,9 +237,11 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._undo_applying = False
         self._undo_txn = None
         QApplication.instance().installEventFilter(self)
-        # Auto-hide the mouse pointer while typing; show it on any mouse activity.
-        from cursor_autohide import CursorAutohide
-        self._cursor_autohide = CursorAutohide(QApplication.instance(), hidden=True)
+        # Auto-hide the mouse pointer while typing; show it (as a transparent white
+        # ring, so you can see what's behind) on any mouse activity.
+        from cursor_autohide import CursorAutohide, make_ring_cursor
+        self._cursor_autohide = CursorAutohide(
+            QApplication.instance(), visible_cursor=make_ring_cursor(), hidden=True)
         self._f2_search_active = False
         self._f2_search_saved = None   # saved cursor index before search
         self._f2_display_ring = None   # temp ring shown during search
@@ -721,6 +723,8 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                     "QPlainTextEdit { background:#000000; color:#dddddd; "
                     "border:none; padding:40px 90px; "
                     "selection-background-color:#444444; }")
+                from widgets import hide_scrollbars
+                hide_scrollbars(self.editor_view)   # no visible scroll bar in F9
                 self.stack.addWidget(self.editor_view)
             fam = self.config.get('reading_font', 'EB Garamond')
             sz = int(self.config.get('reading_size', 13)) + 2
