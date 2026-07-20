@@ -22,14 +22,18 @@ class FakeApp:
         self.depth = 0          # current override-cursor stack depth
         self.pushes = 0
         self.pops = 0
+        self.stack = []         # the actual cursors pushed (top = last)
 
     def setOverrideCursor(self, cursor):
         self.depth += 1
         self.pushes += 1
+        self.stack.append(cursor)
 
     def restoreOverrideCursor(self):
         self.depth -= 1
         self.pops += 1
+        if self.stack:
+            self.stack.pop()
 
 
 def test_starts_hidden(qapp):
@@ -109,3 +113,35 @@ def test_unrelated_event_is_ignored(qapp):
     c = CursorAutohide(fa, hidden=False)
     c.handle_event_type(QEvent.Type.Paint)
     assert c.hidden is False and fa.pushes == 0
+
+
+# ── visible (ring) cursor as a permanent base ─────────────────────────────────
+
+def test_visible_cursor_is_the_base_when_shown(qapp):
+    from cursor_autohide import make_ring_cursor
+    ring = make_ring_cursor()
+    fa = FakeApp()
+    c = CursorAutohide(fa, visible_cursor=ring, hidden=False)
+    assert fa.depth == 1                       # only the base ring is pushed
+    assert fa.stack[-1] is ring
+
+
+def test_visible_cursor_stays_under_the_blank_while_typing(qapp):
+    from cursor_autohide import make_ring_cursor
+    ring = make_ring_cursor()
+    fa = FakeApp()
+    c = CursorAutohide(fa, visible_cursor=ring, hidden=True)
+    assert fa.depth == 2                        # ring base + blank on top
+    assert fa.stack[0] is ring
+    c.handle_event_type(QEvent.Type.MouseMove)  # show → pop the blank
+    assert fa.depth == 1
+    assert fa.stack[-1] is ring                 # ring revealed underneath
+
+
+def test_make_ring_cursor_is_centred_and_sized(qapp):
+    from cursor_autohide import make_ring_cursor
+    cur = make_ring_cursor(diameter=26)
+    assert cur.hotSpot().x() == 13 and cur.hotSpot().y() == 13
+    pm = cur.pixmap()
+    assert not pm.isNull()
+    assert pm.width() == 26 and pm.height() == 26
