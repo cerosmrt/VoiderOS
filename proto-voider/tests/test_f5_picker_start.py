@@ -32,8 +32,20 @@ def test_start_idx_is_chapter_after_the_portal():
     assert a._f5_pick_start_idx() == 2      # index of C in the match list
 
 
+def test_start_idx_anchors_on_active_chapter():
+    # active file is a chapter (B), no portal involved: catalogue opens next to B
+    a = _app(['A.txt', 'B.txt', 'C.txt', 'D.txt'], src='B.txt')
+    # matches exclude B → A,C,D at lib idx 0,2,3; anchor=1; tie A/C → C (after)
+    assert a._f5_pick_start_idx() == 1      # index of C in the match list
+
+
+def test_start_idx_active_file_not_in_library_is_zero():
+    a = _app(['A.txt', 'B.txt', 'C.txt'], src='Loose.txt')
+    assert a._f5_pick_start_idx() == 0
+
+
 def test_start_idx_portal_at_top():
-    a = _app(['0.txt', 'A.txt', 'B.txt'])
+    a = _app(['0.txt', 'A.txt', 'B.txt'])   # active is the 0 scratch
     assert a._f5_pick_start_idx() == 0      # A, right after the portal
 
 
