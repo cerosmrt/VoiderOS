@@ -217,15 +217,18 @@ class F5ReorderMixin:
         self._f5_refresh()
 
     def _f5_pick_start_idx(self):
-        """Index (into the unfiltered match list) of the chapter nearest the '0'
-        portal in the library; ties break toward the chapter just after it (the
-        one _f1_scratch_jump parks the portal above). 0 if there is no portal."""
+        """Index (into the unfiltered match list) of the chapter nearest the ACTIVE
+        file's own position in the library, so the catalogue opens where you are
+        (origin = destination) and you navigate out from there. Ties break toward
+        the chapter just after. Works for any active file — when it's the '0'
+        scratch, that's the portal. 0 if the active file isn't in the library."""
         matches = self._f5_pick_matches()          # empty filter → all, library order
         if not matches:
             return 0
-        portal_i = next((i for i, fn in enumerate(self._library_lines)
-                         if fn.lower() == '0.txt'), None)
-        if portal_i is None:
+        active = os.path.basename(self.current_file_path or '')
+        try:
+            anchor = self._library_lines.index(active)
+        except ValueError:
             return 0
 
         def lib_index(fname):
@@ -234,8 +237,8 @@ class F5ReorderMixin:
             except ValueError:
                 return 10 ** 9
         return min(range(len(matches)),
-                   key=lambda k: (abs(lib_index(matches[k][0]) - portal_i),
-                                  lib_index(matches[k][0]) < portal_i))
+                   key=lambda k: (abs(lib_index(matches[k][0]) - anchor),
+                                  lib_index(matches[k][0]) < anchor))
 
     def _f5_close_picker(self):
         self._f5_picker_open = False
