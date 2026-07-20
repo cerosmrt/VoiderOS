@@ -451,6 +451,10 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self._close_f2_search(restore=True)
         if self._f3_search_active and view_index != 2:
             self._close_f3_search(restore=True)
+        # Leaving F3 with a half-made new entry drops it — no empty titles persist.
+        if (self.current_view == 2 and view_index != 2
+                and getattr(self, '_book_pending_new', False)):
+            self._book_discard_pending()
         # F3 → F2: point F2 at the highlighted book then load it
         if self.current_view == 2 and view_index == 1:
             if not self._book_try_rename():
@@ -588,7 +592,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                 self.book_view.setFont(self._app_font)
                 self.book_view.editor.returnPressed.disconnect()
                 self.book_view.editor.returnPressed.connect(self._book_confirm_edit)
-                self.book_view.editor.splitAtCursor.connect(lambda pos: self._book_confirm_edit())
+                self.book_view.editor.splitAtCursor.connect(lambda pos: self._book_enter_at_end())
                 self.book_view.editor.upPressed.connect(lambda: self._book_navigate(-1))
                 self.book_view.editor.downPressed.connect(lambda: self._book_navigate(1))
                 self.book_view.editor.dotPressed.connect(self._book_insert_separator)
