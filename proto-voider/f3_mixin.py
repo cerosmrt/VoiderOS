@@ -235,8 +235,12 @@ class F3Mixin:
             return True
         if text == '0':
             # A '0' scratch portal — no file created, no collision with real 0.txt.
+            # Singleton: any pre-existing portal is dropped so only this one stays.
             self.book_ring.lines[idx] = '0'
             self._library_lines[idx] = '0.txt'
+            surv = self._dedupe_portals(keep=idx)
+            if surv is not None:
+                self.book_ring.index = surv
             self._save_library()
             return True
         fname = text + '.txt'

@@ -28,7 +28,7 @@ def _sync_app(tmp_path, disk_library, cur=('.', 'A.txt', 'B.txt'), sel_idx=2):
     app._book_pending_merge = False
     for nm in ('_reload_library_from_other', '_load_library', '_library_path',
                '_build_library_path_cache', '_f3_mid_edit', '_generate_library',
-               '_book_is_portal'):
+               '_book_is_portal', '_dedupe_portals'):
         setattr(app, nm, types.MethodType(getattr(FullscreenCircleApp, nm), app))
     return app
 

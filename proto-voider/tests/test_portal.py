@@ -41,7 +41,7 @@ def _portal_app(tmp_path, ring_lines, lib_lines):
                  '_book_random', '_library_current_fname',
                  '_book_enter_at_end', '_book_materialize_pending',
                  '_book_spawn_new_below', '_book_remove_entry',
-                 '_book_discard_pending'):
+                 '_book_discard_pending', '_dedupe_portals'):
         setattr(app, name, types.MethodType(getattr(FullscreenCircleApp, name), app))
 
     # Collaborators invoked by confirm/open paths

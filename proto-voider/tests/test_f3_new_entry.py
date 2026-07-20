@@ -66,6 +66,7 @@ def _app(tmp, lines, libs, idx=0, pending=False, editor=''):
     a._library_current_fname = lambda: (
         a._library_lines[a.book_ring.index]
         if 0 <= a.book_ring.index < len(a._library_lines) else None)
+    a._dedupe_portals = lambda keep=None: keep     # single-book harness: no dupes
     return a
 
 
