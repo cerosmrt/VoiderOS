@@ -721,14 +721,15 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                 self.editor_view = QPlainTextEdit(self)
                 self.editor_view.setStyleSheet(
                     "QPlainTextEdit { background:#000000; color:#dddddd; "
-                    "border:none; padding:40px 90px; "
-                    "selection-background-color:#444444; }")
+                    "border:none; selection-background-color:#444444; }")
                 from widgets import hide_scrollbars
                 hide_scrollbars(self.editor_view)   # no visible scroll bar in F9
                 self.stack.addWidget(self.editor_view)
-            fam = self.config.get('reading_font', 'EB Garamond')
-            sz = int(self.config.get('reading_size', 13)) + 2
-            self.editor_view.setFont(QFont(fam, sz))
+            # Match the rest of the shell: same app font as F1/F2/F3, with
+            # comfortable margins that scale with the window width.
+            self.editor_view.setFont(self._app_font)
+            hmarg = max(60, int(self.width() * 0.12))
+            self.editor_view.setViewportMargins(hmarg, 44, hmarg, 44)
             lines = self._reading_file_lines(self.current_file_path)
             self.editor_view.setPlainText('\n\n'.join(lines_to_paragraphs(lines)))
             self.editor_view.document().setModified(False)
