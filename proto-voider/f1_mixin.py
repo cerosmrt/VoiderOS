@@ -90,6 +90,44 @@ class F1Mixin:
         self.load_doc_lines()
         self._f1_show_current()
 
+    def _f1_goto_end(self):
+        """F1 Enter on an empty entry: jump to a fresh blank line at the end of the
+        ACTIVE file, ready to keep writing. Works on any active file; the blank
+        line isn't persisted until you type into it."""
+        ring = self.line_ring
+        if not ring.lines:
+            ring.lines = ['']
+        if ring.lines[-1] != '':
+            ring.lines.append('')
+        ring.index = len(ring.lines) - 1
+        self._f1_show_current()
+        self.entry.setFocus()
+
+    def _goto_scratch_toggle(self):
+        """Backtick: round-trip to 0.txt. From anywhere else, remember the current
+        file+view and land on the scratch's last line in F1 (write). From the
+        scratch, a second press returns to that remembered file and view."""
+        import os
+        on_scratch = os.path.abspath(self.current_file_path) == os.path.abspath(self.f1_file)
+        if not on_scratch:
+            self._save_last_line()                 # so the return restores your spot
+            self._scratch_return = {'path': self.current_file_path,
+                                    'view': self.current_view}
+            if self.current_view != 0:
+                self.switch_to_view(0)
+            self._f1_scratch_jump()                # → 0.txt in F1, on its last line
+        else:
+            ret = getattr(self, '_scratch_return', None)
+            self._scratch_return = None
+            if not ret:
+                return                             # arrived here by other means
+            if ret['view'] == 0:
+                self._set_active_file(ret['path'])
+                self.switch_to_view(0)
+            else:
+                self._set_f2_file(ret['path'])
+                self.switch_to_view(1)
+
     def _f1_persist_entry(self):
         """Before navigating away from a line in F1, save the entry into it
         (matches F2 live-save: only non-empty text, never overwrites a '.')."""

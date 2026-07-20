@@ -59,6 +59,7 @@ DEFAULT_CONFIG = {
         "split_chapter": "Ctrl+Shift+S",
         "merge_book": "Ctrl+Shift+M",
         "commit_void": "Ctrl+Shift+G",
+        "scratch_toggle": "`",
         "backup": "Ctrl+B"
     }
 }
@@ -76,6 +77,7 @@ _KEY_MAP = {
     '0': Qt.Key.Key_0, '9': Qt.Key.Key_9, 'R': Qt.Key.Key_R, 'P': Qt.Key.Key_P,
     'F': Qt.Key.Key_F, 'B': Qt.Key.Key_B, 'T': Qt.Key.Key_T,
     '.': Qt.Key.Key_Period, '*': Qt.Key.Key_Asterisk,
+    '`': Qt.Key.Key_QuoteLeft,
     'Plus': Qt.Key.Key_Plus, 'Minus': Qt.Key.Key_Minus,
     'S': Qt.Key.Key_S,
 }
