@@ -832,10 +832,20 @@ class IoMixin:
 
     # ── Slash-split a chapter ──────────────────────────────────────────────────
 
+    @staticmethod
+    def _commit_stat_line(text):
+        """Pull git commit's 'N file(s) changed, X insertions(+), Y deletions(-)'
+        summary out of its combined stdout+stderr, or '' if there isn't one."""
+        for line in text.splitlines():
+            s = line.strip()
+            if 'changed' in s and 'file' in s:
+                return s
+        return ''
+
     def commit_void(self):
         """Ctrl+Shift+G: commit the whole /void repo by hand, with a timestamp
-        message. Reports on screen whether it committed, was already up to date,
-        or failed."""
+        message. Reports on screen whether it committed (with git's change
+        summary), was already up to date, or failed."""
         ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         try:
             subprocess.run(['git', '-C', self.void_dir, 'add', '-A'],
@@ -845,7 +855,9 @@ class IoMixin:
                                capture_output=True, timeout=20, text=True)
             out = (r.stdout or '') + (r.stderr or '')
             if r.returncode == 0:
-                print(f"✅ Void commit: snapshot {ts}")
+                stat = self._commit_stat_line(out)
+                print(f"✅ Void commit: snapshot {ts}"
+                      + (f" — {stat}" if stat else ""))
             elif 'nothing to commit' in out.lower():
                 print("✓ Nada para commitear (void ya está al día).")
             else:
