@@ -331,7 +331,9 @@ class KeyRouterMixin:
         K = Qt.Key
         # In-view chapter picker (send mode): type-to-filter, cycle, send, cancel.
         if getattr(self, '_f5_picker_open', False):
-            if key == K.Key_Escape:
+            # Left folds the catalogue back (Right opened it) — a change of mind
+            # about sending; Escape does the same.
+            if key in (K.Key_Escape, K.Key_Left):
                 self._f5_close_picker(); event.accept(); return
             if key in (K.Key_Return, K.Key_Enter, K.Key_Right):
                 self._f5_pick_confirm(); event.accept(); return
