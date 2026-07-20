@@ -97,6 +97,7 @@ class F3Mixin:
     def _book_jump_start(self):
         """Home in F3: jump to first non-dot entry."""
         self._tts_cut()
+        self._book_discard_pending()
         ring = self.book_ring
         for i in range(len(ring.lines)):
             if ring.lines[i] != '.':
@@ -107,6 +108,7 @@ class F3Mixin:
     def _book_jump_end(self):
         """End in F3: jump to last non-dot entry."""
         self._tts_cut()
+        self._book_discard_pending()
         ring = self.book_ring
         for i in range(len(ring.lines) - 1, -1, -1):
             if ring.lines[i] != '.':
@@ -171,50 +173,16 @@ class F3Mixin:
         return True
 
     def _book_confirm_edit(self):
-        """Enter in F3: handle new-entry mode, dot → concat view, title → F2."""
+        """Enter at the START of the name (cursor pos 0): open the file (concat
+        view for a dot, scratch for a portal). A pending-new entry settles in
+        place — it never dives into F2, and an empty name is discarded."""
         if getattr(self, '_book_pending_merge', False):
             self._book_do_merge()
             return
         if self._book_pending_new:
-            text = self.book_view.editor.text().strip()
-            idx = self.book_ring.index
-            if not text:
-                # Empty → cancel, remove placeholder
-                self.book_ring.lines.pop(idx)
-                self._library_lines.pop(idx)
-                if not self.book_ring.lines:
-                    self.book_ring.lines = ['.']
-                    self._library_lines = ['.']
-                self.book_ring.index = max(0, idx - 1) % len(self.book_ring.lines)
-            elif text == '.':
-                # Convert placeholder to separator
-                self.book_ring.lines[idx] = '.'
-                self._library_lines[idx] = '.'
-                self._save_library()
-            elif text == '0':
-                # Convert placeholder to a '0' scratch portal — no file is
-                # created, no collision with the real 0.txt. Read-only marker.
-                self.book_ring.lines[idx] = '0'
-                self._library_lines[idx] = '0.txt'
-                self._save_library()
-            else:
-                # Create new file and open in F2
-                fname = text + '.txt'
-                fpath = os.path.join(self.void_dir, 'I', fname)
-                if not os.path.exists(fpath):
-                    open(fpath, 'w', encoding='utf-8').close()
-                self.book_ring.lines[idx] = text
-                self._library_lines[idx] = fname
-                self._library_path_cache[fname] = fpath
-                self._save_library()
-                self._book_pending_new = False
-                self._set_f2_file(fpath)
-                self.switch_to_view(1)
-                return
-            self._book_pending_new = False
+            self._book_materialize_pending()
             self._book_show_editor()
             return
-
         if self.book_ring.current() == '.':
             self._book_open_concat()
             return
@@ -234,11 +202,56 @@ class F3Mixin:
         self._set_f2_file(fpath)
         self.switch_to_view(1)
 
-    def _book_new_entry(self):
-        """Shift+Enter in F3: insert a blank entry below current for the user to name."""
-        if self._book_pending_new:
+    def _book_enter_at_end(self):
+        """Enter with the cursor at the END of the name (like a new line in F2):
+        commit the current entry (create the file / apply a rename) and open a
+        fresh empty entry below to keep adding. Always stays in F3."""
+        if getattr(self, '_book_pending_merge', False):
             return
-        self._book_try_rename()
+        if self._book_pending_new:
+            if not self._book_materialize_pending():
+                return                        # empty → removed; nothing to continue
+        elif self.book_ring.current() == '.' or self._book_is_portal():
+            pass                              # not renamable; just add a new one below
+        else:
+            self._book_try_rename()
+        self._book_spawn_new_below()
+
+    def _book_materialize_pending(self):
+        """Turn the pending-new placeholder into a real entry from its typed name:
+        empty → remove; '.' → separator; '0' → portal; else → create the file.
+        Clears _book_pending_new. Returns True if a real entry remains, else False.
+        Never dives into F2 — creation keeps you in the F3 list."""
+        text = self.book_view.editor.text().strip()
+        idx = self.book_ring.index
+        self._book_pending_new = False
+        if not text:
+            self._book_remove_entry(idx)
+            return False
+        if text == '.':
+            self.book_ring.lines[idx] = '.'
+            self._library_lines[idx] = '.'
+            self._save_library()
+            return True
+        if text == '0':
+            # A '0' scratch portal — no file created, no collision with real 0.txt.
+            self.book_ring.lines[idx] = '0'
+            self._library_lines[idx] = '0.txt'
+            self._save_library()
+            return True
+        fname = text + '.txt'
+        fpath = os.path.join(self.void_dir, 'I', fname)
+        if not os.path.exists(fpath):
+            open(fpath, 'w', encoding='utf-8').close()
+        self.book_ring.lines[idx] = text
+        self._library_lines[idx] = fname
+        self._library_path_cache[fname] = fpath
+        self._save_library()
+        return True
+
+    def _book_spawn_new_below(self):
+        """Insert a blank entry just below the current one and enter pending-new on
+        it, ready to be named. Leaving it later discards it."""
         idx = self.book_ring.index
         self.book_ring.lines.insert(idx + 1, '')
         self._library_lines.insert(idx + 1, '')
@@ -249,6 +262,31 @@ class F3Mixin:
         self.book_view.editor.setReadOnly(False)
         self.book_view.editor.setCursorPosition(0)
         self.book_view.update()
+
+    def _book_remove_entry(self, idx):
+        """Drop the entry at idx from both parallel arrays, keeping a valid cursor
+        and never leaving the library empty."""
+        self.book_ring.lines.pop(idx)
+        self._library_lines.pop(idx)
+        if not self.book_ring.lines:
+            self.book_ring.lines = ['.']
+            self._library_lines = ['.']
+        self.book_ring.index = max(0, idx - 1) % len(self.book_ring.lines)
+
+    def _book_discard_pending(self):
+        """Leaving a pending-new entry drops it — you never end up with an empty
+        title. Creation only happens via Enter-at-end (_book_enter_at_end)."""
+        if not getattr(self, '_book_pending_new', False):
+            return
+        self._book_pending_new = False
+        self._book_remove_entry(self.book_ring.index)
+
+    def _book_new_entry(self):
+        """Shift+Enter in F3: also opens a blank entry below the current one."""
+        if self._book_pending_new:
+            return
+        self._book_try_rename()
+        self._book_spawn_new_below()
 
     def _book_send_to_zero(self):
         """Ctrl+Delete in F3: on dot → delete separator; on title → send lines to 0.txt and delete file."""
