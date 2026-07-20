@@ -54,8 +54,7 @@ class F3Mixin:
     def _book_random(self):
         """Tab in F3: jump to a random real book title (skip '.' separators and
         the read-only '0' portals)."""
-        if self._book_pending_new:
-            return
+        self._book_settle_pending()
         self._book_try_rename()
         candidates = [i for i, l in enumerate(self.book_ring.lines)
                       if l != '.' and not self._book_is_portal(i)]
@@ -67,16 +66,8 @@ class F3Mixin:
 
     def _book_navigate(self, delta):
         self._tts_cut()
-        if self._book_pending_new:
-            # Cancel the pending new entry
-            idx = self.book_ring.index
-            self.book_ring.lines.pop(idx)
-            self._library_lines.pop(idx)
-            if not self.book_ring.lines:
-                self.book_ring.lines = ['.']
-                self._library_lines = ['.']
-            self.book_ring.index = max(0, idx - 1) % len(self.book_ring.lines)
-            self._book_pending_new = False
+        # Leaving a new entry saves it if it has a title, drops it if empty.
+        self._book_settle_pending()
         self._book_try_rename()
         if len(self.book_ring.lines) < 2:
             return
@@ -97,7 +88,7 @@ class F3Mixin:
     def _book_jump_start(self):
         """Home in F3: jump to first non-dot entry."""
         self._tts_cut()
-        self._book_discard_pending()
+        self._book_settle_pending()
         ring = self.book_ring
         for i in range(len(ring.lines)):
             if ring.lines[i] != '.':
@@ -108,7 +99,7 @@ class F3Mixin:
     def _book_jump_end(self):
         """End in F3: jump to last non-dot entry."""
         self._tts_cut()
-        self._book_discard_pending()
+        self._book_settle_pending()
         ring = self.book_ring
         for i in range(len(ring.lines) - 1, -1, -1):
             if ring.lines[i] != '.':
@@ -278,12 +269,20 @@ class F3Mixin:
         self.book_ring.index = max(0, idx - 1) % len(self.book_ring.lines)
 
     def _book_discard_pending(self):
-        """Leaving a pending-new entry drops it — you never end up with an empty
-        title. Creation only happens via Enter-at-end (_book_enter_at_end)."""
+        """Cancel a pending-new entry outright (Escape) — dropped whether or not
+        it has a title."""
         if not getattr(self, '_book_pending_new', False):
             return
         self._book_pending_new = False
         self._book_remove_entry(self.book_ring.index)
+
+    def _book_settle_pending(self):
+        """Leaving a pending-new entry SAVES it the moment it has a title (no Enter
+        needed), or drops it if still empty (never an empty title). Deletion is a
+        separate gesture (Ctrl+Delete), so leaving never removes a real file."""
+        if not getattr(self, '_book_pending_new', False):
+            return
+        self._book_materialize_pending()   # named → create + keep; empty → remove
 
     def _book_new_entry(self):
         """Shift+Enter in F3: also opens a blank entry below the current one."""

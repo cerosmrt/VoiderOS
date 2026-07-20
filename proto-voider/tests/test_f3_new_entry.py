@@ -171,3 +171,50 @@ def test_discard_noop_when_not_pending(qapp, tmp_path):
     a = _app(str(tmp_path), ['CapA'], ['CapA.txt'], idx=0)
     a._book_discard_pending()
     assert a.book_ring.lines == ['CapA']
+
+
+# ── _book_settle_pending: leaving saves a named entry, discards an empty one ───
+
+def test_settle_named_saves(qapp, tmp_path):
+    a = _app(str(tmp_path), ['CapA', ''], ['CapA.txt', ''], idx=1,
+             pending=True, editor='CapB')
+    a._book_settle_pending()
+    assert a.book_ring.lines == ['CapA', 'CapB']       # saved on leave, no Enter
+    assert a._library_lines == ['CapA.txt', 'CapB.txt']
+    assert a._book_pending_new is False
+
+
+def test_settle_empty_discards(qapp, tmp_path):
+    a = _app(str(tmp_path), ['CapA', ''], ['CapA.txt', ''], idx=1,
+             pending=True, editor='')
+    a._book_settle_pending()
+    assert a.book_ring.lines == ['CapA']               # empty → dropped
+    assert a._book_pending_new is False
+
+
+def test_settle_noop_when_not_pending(qapp, tmp_path):
+    a = _app(str(tmp_path), ['CapA'], ['CapA.txt'], idx=0)
+    a._book_settle_pending()
+    assert a.book_ring.lines == ['CapA']
+
+
+def test_navigate_away_saves_named_pending(qapp, tmp_path):
+    a = _app(str(tmp_path), ['CapA', ''], ['CapA.txt', ''], idx=1,
+             pending=True, editor='CapB')
+    a._tts_cut = lambda: None
+    a._book_navigate(-1)                               # leave by navigating up
+    assert 'CapB.txt' in a._library_lines              # saved, not discarded
+    assert a._book_pending_new is False
+
+
+# ── Rule B: clearing an existing title and leaving reverts to the original ─────
+
+def test_existing_cleared_title_reverts_to_original(qapp, tmp_path):
+    import types
+    from f3_mixin import F3Mixin
+    a = _app(str(tmp_path), ['CapA'], ['CapA.txt'], idx=0)
+    a._book_try_rename = types.MethodType(F3Mixin._book_try_rename, a)  # real one
+    a.book_view.editor.setText('')                     # deleted the whole title
+    assert a._book_try_rename() is True
+    assert a.book_view.editor.text() == 'CapA'         # back to the original
+    assert a._library_lines == ['CapA.txt']            # nothing renamed/deleted

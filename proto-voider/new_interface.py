@@ -453,10 +453,10 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self._close_f2_search(restore=True)
         if self._f3_search_active and view_index != 2:
             self._close_f3_search(restore=True)
-        # Leaving F3 with a half-made new entry drops it — no empty titles persist.
+        # Leaving F3 saves a new entry that has a title (drops it only if empty).
         if (self.current_view == 2 and view_index != 2
                 and getattr(self, '_book_pending_new', False)):
-            self._book_discard_pending()
+            self._book_settle_pending()
         # F3 → F2: point F2 at the highlighted book then load it
         if self.current_view == 2 and view_index == 1:
             if not self._book_try_rename():
