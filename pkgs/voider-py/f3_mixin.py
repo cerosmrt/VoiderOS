@@ -1,5 +1,6 @@
 # f3_mixin.py — F3 library/book browser methods
 import os
+import re
 import random
 
 from PyQt6.QtCore import Qt
@@ -51,9 +52,73 @@ class F3Mixin:
         view.editor.setFocus()
         view.update()
 
+    def _book_tab(self):
+        """Tab in F3: on a separator dot, shuffle that book's files (numbered
+        titles keep their order, the rest are shuffled); on a title, jump to a
+        random one."""
+        self._book_settle_pending()
+        self._book_try_rename()
+        if self.book_ring.current() == '.':
+            self._book_shuffle_group()
+        else:
+            self._book_random()
+
+    @staticmethod
+    def _title_number(display):
+        """The leading chapter number of a title ('3. X' / '3 X' → 3), or None.
+        A bare '0' (the portal marker) is not numbered."""
+        m = re.match(r'^(\d+)[.\s]', display or '')
+        return int(m.group(1)) if m else None
+
+    def _reorder_group(self, files):
+        """files: [(fname, display)]. Return them reordered — numbered titles
+        sorted by their number into the slots numbered titles occupy, the rest
+        shuffled into the remaining slots, and the '0' portal left in place."""
+        numbered_pos, unnum_pos = [], []
+        for k, (fn, disp) in enumerate(files):
+            if fn.lower() == '0.txt' or disp == '0':
+                continue                                   # portal stays put
+            if self._title_number(disp) is not None:
+                numbered_pos.append(k)
+            else:
+                unnum_pos.append(k)
+        result = list(files)
+        numbered = sorted((files[k] for k in numbered_pos),
+                          key=lambda fl: self._title_number(fl[1]))
+        unnum = [files[k] for k in unnum_pos]
+        random.shuffle(unnum)
+        for pos, f in zip(numbered_pos, numbered):
+            result[pos] = f
+        for pos, f in zip(unnum_pos, unnum):
+            result[pos] = f
+        return result
+
+    def _book_shuffle_group(self):
+        """Shuffle the files of the book whose separator dot is current."""
+        n = len(self._library_lines)
+        idxs, i = [], self.book_ring.index + 1
+        while i < n and self._library_lines[i] != '.':
+            idxs.append(i)
+            i += 1
+        if len(idxs) < 2:
+            return
+        files = [(self._library_lines[k], self.book_ring.lines[k]) for k in idxs]
+        new = self._reorder_group(files)
+        if new == files:
+            return
+        self._f3_undo_begin()
+        for k, (fn, disp) in zip(idxs, new):
+            self._library_lines[k] = fn
+            self.book_ring.lines[k] = disp
+        self._save_library()
+        self._f3_undo_commit('shuffle')
+        self.book_view._offset = 0.0
+        self._book_show_editor()
+        print(f"🎲 Shuffled book ({len(idxs)} entries; numbered kept in order)")
+
     def _book_random(self):
-        """Tab in F3: jump to a random real book title (skip '.' separators and
-        the read-only '0' portals)."""
+        """Tab in F3 on a title: jump to a random real book title (skip '.'
+        separators and the read-only '0' portals)."""
         self._book_settle_pending()
         self._book_try_rename()
         candidates = [i for i, l in enumerate(self.book_ring.lines)
