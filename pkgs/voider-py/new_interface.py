@@ -218,6 +218,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self.circular_view = None   # F2: CircularView over doc ring
         self.scratch_view = None    # F1 Tab: CircularView of 0.txt scratch pool
         self._f1_scratch_mode = False
+        self._scratch_return = None   # backtick round-trip: {'path','view'} or None
         self.book_view = None       # F3: CircularView over book_ring (filenames)
         self.book_concat_view = None          # view 9: read-only concatenated group
         self.book_concat_ring = LineRing(['.'])
@@ -905,6 +906,11 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
     def _handle_void_line(self):
         if self.current_view == 4:
             self._f5_fork()
+            return
+        # Enter on an empty entry: jump to a fresh blank line at the end of the
+        # active file, ready to keep writing (works on any active file).
+        if not self.entry.text().strip():
+            self._f1_goto_end()
             return
         # /0 is the one command: jump to the scratch (moving its portal above the
         # current chapter). Everything else is normal focus writing: commit the
