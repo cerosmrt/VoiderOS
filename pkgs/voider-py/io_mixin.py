@@ -1012,7 +1012,8 @@ class IoMixin:
             self._library_lines = ['.']
             ring_lines = ['.']
         self.book_ring = LineRing(ring_lines)
-        for i, l in enumerate(ring_lines):
+        self._dedupe_portals()                      # never more than one '0' portal
+        for i, l in enumerate(self.book_ring.lines):
             if l != '.':
                 self.book_ring.index = i
                 break
@@ -1098,6 +1099,28 @@ class IoMixin:
                     self._library_path_cache[f] = full
         except Exception:
             pass
+
+    def _dedupe_portals(self, keep=None):
+        """Keep at most one '0' scratch portal in the library — the marker never
+        piles up. If `keep` (an index) is given that portal survives, else the
+        first one does. Removes the rest from both parallel arrays, keeps the
+        cursor in range, and returns the surviving portal's index (or None)."""
+        portals = [i for i in range(len(self._library_lines))
+                   if self._library_lines[i].lower() == '0.txt'
+                   or (i < len(self.book_ring.lines) and self.book_ring.lines[i] == '0')]
+        if len(portals) <= 1:
+            return portals[0] if portals else None
+        survivor = keep if (keep is not None and keep in portals) else portals[0]
+        for i in sorted((p for p in portals if p != survivor), reverse=True):
+            self.book_ring.lines.pop(i)
+            self._library_lines.pop(i)
+            if i < survivor:
+                survivor -= 1
+            if i < self.book_ring.index:
+                self.book_ring.index -= 1
+        if self.book_ring.index >= len(self.book_ring.lines):
+            self.book_ring.index = max(0, len(self.book_ring.lines) - 1)
+        return survivor
 
     def _save_library(self):
         # Never persist an empty index — that can only be a logic bug, and an
