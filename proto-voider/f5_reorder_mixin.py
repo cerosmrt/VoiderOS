@@ -206,13 +206,36 @@ class F5ReorderMixin:
     # ── In-view chapter picker (opens on the right of F5) ───────────────────────
 
     def _f5_open_picker(self):
-        """Right in F5: open the in-view type-to-filter chapter picker."""
+        """Right in F5: open the in-view chapter catalogue. It lists every sendable
+        chapter in library order (↑/↓ to navigate, type to filter) and opens parked
+        on the chapter nearest the '0' portal — your working cluster."""
         if self._f5_para_count() == 0:
             return
         self._f5_picker_open = True
         self._f5_pick_filter = ''
-        self._f5_pick_match_idx = 0
+        self._f5_pick_match_idx = self._f5_pick_start_idx()
         self._f5_refresh()
+
+    def _f5_pick_start_idx(self):
+        """Index (into the unfiltered match list) of the chapter nearest the '0'
+        portal in the library; ties break toward the chapter just after it (the
+        one _f1_scratch_jump parks the portal above). 0 if there is no portal."""
+        matches = self._f5_pick_matches()          # empty filter → all, library order
+        if not matches:
+            return 0
+        portal_i = next((i for i, fn in enumerate(self._library_lines)
+                         if fn.lower() == '0.txt'), None)
+        if portal_i is None:
+            return 0
+
+        def lib_index(fname):
+            try:
+                return self._library_lines.index(fname)
+            except ValueError:
+                return 10 ** 9
+        return min(range(len(matches)),
+                   key=lambda k: (abs(lib_index(matches[k][0]) - portal_i),
+                                  lib_index(matches[k][0]) < portal_i))
 
     def _f5_close_picker(self):
         self._f5_picker_open = False
