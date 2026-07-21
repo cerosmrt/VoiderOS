@@ -13,8 +13,8 @@ def hide_scrollbars(widget):
 
 
 def draw_pinned_title(painter, base_font, width, title):
-    """A pinned, centred, ALL-CAPS title at the top of a view (F5/F2), over an
-    opaque black band so content scrolls cleanly underneath. Nothing if empty."""
+    """A pinned, centred, ALL-CAPS title at the top of a view (F5/F2). Nothing if
+    empty. No background band — it draws straight over the (black) view."""
     from PyQt6.QtGui import QFont, QFontMetrics, QColor
     from PyQt6.QtCore import QRect
     text = (title or '').upper()
@@ -24,7 +24,6 @@ def draw_pinned_title(painter, base_font, width, title):
     hf = QFont(base_font.family(), base_font.pointSize() + 3)
     fm = QFontMetrics(hf)
     top, th = 22, fm.height()
-    painter.fillRect(0, 0, width, top + th + 16, QColor(0, 0, 0))
     painter.setFont(hf)
     painter.setPen(QColor(255, 255, 255))
     painter.drawText(QRect(0, top, width, th),
