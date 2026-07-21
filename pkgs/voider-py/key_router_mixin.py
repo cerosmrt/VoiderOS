@@ -100,6 +100,10 @@ class KeyRouterMixin:
         if self._matches(key, mods, 'scratch_toggle'):
             self._goto_scratch_toggle(); event.accept(); return
 
+        # Global: toggle the pinned top title (F2/F5).
+        if self._matches(key, mods, 'title_toggle'):
+            self._toggle_view_title(); event.accept(); return
+
         # Global: rebase (F2 only, enforced inside; F3 handled view-specifically)
         if self._matches(key, mods, 'rebase') and self.current_view != 2:
             self.rebase_to_index_zero(); event.accept(); return

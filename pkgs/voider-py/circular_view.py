@@ -24,6 +24,8 @@ class CircularView(QWidget):
         self.zero_marker = False   # if True, dot at ring index 0 renders in red
         self.search_mode = False             # if True, clamp rendering — don't wrap beyond list bounds
         self.search_highlight_center = False # if True, full alpha at center, 30% elsewhere
+        self.show_title = False              # pinned top title (F2 only, Ctrl+Shift+T)
+        self.title_text = ''
         
         # Crear el editor
         self.editor = CustomLineEdit(self)
@@ -242,6 +244,12 @@ class CircularView(QWidget):
                 painter.drawText(gx, draw_y + line_ascent, glyph)
             else:
                 painter.drawText(draw_x, draw_y + line_ascent, text)
+
+        # Optional pinned title at the top (F2 only; F3/F1 keep show_title False).
+        if getattr(self, 'show_title', False) and getattr(self, 'title_text', ''):
+            painter.setClipping(False)
+            from widgets import draw_pinned_title
+            draw_pinned_title(painter, self.font(), w, self.title_text)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
