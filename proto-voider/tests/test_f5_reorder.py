@@ -88,6 +88,15 @@ def test_line_of_para_maps_f5_to_f2():
     assert a._f5_line_of_para(2) == 5
 
 
+def test_tokens_cached_until_invalidated():
+    a = _app(['.', 'a', '.', 'b', '/A', 'c'])
+    t1 = a._f5_tokens_cached()
+    assert a._f5_tokens_cached() is t1        # reused while lines unchanged
+    a._f5_invalidate_tokens()
+    t2 = a._f5_tokens_cached()
+    assert t2 is not t1 and t2 == t1          # recomputed, same content
+
+
 def test_enter_lands_on_paragraph_of_current_line():
     a = _app(['.', 'a', '.', 'b', '/A', 'c'], idx=5)  # F2 on 'c'
     a._f5_enter()

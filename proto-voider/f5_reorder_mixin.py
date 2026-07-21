@@ -56,8 +56,24 @@ class F5ReorderMixin:
         position)."""
         return [i for i, t in enumerate(toks) if t[0] == 'para']
 
+    def _f5_tokens_cached(self):
+        """_f5_tokens over the active file, cached while the line list is unchanged
+        (navigation never mutates it) — avoids re-tokenising thousands of lines on
+        every keypress. Invalidated by _f5_invalidate_tokens on edits / F5 entry."""
+        lines = self.line_ring.lines
+        key = (id(lines), len(lines))
+        if getattr(self, '_f5_tok_key', None) == key:
+            return self._f5_tok_cache
+        toks = self._f5_tokens(lines)
+        self._f5_tok_key = key
+        self._f5_tok_cache = toks
+        return toks
+
+    def _f5_invalidate_tokens(self):
+        self._f5_tok_key = None
+
     def _f5_para_count(self):
-        return len(self._f5_para_positions(self._f5_tokens(self.line_ring.lines)))
+        return len(self._f5_para_positions(self._f5_tokens_cached()))
 
     # ── Navigation (linear, clamped — no wrap) ────────────────────────────────
 
@@ -88,6 +104,7 @@ class F5ReorderMixin:
         a, b = paras[i], paras[j]
         toks[a], toks[b] = toks[b], toks[a]
         self.line_ring.lines = self._f5_flatten(toks)
+        self._f5_invalidate_tokens()
         if self.line_ring.index >= len(self.line_ring.lines):
             self.line_ring.index = max(0, len(self.line_ring.lines) - 1)
         self._f5_para_idx = j                 # cursor follows the moved paragraph
@@ -141,6 +158,7 @@ class F5ReorderMixin:
 
     def _f5_enter(self):
         """On entering F5: land on the paragraph holding F2's current line."""
+        self._f5_invalidate_tokens()   # the file may have changed since we left
         self._f5_para_idx = self._f5_para_at_line(self.line_ring.lines,
                                                   self.line_ring.index)
         n = self._f5_para_count()
@@ -194,6 +212,7 @@ class F5ReorderMixin:
         combined = (existing + ['.'] + para_lines) if existing else para_lines
         self._atomic_write_lines(target_path, combined)
         self.line_ring.lines = new_source
+        self._f5_invalidate_tokens()
         if self.line_ring.index >= len(self.line_ring.lines):
             self.line_ring.index = max(0, len(self.line_ring.lines) - 1)
         self.auto_save_circular()             # persist the shrunk source
@@ -330,7 +349,7 @@ class F5ReorderMixin:
         """Title pinned at the top of F5: the '/name' fence the current paragraph
         sits under, or the active file's name (no extension) if it sits under
         none. In the usual single-chapter file this is always the file name."""
-        toks = self._f5_tokens(self.line_ring.lines)
+        toks = self._f5_tokens_cached()
         ordinal, mark = -1, None
         for kind, val in toks:
             if kind == 'mark':
@@ -350,7 +369,7 @@ class F5ReorderMixin:
         """Ordered display units for the view: paragraphs (with ordinal + prose)
         and '/name' fences. Separators are implicit (paragraphs are spaced)."""
         units, ordinal = [], -1
-        for kind, val in self._f5_tokens(self.line_ring.lines):
+        for kind, val in self._f5_tokens_cached():
             if kind == 'para':
                 ordinal += 1
                 units.append({'kind': 'para', 'ordinal': ordinal,
