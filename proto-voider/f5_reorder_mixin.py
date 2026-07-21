@@ -290,6 +290,19 @@ class F5ReorderMixin:
             self._f5_pick_match_idx = (self._f5_pick_match_idx + delta) % len(matches)
             self._f5_refresh()
 
+    def _f5_new_chapter_insert_idx(self):
+        """Where a chapter created from F5 goes: right below the active (origin)
+        file in the library, so the new file sits next to what you're working on.
+        Falls back to the F3 cursor / end when the active file isn't listed."""
+        active = os.path.basename(self.current_file_path or '')
+        try:
+            return self._library_lines.index(active) + 1
+        except ValueError:
+            ins = self.book_ring.index
+            if not (0 <= ins < len(self._library_lines)):
+                ins = len(self._library_lines)
+            return ins
+
     def _f5_pick_confirm(self):
         """Enter/→ in the picker: send the current paragraph to the resolved target
         (creating the chapter first if the typed name is new), then close + advance."""
@@ -303,9 +316,7 @@ class F5ReorderMixin:
             if not os.path.exists(path):
                 open(path, 'w', encoding='utf-8').close()
             if target['fname'] not in self._library_lines:
-                ins = self.book_ring.index
-                if not (0 <= ins < len(self._library_lines)):
-                    ins = len(self._library_lines)
+                ins = self._f5_new_chapter_insert_idx()
                 self._library_lines.insert(ins, target['fname'])
                 self.book_ring.lines.insert(ins, target['display'])
                 self._library_path_cache[target['fname']] = path

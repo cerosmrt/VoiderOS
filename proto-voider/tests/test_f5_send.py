@@ -13,7 +13,7 @@ _METHODS = (
     '_f5_para_positions', '_f5_para_count', '_f5_refresh', '_f5_open_picker',
     '_f5_close_picker', '_f5_pick_matches', '_f5_pick_target', '_f5_pick_filter_add',
     '_f5_pick_filter_backspace', '_f5_pick_cycle', '_f5_pick_confirm',
-    '_f5_pick_start_idx',
+    '_f5_pick_start_idx', '_f5_new_chapter_insert_idx',
     '_undo_begin', '_undo_commit', '_undo_capture', '_undo_trackable',
     '_atomic_write_lines', 'auto_save_circular', '_read_lines_or_none',
     '_rescue_on_large_shrink', '_save_library', '_library_path',
