@@ -102,6 +102,15 @@ def test_toggle_back_to_f2_restores_file_and_view():
     assert a._scratch_return is None                   # consumed
 
 
+def test_toggle_back_to_f5_restores_file_and_view():
+    a = _app(['.', 's'], view=0, path='/void/0.txt')   # currently on scratch
+    a._scratch_return = {'path': '/void/I/Cap.txt', 'view': 4}
+    a._goto_scratch_toggle()
+    assert ('set_f2', '/void/I/Cap.txt') in a.calls
+    assert ('view', 4) in a.calls                      # back to F5, not F2
+    assert a._scratch_return is None
+
+
 def test_toggle_back_to_f1_restores_active_file():
     a = _app(['.', 's'], view=0, path='/void/0.txt')
     a._scratch_return = {'path': '/void/I/Cap.txt', 'view': 0}

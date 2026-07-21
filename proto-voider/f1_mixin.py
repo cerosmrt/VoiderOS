@@ -125,8 +125,9 @@ class F1Mixin:
                 self._set_active_file(ret['path'])
                 self.switch_to_view(0)
             else:
+                # F2 (1) and F5 (4) both follow f2_file; anything else returns to F2.
                 self._set_f2_file(ret['path'])
-                self.switch_to_view(1)
+                self.switch_to_view(ret['view'] if ret['view'] in (1, 4) else 1)
 
     def _f1_persist_entry(self):
         """Before navigating away from a line in F1, save the entry into it
