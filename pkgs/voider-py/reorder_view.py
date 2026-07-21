@@ -16,6 +16,7 @@ class ReorderView(QWidget):
         self._para_idx = 0
         self._title = ''          # chapter/file name pinned (centred) at the top
         self._show_title = False  # the pinned title is a toggle (Ctrl+Shift+T)
+        self._wrap_cache = None   # (signature, blocks) — see _get_blocks
         self._app_font = QFont('Consolas', 13)
         # In-view chapter picker (right panel), shown while sending a paragraph.
         self._picker_open = False
@@ -74,6 +75,21 @@ class ReorderView(QWidget):
             return [unit['name'] or '·']
         return self._wrap(unit['text'], max_w, fm)
 
+    def _get_blocks(self, text_w, fm, lh):
+        """Wrapped [(unit, lines, height)] for the current units, cached by content
+        + width + line-height so navigation repaints skip re-wrapping (the costly
+        font-metric work) when only the highlight/scroll changed."""
+        sig = (text_w, lh, tuple(
+            (u['kind'], u.get('text') if u['kind'] == 'para' else u.get('name'))
+            for u in self._units))
+        if self._wrap_cache is not None and self._wrap_cache[0] == sig:
+            return self._wrap_cache[1]
+        blocks = [(u, wl, len(wl) * lh)
+                  for u in self._units
+                  for wl in (self._unit_lines(u, text_w, fm),)]
+        self._wrap_cache = (sig, blocks)
+        return blocks
+
     # ── paint ─────────────────────────────────────────────────────────────────
 
     def paintEvent(self, event):
@@ -94,11 +110,10 @@ class ReorderView(QWidget):
         text_w = PW - 2 * pad
         gap = lh                                  # blank line between units
 
-        # Pre-wrap every unit and measure its block height.
-        blocks = []
-        for u in self._units:
-            wl = self._unit_lines(u, text_w, fm)
-            blocks.append((u, wl, len(wl) * lh))
+        # Pre-wrap every unit and measure its block height. Cached across repaints
+        # (word-wrapping every paragraph is the cost) — only the current-paragraph
+        # highlight and scroll offset change on navigation, not the wrap itself.
+        blocks = self._get_blocks(text_w, fm, lh)
 
         if not blocks:
             painter.setPen(QColor(45, 45, 45))

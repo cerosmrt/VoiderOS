@@ -904,6 +904,13 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         ah = getattr(self, '_cursor_autohide', None)
         if ah is not None:
             ah.handle_event_type(event.type())
+        # Backtick is a bare (no-modifier) key, so a focused text field would type
+        # it instead of letting the router see it. Intercept it here so the scratch
+        # round-trip works from F1/F2 too, not only F5.
+        if event.type() == QEvent.Type.KeyPress and not event.isAutoRepeat() \
+                and self._matches(event.key(), event.modifiers(), 'scratch_toggle'):
+            self._goto_scratch_toggle()
+            return True
         # Intercept Ctrl+Z / Ctrl+Shift+Z before the focused editor's own field
         # undo, but only in the editing views (F1/F2/F5) and F3 (library ops,
         # unless a title is mid-edit — then let the field's own undo run).
