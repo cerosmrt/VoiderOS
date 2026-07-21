@@ -16,7 +16,7 @@ class ReorderView(QWidget):
         self._para_idx = 0
         self._title = ''          # chapter/file name pinned (centred) at the top
         self._show_title = False  # the pinned title is a toggle (Ctrl+Shift+T)
-        self._wrap_cache = None   # (signature, blocks) — see _get_blocks
+        self._wrap_cache = {}     # (text_w, kind, text) → wrapped lines
         self._app_font = QFont('Consolas', 13)
         # In-view chapter picker (right panel), shown while sending a paragraph.
         self._picker_open = False
@@ -75,20 +75,21 @@ class ReorderView(QWidget):
             return [unit['name'] or '·']
         return self._wrap(unit['text'], max_w, fm)
 
-    def _get_blocks(self, text_w, fm, lh):
-        """Wrapped [(unit, lines, height)] for the current units, cached by content
-        + width + line-height so navigation repaints skip re-wrapping (the costly
-        font-metric work) when only the highlight/scroll changed."""
-        sig = (text_w, lh, tuple(
-            (u['kind'], u.get('text') if u['kind'] == 'para' else u.get('name'))
-            for u in self._units))
-        if self._wrap_cache is not None and self._wrap_cache[0] == sig:
-            return self._wrap_cache[1]
-        blocks = [(u, wl, len(wl) * lh)
-                  for u in self._units
-                  for wl in (self._unit_lines(u, text_w, fm),)]
-        self._wrap_cache = (sig, blocks)
-        return blocks
+    def _wrap_unit_cached(self, u, text_w, fm):
+        """Word-wrap one unit, cached by content+width so a paragraph is wrapped at
+        most once per width (the font-metric work is the cost). Only the units
+        actually on screen are ever wrapped — see paintEvent's outward walk."""
+        key = (text_w, u['kind'],
+               u.get('text') if u['kind'] == 'para' else u.get('name'))
+        wl = self._wrap_cache.get(key)
+        if wl is None:
+            wl = self._unit_lines(u, text_w, fm)
+            self._wrap_cache[key] = wl
+        return wl
+
+    def resizeEvent(self, event):
+        self._wrap_cache.clear()          # widths changed → wraps are stale
+        super().resizeEvent(event)
 
     # ── paint ─────────────────────────────────────────────────────────────────
 
@@ -110,12 +111,8 @@ class ReorderView(QWidget):
         text_w = PW - 2 * pad
         gap = lh                                  # blank line between units
 
-        # Pre-wrap every unit and measure its block height. Cached across repaints
-        # (word-wrapping every paragraph is the cost) — only the current-paragraph
-        # highlight and scroll offset change on navigation, not the wrap itself.
-        blocks = self._get_blocks(text_w, fm, lh)
-
-        if not blocks:
+        units = self._units
+        if not units:
             painter.setPen(QColor(45, 45, 45))
             painter.drawText(QRect(0, 0, W, H), Qt.AlignmentFlag.AlignCenter, 'ø')
             if self._show_title:
@@ -123,34 +120,49 @@ class ReorderView(QWidget):
             painter.end()
             return
 
-        # Find the current paragraph block and centre it vertically.
-        cur_block = 0
-        for bi, (u, _, _) in enumerate(blocks):
+        # Index of the current paragraph among the units (cheap; no wrapping).
+        cur = 0
+        for i, u in enumerate(units):
             if u['kind'] == 'para' and u['ordinal'] == self._para_idx:
-                cur_block = bi
+                cur = i
                 break
-        top_of = [0]
-        for _, _, bh in blocks:
-            top_of.append(top_of[-1] + bh + gap)
-        cur_top = top_of[cur_block]
-        cur_h = blocks[cur_block][2]
-        y0 = H // 2 - cur_h // 2 - cur_top       # scroll so current is centred
 
-        for bi, (u, wl, bh) in enumerate(blocks):
-            by = y0 + top_of[bi]
-            if by + bh < -lh or by > H + lh:
-                continue                          # off-screen
+        def draw_unit(u, by):
+            wl = self._wrap_unit_cached(u, text_w, fm)
+            bh = len(wl) * lh
             if u['kind'] == 'mark':
                 self._draw_mark(painter, u['name'], by, PW, pad, fm, lh)
             else:
-                current = (u['ordinal'] == self._para_idx)
-                self._draw_para(painter, wl, by, pad, text_w, lh, fm, current)
-                if current:
-                    # '>' output cue to the right: Right arrow sends this paragraph.
+                is_cur = (u['ordinal'] == self._para_idx)
+                self._draw_para(painter, wl, by, pad, text_w, lh, fm, is_cur)
+                if is_cur:
+                    # '>' output cue: Right arrow sends this paragraph.
                     painter.setPen(QColor(255, 255, 255))
                     painter.drawText(QRect(PW - pad, by, pad - 12, bh),
                                      Qt.AlignmentFlag.AlignVCenter
                                      | Qt.AlignmentFlag.AlignHCenter, '>')
+            return bh
+
+        # Centre the current paragraph, then draw outward until off-screen —
+        # only the visible units are ever wrapped (virtualised, not the whole file).
+        cur_h = len(self._wrap_unit_cached(units[cur], text_w, fm)) * lh
+        y0 = H // 2 - cur_h // 2
+        draw_unit(units[cur], y0)
+
+        y = y0 + cur_h + gap                      # downward
+        i = cur + 1
+        while i < len(units) and y <= H + lh:
+            y += draw_unit(units[i], y) + gap
+            i += 1
+
+        top_edge = y0                             # upward
+        i = cur - 1
+        while i >= 0 and top_edge - gap > -lh:
+            wl = self._wrap_unit_cached(units[i], text_w, fm)
+            by = top_edge - gap - len(wl) * lh
+            draw_unit(units[i], by)
+            top_edge = by
+            i -= 1
 
         if self._picker_open:
             painter.setPen(QColor(40, 40, 40))
