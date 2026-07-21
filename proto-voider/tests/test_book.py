@@ -188,6 +188,7 @@ class TestBookOrder:
         app._book_pending_new = False
         app._tts_on_view = MagicMock()
         app._f2_peek_0 = False
+        app._show_view_title = False
 
         activate_calls = []
         app._set_active_file = lambda path: activate_calls.append(path)
@@ -201,7 +202,7 @@ class TestBookOrder:
 
         app.load_doc_lines = MagicMock()
 
-        for name in ('switch_to_view',):
+        for name in ('switch_to_view', '_active_file_title'):
             if hasattr(FullscreenCircleApp, name):
                 setattr(app, name, types.MethodType(
                     getattr(FullscreenCircleApp, name), app))

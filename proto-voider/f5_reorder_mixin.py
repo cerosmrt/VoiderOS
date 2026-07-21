@@ -363,7 +363,8 @@ class F5ReorderMixin:
         view = getattr(self, 'reorder_view', None)
         if view is None:
             return
-        view.set_state(self._f5_units(), self._f5_para_idx, self._f5_current_title())
+        view.set_state(self._f5_units(), self._f5_para_idx, self._f5_current_title(),
+                       getattr(self, '_show_view_title', False))
         if getattr(self, '_f5_picker_open', False):
             matches = self._f5_pick_matches()
             target = self._f5_pick_target()

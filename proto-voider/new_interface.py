@@ -219,6 +219,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self.scratch_view = None    # F1 Tab: CircularView of 0.txt scratch pool
         self._f1_scratch_mode = False
         self._scratch_return = None   # backtick round-trip: {'path','view'} or None
+        self._show_view_title = bool(self.config.get('show_view_title', False))
         self.book_view = None       # F3: CircularView over book_ring (filenames)
         self.book_concat_view = None          # view 9: read-only concatenated group
         self.book_concat_ring = LineRing(['.'])
@@ -581,6 +582,9 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                 self.circular_view.ring = self.line_ring
                 self.circular_view._offset = 0.0
 
+            # Pinned title (toggle, Ctrl+Shift+T) — F2 shows the active file name.
+            self.circular_view.show_title = self._show_view_title
+            self.circular_view.title_text = self._active_file_title()
             self.stack.setCurrentWidget(self.circular_view)
             self.entry.hide()
             self.circular_view.update()
@@ -911,6 +915,27 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                 self._undo_apply(redo=redo)
                 return True
         return super().eventFilter(obj, event)
+
+    def _active_file_title(self):
+        """F2's pinned title: the active file's name (no extension)."""
+        base = os.path.basename(self.current_file_path or '')
+        return os.path.splitext(base)[0]
+
+    def _toggle_view_title(self):
+        """Ctrl+Shift+T: show/hide the pinned top title in F2 and F5. Persisted."""
+        self._show_view_title = not self._show_view_title
+        self.config['show_view_title'] = self._show_view_title
+        _save_config(self.config)
+        self._apply_view_title()
+
+    def _apply_view_title(self):
+        """Push title-visibility to whichever of F2/F5 is currently showing."""
+        if self.current_view == 4 and getattr(self, 'reorder_view', None):
+            self._f5_refresh()
+        elif self.current_view == 1 and getattr(self, 'circular_view', None):
+            self.circular_view.show_title = self._show_view_title
+            self.circular_view.title_text = self._active_file_title()
+            self.circular_view.update()
 
     def _handle_void_line(self):
         if self.current_view == 4:

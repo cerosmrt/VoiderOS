@@ -11,6 +11,25 @@ def hide_scrollbars(widget):
     widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
+
+def draw_pinned_title(painter, base_font, width, title):
+    """A pinned, centred, ALL-CAPS title at the top of a view (F5/F2), over an
+    opaque black band so content scrolls cleanly underneath. Nothing if empty."""
+    from PyQt6.QtGui import QFont, QFontMetrics, QColor
+    from PyQt6.QtCore import QRect
+    text = (title or '').upper()
+    if not text:
+        return
+    painter.setOpacity(1.0)          # the caller may have left it dimmed
+    hf = QFont(base_font.family(), base_font.pointSize() + 3)
+    fm = QFontMetrics(hf)
+    top, th = 22, fm.height()
+    painter.fillRect(0, 0, width, top + th + 16, QColor(0, 0, 0))
+    painter.setFont(hf)
+    painter.setPen(QColor(255, 255, 255))
+    painter.drawText(QRect(0, top, width, th),
+                     Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter, text)
+
 class CustomLineEdit(QLineEdit):
     """QLineEdit personalizado con soporte para spacebar como tecla de void"""
     spacePressed = pyqtSignal()

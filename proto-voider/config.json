@@ -46,6 +46,8 @@
     "split_chapter": "Ctrl+Shift+S",
     "merge_book": "Ctrl+Shift+M",
     "commit_void": "Ctrl+Shift+G",
+    "scratch_toggle": "`",
+    "title_toggle": "Ctrl+Shift+T",
     "backup": "Ctrl+B"
   }
 }

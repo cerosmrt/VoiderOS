@@ -60,6 +60,7 @@ DEFAULT_CONFIG = {
         "merge_book": "Ctrl+Shift+M",
         "commit_void": "Ctrl+Shift+G",
         "scratch_toggle": "`",
+        "title_toggle": "Ctrl+Shift+T",
         "backup": "Ctrl+B"
     }
 }
