@@ -244,6 +244,30 @@ SAFETY / GIT
   Pairs with the auto-commit item below: git = version history on the internal
   disk; Ctrl+B = physical off-machine copy (with history) to external media.
 
+- PORTABLE BACKUP (extends the Ctrl+B pendrive item above) — one key that drops
+  a self-contained, portable bundle onto a pendrive: the book + the app, so you
+  can work revisions on another (Windows) machine and later reconcile them back
+  here in F9 (replace the text). Fallback if VoiderOS never gets installed.
+  Decided contents:
+    * /void WITH .git history, EXCLUDING O/ (corpus, huge) and tts/ (generated).
+    * proto-voider SOURCE at HEAD (always current; runs on Windows with Python).
+    * A run.bat / build.bat + build_exe.py so the .exe can be regenerated in one
+      click ON the Windows machine.
+    * The newest existing voider*.exe (from /mnt/data/Downloads) as a no-Python
+      fallback that runs immediately (frozen at its last Windows build).
+  HARD CONSTRAINT — the .exe cannot be built here:
+    * PyInstaller does NOT cross-compile Linux→Windows. A fresh Windows .exe only
+      comes from running build_exe.py ON Windows (or a fragile/slow Wine +
+      Windows-Python + PyQt6 + PyInstaller setup — likely breaks with PyQt6, not
+      "fast"; explore only if the bundled-exe + rebuild-on-Windows path is
+      insufficient).
+    * So "build the exe at backup time" is not feasible from NixOS. The bundle
+      ships current SOURCE (up to date) + newest existing EXE (fallback) + a
+      one-click Windows rebuild path. Fresh exe = user rebuilds on Windows.
+  Open when picked up: reconciliation flow (pendrive void ↔ main void) — how
+  edits made on the portable copy come back without clobbering (manual F9
+  replace was the stated intent; consider a diff/merge helper later).
+
 - Data-integrity audit follow-ups (item 1 DONE: atomic I.txt writes, commit
   d85f94e). Remaining, ranked:
     * (HIGH) Cross-instance I.txt sync: _save_library now notifies via IPC
