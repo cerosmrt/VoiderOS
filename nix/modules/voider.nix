@@ -604,6 +604,8 @@ in
     pkgs.grim
     pkgs.slurp
     pkgs.xdg-utils
+    pkgs.xfce.thunar        # GUI file manager — easy drag-drop copy to USB/disk
+    pkgs.gvfs              # lets Thunar see/mount removable drives (trash, etc.)
     pkgs.zathura
     pkgs.imv
     pkgs.pavucontrol
