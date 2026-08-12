@@ -61,6 +61,7 @@ DEFAULT_CONFIG = {
         "commit_void": "Ctrl+Shift+G",
         "scratch_toggle": "`",
         "title_toggle": "Ctrl+Shift+T",
+        "typewriter_toggle": "Ctrl+Shift+W",
         "backup": "Ctrl+B"
     }
 }

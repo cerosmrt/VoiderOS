@@ -162,10 +162,12 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                 selection-color: black;
             }}
         """)
-        # Typewriter F1: the caret stays put at the screen centre and text flows
-        # left. Right-alignment pins the caret (end of text) at the entry's right
-        # edge, which _reposition_entry places on the centre.
-        self.entry.setAlignment(Qt.AlignmentFlag.AlignRight)
+        # Typewriter mode (toggle, Ctrl+Shift+W; off by default → classic centred).
+        # When on, right-alignment pins the caret at the entry's right edge, which
+        # _reposition_entry places on the screen centre; text flows left.
+        self._typewriter_mode = bool(self.config.get('typewriter_mode', False))
+        self.entry.setAlignment(Qt.AlignmentFlag.AlignRight if self._typewriter_mode
+                                else Qt.AlignmentFlag.AlignCenter)
         self.entry.setFocus()
 
         # Search bars (F2 and F3) — hidden by default, shown at bottom of screen
@@ -807,11 +809,18 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             panel.open_panel(effect)
 
     @staticmethod
-    def _entry_geometry(w, h, entry_h):
-        """F1 typewriter: the entry fills the left half so its right edge (where the
-        right-aligned caret sits) lands on the screen centre — text flows left from
-        that fixed point. Returns (x, y, width)."""
-        return 0, h // 2 - entry_h // 2, max(1, w // 2)
+    def _entry_geometry(w, h, entry_h, typewriter):
+        """(x, y, width) for the F1 entry. Typewriter mode: it spans from the
+        circle's left edge to the screen centre, so the right-aligned caret sits on
+        the centre and text flows left, clipped at the circle (nothing shows
+        outside it). Classic mode: a wide, centred entry."""
+        y = h // 2 - entry_h // 2
+        if typewriter:
+            radius = min(w, h) // 2 - 35        # same circle as NormalView
+            width = max(1, radius)
+            return w // 2 - width, y, width
+        width = max(1, min(w, h) - 90)
+        return w // 2 - width // 2, y, width
 
     def _reposition_entry(self):
         w = self.width()
@@ -819,7 +828,8 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         if w == 0 or h == 0:
             return
         entry_height = self.entry.sizeHint().height()
-        x, y, entry_width = self._entry_geometry(w, h, entry_height)
+        x, y, entry_width = self._entry_geometry(
+            w, h, entry_height, getattr(self, '_typewriter_mode', False))
         self.entry.setFixedWidth(entry_width)
         self.entry.move(x, y)
         # Search bars sit near the bottom
@@ -953,6 +963,22 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self.circular_view.show_title = self._show_view_title
             self.circular_view.title_text = self._active_file_title()
             self.circular_view.update()
+
+    def _toggle_typewriter(self):
+        """Ctrl+Shift+W: toggle F1 typewriter mode (caret fixed at the centre, text
+        flows left, clipped at the circle) vs the classic centred entry. Persisted."""
+        self._typewriter_mode = not self._typewriter_mode
+        self.config['typewriter_mode'] = self._typewriter_mode
+        _save_config(self.config)
+        self._apply_entry_mode()
+        print(f"⌨ Typewriter mode {'ON' if self._typewriter_mode else 'OFF'}")
+
+    def _apply_entry_mode(self):
+        """Apply the current typewriter/classic mode to the F1 entry."""
+        self.entry.setAlignment(Qt.AlignmentFlag.AlignRight if self._typewriter_mode
+                                else Qt.AlignmentFlag.AlignCenter)
+        self._reposition_entry()
+        self.entry.update()
 
     def _handle_void_line(self):
         if self.current_view == 4:
