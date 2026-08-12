@@ -478,6 +478,7 @@ THEME
     bind = SUPER, B, exec, firefox
     bind = SUPER, A, exec, pavucontrol
     bind = SUPER, P, exec, kitty --title proto-voider -e proto-voider
+    bind = SUPER, E, exec, thunar
     bind = SUPER, Q, killactive,
     bind = SUPER, F, togglefloating, active
     bind = SUPER, TAB, cyclenext,
