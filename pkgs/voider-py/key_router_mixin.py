@@ -104,6 +104,10 @@ class KeyRouterMixin:
         if self._matches(key, mods, 'title_toggle'):
             self._toggle_view_title(); event.accept(); return
 
+        # Global: toggle F1 typewriter mode.
+        if self._matches(key, mods, 'typewriter_toggle'):
+            self._toggle_typewriter(); event.accept(); return
+
         # Global: rebase (F2 only, enforced inside; F3 handled view-specifically)
         if self._matches(key, mods, 'rebase') and self.current_view != 2:
             self.rebase_to_index_zero(); event.accept(); return
