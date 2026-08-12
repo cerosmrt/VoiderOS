@@ -162,7 +162,10 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                 selection-color: black;
             }}
         """)
-        self.entry.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Typewriter F1: the caret stays put at the screen centre and text flows
+        # left. Right-alignment pins the caret (end of text) at the entry's right
+        # edge, which _reposition_entry places on the centre.
+        self.entry.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.entry.setFocus()
 
         # Search bars (F2 and F3) — hidden by default, shown at bottom of screen
@@ -803,15 +806,22 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         else:
             panel.open_panel(effect)
 
+    @staticmethod
+    def _entry_geometry(w, h, entry_h):
+        """F1 typewriter: the entry fills the left half so its right edge (where the
+        right-aligned caret sits) lands on the screen centre — text flows left from
+        that fixed point. Returns (x, y, width)."""
+        return 0, h // 2 - entry_h // 2, max(1, w // 2)
+
     def _reposition_entry(self):
         w = self.width()
         h = self.height()
         if w == 0 or h == 0:
             return
-        entry_width = min(w, h) - 90
         entry_height = self.entry.sizeHint().height()
+        x, y, entry_width = self._entry_geometry(w, h, entry_height)
         self.entry.setFixedWidth(entry_width)
-        self.entry.move(w // 2 - entry_width // 2, h // 2 - entry_height // 2)
+        self.entry.move(x, y)
         # Search bars sit near the bottom
         bar_width = min(w - 100, 800)
         bar_x = (w - bar_width) // 2
