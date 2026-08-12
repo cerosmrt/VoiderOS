@@ -63,7 +63,19 @@ class CustomLineEdit(QLineEdit):
                 return
             super().keyPressEvent(event)
             return
-        
+
+        # Caps Lock only toggles scriptio-continua (spacebar voids) — never
+        # uppercase. While it's on, type letters in their normal case by swapping
+        # the case back (so the physical Caps effect is neutralised).
+        caps = getattr(self.parent, '_capslock_on', None)
+        if caps and caps() and not (modifiers & (Qt.KeyboardModifier.ControlModifier
+                | Qt.KeyboardModifier.AltModifier)):
+            t = event.text()
+            if t and t.isalpha():
+                self.insert(t.swapcase())
+                event.accept()
+                return
+
         # Atajos con Ctrl
         if key == Qt.Key.Key_0 and (modifiers & Qt.KeyboardModifier.ControlModifier):
             from controls import show_random_line_from_random_file
