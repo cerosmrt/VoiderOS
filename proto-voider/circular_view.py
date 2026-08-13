@@ -312,6 +312,11 @@ class CustomLineEdit(QLineEdit):
         ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
         shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
 
+        # Caps Lock never uppercases (same as F1) — letters type in normal case.
+        from widgets import neutralize_caps
+        if neutralize_caps(self, event):
+            return
+
         # Ctrl+C: a selection copies normally; with nothing selected, fire a
         # contextual copy (current line / paragraph / chapter — handled by the app).
         if ctrl and not shift and key == Qt.Key.Key_C:
