@@ -292,6 +292,12 @@ class CustomLineEdit(QLineEdit):
         self.home_end_doc = False      # set True on editors where Home/End jump the
                                        # whole document (first content line / last line)
 
+    def changeEvent(self, e):
+        # Grow the line's height to fit the font so large sizes aren't clipped.
+        if e.type() == QEvent.Type.FontChange:
+            self.setFixedHeight(self.sizeHint().height())
+        super().changeEvent(e)
+
     def event(self, e):
         # Qt grabs Tab/Backtab for focus traversal BEFORE keyPressEvent runs (the
         # parent CircularView is Tab-focusable), so without this the editor's Tab

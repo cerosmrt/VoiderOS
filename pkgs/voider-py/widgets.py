@@ -2,7 +2,7 @@
 import random
 from PyQt6.QtWidgets import QLineEdit, QWidget
 from PyQt6.QtGui import QPainter, QPixmap, QImage
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, QEvent, pyqtSignal
 
 
 def neutralize_caps(editor, event):
@@ -57,7 +57,13 @@ class CustomLineEdit(QLineEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent
-    
+
+    def changeEvent(self, e):
+        # Grow the line's height to fit the font so large sizes aren't clipped.
+        if e.type() == QEvent.Type.FontChange:
+            self.setFixedHeight(self.sizeHint().height())
+        super().changeEvent(e)
+
     def keyPressEvent(self, event):
         key = event.key()
         modifiers = event.modifiers()
