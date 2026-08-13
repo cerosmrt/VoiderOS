@@ -5,6 +5,26 @@ from PyQt6.QtGui import QPainter, QPixmap, QImage
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 
 
+def neutralize_caps(editor, event):
+    """Caps Lock must never uppercase — it only toggles scriptio-continua. If the
+    app's Caps LED is on (window()._capslock_on), type the letter in its normal
+    case by swapping the case back. Returns True if it handled the key. Ctrl/Alt
+    combos and non-letters pass through untouched. Shared by the F1 entry and the
+    F2/F3 doc editor."""
+    if event.modifiers() & (Qt.KeyboardModifier.ControlModifier
+                            | Qt.KeyboardModifier.AltModifier):
+        return False
+    caps = getattr(editor.window(), '_capslock_on', None)
+    if not (caps and caps()):
+        return False
+    t = event.text()
+    if t and t.isalpha():
+        editor.insert(t.swapcase())
+        event.accept()
+        return True
+    return False
+
+
 def hide_scrollbars(widget):
     """Hide both scrollbars on a scroll-area widget. Content still scrolls via
     the wheel and keys — only the bars go invisible."""
@@ -65,16 +85,9 @@ class CustomLineEdit(QLineEdit):
             return
 
         # Caps Lock only toggles scriptio-continua (spacebar voids) — never
-        # uppercase. While it's on, type letters in their normal case by swapping
-        # the case back (so the physical Caps effect is neutralised).
-        caps = getattr(self.parent, '_capslock_on', None)
-        if caps and caps() and not (modifiers & (Qt.KeyboardModifier.ControlModifier
-                | Qt.KeyboardModifier.AltModifier)):
-            t = event.text()
-            if t and t.isalpha():
-                self.insert(t.swapcase())
-                event.accept()
-                return
+        # uppercase. While it's on, letters type in their normal case.
+        if neutralize_caps(self, event):
+            return
 
         # Atajos con Ctrl
         if key == Qt.Key.Key_0 and (modifiers & Qt.KeyboardModifier.ControlModifier):
