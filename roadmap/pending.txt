@@ -99,6 +99,30 @@ WRITING / F2
 - Up with caret at end of line → land at END of previous line (not start).
   Custom up-navigation in F2 (and F3). Discussed, deferred.
 
+F1 TYPING / TYPEWRITER
+----------------------
+- TYPEWRITER "teleprompter" refinement (extends the Ctrl+Shift+W toggle already
+  shipped). Today typewriter mode = right-aligned entry pinned so the caret sits
+  on the screen centre and text flows left, clipped at the circle. Wanted:
+    * The caret stays FIXED at the centre and the TEXT moves — not just when
+      typing (already works) but ALSO when revising with the arrows: instead of
+      the caret moving, the phrase slides under it so the char you're on is
+      always centred (like a teleprompter).
+    * The caret blinks ONLY while the input is empty; once there's text it goes
+      static (no blink).
+  HARD: Qt/QLineEdit does neither natively (it always moves the cursor, and the
+  blink isn't per-widget). Approach outlined: a wide entry moved horizontally on
+  every keypress so the cursor lands on centre, masked to the circle band; the
+  caret drawn ourselves (custom paint) for the blink-when-empty behaviour. It's a
+  custom "teleprompter" line, a block in itself — build it fresh with the app open
+  to tune the feel (right-half stays empty, caret centred, arrows scroll text).
+
+- SCRIPTIO CONTINUA: disable Backspace too. In scriptio-continua mode (Caps on),
+  the only two actions should be TYPE and SEND (spacebar voids the line) — no
+  editing. Backspace must NOT delete. So: while Caps is on in F1, swallow
+  Backspace (and probably Delete / arrow editing) so a line, once written, only
+  moves forward or gets voided. (Pairs with the Caps-neutralise already done.)
+
 EDITING / UNDO
 --------------
 - Undo/redo (Ctrl+Z / Ctrl+Shift+Z) — SCOPED, ready to build. Decisions made:
