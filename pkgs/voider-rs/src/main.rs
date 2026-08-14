@@ -51,6 +51,10 @@ impl VoiderApp {
         let events = ctx.input(|i| i.events.clone());
         for event in events {
             match event {
+                // The backtick is a command (the scratch round trip), never a
+                // character: the key event below handles it, so drop the text or
+                // it would be typed into the line as well.
+                egui::Event::Text(t) if t == "`" => {}
                 egui::Event::Text(t) => match self.voider.view {
                     View::F1 => {
                         let _ = self.voider.type_text(&t, caps);
@@ -102,6 +106,8 @@ impl VoiderApp {
                 self.voider.show_title = !self.voider.show_title;
             }
             Key::G if m.ctrl && m.shift => self.voider.commit_void(),
+            // Backtick: round trip to the scratch, from wherever you are.
+            Key::Backtick => self.voider.scratch_toggle(),
             _ => return false,
         }
         true

@@ -71,6 +71,8 @@ pub struct Voider {
     /// F5: the side catalogue for sending a paragraph to a chapter.
     pub picker_open: bool,
     pub picker_idx: usize,
+    /// Where the backtick came from, so it can take you back.
+    pub scratch_return: Option<(PathBuf, View)>,
     /// Set when the active file existed but could not be read — saving must stay
     /// blocked, or we would overwrite content we never saw.
     pub load_failed: bool,
@@ -96,6 +98,7 @@ impl Voider {
             para_idx: 0,
             picker_open: false,
             picker_idx: 0,
+            scratch_return: None,
             load_failed: doc.read_failed,
             status: String::new(),
         }
@@ -462,6 +465,30 @@ impl Voider {
         self.entry.set_text(&joined);
         self.entry.set_caret(seam);
         self.save()
+    }
+
+    /// The scratch, `I/0.txt` — where writing goes when it has no home yet.
+    pub fn scratch_path(&self) -> PathBuf {
+        library::chapter_path(&self.void_dir, library::PORTAL)
+    }
+
+    /// Backtick: a round trip to the scratch. From anywhere else it remembers
+    /// where you were and drops you into 0.txt ready to write; from the scratch
+    /// it takes you back to that file and view.
+    pub fn scratch_toggle(&mut self) {
+        let scratch = self.scratch_path();
+        if self.current_file != scratch {
+            self.scratch_return = Some((self.current_file.clone(), self.view));
+            if !scratch.exists() {
+                let _ = void::atomic_write(&scratch, &[".".to_string()], false);
+            }
+            self.set_active_file(scratch);
+            self.switch_to(View::F1);
+            self.goto_end(); // land ready to write, at the end
+        } else if let Some((path, view)) = self.scratch_return.take() {
+            self.set_active_file(path);
+            self.switch_to(view);
+        }
     }
 
     /// Commit the whole void to git, as Ctrl+Shift+G does in the Python.
@@ -943,6 +970,31 @@ mod tests {
         v.switch_to(View::F5);
         assert!(!v.send_para_to("Uno.txt").unwrap());
         assert!(v.ring.lines.contains(&"de uno".to_string()));
+    }
+
+    #[test]
+    fn the_backtick_goes_to_the_scratch_and_back() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F2);
+        let origin = v.current_file.clone();
+
+        v.scratch_toggle();
+        assert!(v.current_file.ends_with("0.txt"));
+        assert_eq!(v.view, View::F1); // dropped into writing
+        assert!(v.scratch_path().exists()); // created on the way in
+
+        v.scratch_toggle();
+        assert_eq!(v.current_file, origin); // back where we were
+        assert_eq!(v.view, View::F2);
+        assert!(v.scratch_return.is_none()); // consumed
+    }
+
+    #[test]
+    fn the_backtick_on_the_scratch_without_an_origin_stays_put() {
+        let (_d, mut v) = book();
+        v.set_active_file(v.scratch_path());
+        v.scratch_toggle(); // arrived by other means → nothing to return to
+        assert!(v.current_file.ends_with("0.txt"));
     }
 
     #[test]

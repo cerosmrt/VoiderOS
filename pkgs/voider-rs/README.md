@@ -35,18 +35,42 @@ nix-shell --run "cargo run"      # opens the window
 
 ## Milestones
 
-- **M0 — scaffold.** ✅ Crate, black window, `LineRing` ported with tests.
-- **M1 — the core.** F1 + the `/void` data layer (atomic writes) + git2 + the
-  custom text line (owning the caret ⇒ the typewriter comes for free).
-- **M2** F2 · **M3** F3 · **M4** F5 · **M5** F4/F6–F10.
+- **M0 — scaffold.** ✅ Crate, black window, `LineRing` ported.
+- **M1 — the core.** ✅ The `/void` data layer (atomic writes, git), the custom
+  text line, and F1 writing for real.
+- **M2 — F2.** ✅ The document as a ring, edited in place.
+- **M3 — F3.** ✅ The library: `I.txt`, opening and creating chapters.
+- **M4 — F5.** ✅ Paragraphs: reorder across fences, send to a chapter.
+- **Next:** F4 (reading/print), F6–F8 (the O/ reader and oracle), F9, F10;
+  config file; undo/redo; multi-instance IPC.
 - **M final — be the desktop.** wlr-layer-shell. Note `pkgs/voider-shell/` is
   already a Rust layer-shell host (smithay-client-toolkit), so this is closer
   than it looks.
+
+## Keys
+
+| | |
+|---|---|
+| `F1` `F2` `F3` `F5` | views |
+| `` ` `` | round trip to the scratch and back |
+| `Ctrl+Shift+W` | typewriter mode |
+| `Ctrl+Shift+T` | pinned title |
+| `Ctrl+Shift+G` | commit the void |
+| F3: `Shift+Enter` / `Enter` / `Esc` | new chapter / open / cancel |
+| F5: `Alt+↑↓` / `→` / `←` / `Enter` | move paragraph / catalogue / back / to F2 |
+
+Caps Lock is scriptio continua: the spacebar releases the line, it never
+uppercases, and there is no Backspace — type and send.
 
 ## Layout
 
 ```
 src/
-├── main.rs       app entry + eframe window
-└── line_ring.rs  port of line_ring.py (pure logic, tested)
+├── main.rs       eframe window: input routing and all drawing
+├── app.rs        app state and view logic (no egui — testable headless)
+├── void.rs       /void: load, atomic write, git
+├── library.rs    I.txt, the ordered index of the book
+├── f5.rs         paragraph tokenising and reordering
+├── text_line.rs  the editable line we own the caret of
+└── line_ring.rs  port of line_ring.py
 ```
