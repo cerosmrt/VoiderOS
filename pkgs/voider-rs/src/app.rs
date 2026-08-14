@@ -9,6 +9,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::library::{self, Library};
 use crate::line_ring::LineRing;
 use crate::text_line::{self, TextLine};
 use crate::void;
@@ -44,12 +45,15 @@ pub enum View {
     F1,
     /// The document as a circular list, editing the centred line in place.
     F2,
+    /// The library: the book's chapters in reading order.
+    F3,
 }
 
 pub struct Voider {
     pub void_dir: PathBuf,
     pub current_file: PathBuf,
     pub ring: LineRing,
+    pub library: Library,
     pub view: View,
     /// The line being edited: the write line in F1, the centred line in F2.
     pub entry: TextLine,
@@ -57,6 +61,8 @@ pub struct Voider {
     pub typewriter: bool,
     /// The pinned, centred title at the top of the view (a toggle).
     pub show_title: bool,
+    /// F3 is holding a blank entry waiting to be named.
+    pub pending_new: bool,
     /// Set when the active file existed but could not be read — saving must stay
     /// blocked, or we would overwrite content we never saw.
     pub load_failed: bool,
@@ -73,10 +79,12 @@ impl Voider {
             void_dir,
             current_file,
             ring: LineRing::new(doc.lines),
+            library: Library::default(),
             view: View::F1,
             entry: TextLine::new(""),
             typewriter: false,
             show_title: false,
+            pending_new: false,
             load_failed: doc.read_failed,
             status: String::new(),
         }
@@ -153,7 +161,85 @@ impl Voider {
                 self.entry.set_text(&cur);
                 self.entry.home(); // F2 lands at the start of the line
             }
+            View::F3 => {
+                self.library = Library::load(&self.void_dir);
+                // Land on the file you were just in, not on some stale cursor.
+                if let Some(name) = self.current_file.file_name() {
+                    if let Some(i) = self.library.position(&name.to_string_lossy()) {
+                        self.library.index = i;
+                    }
+                }
+            }
         }
+    }
+
+    // ── F3: the library ───────────────────────────────────────────────────────
+
+    /// Make `path` the active document, loading it into the ring.
+    pub fn set_active_file(&mut self, path: impl Into<PathBuf>) {
+        let path = path.into();
+        let doc = void::load_doc(&path);
+        self.current_file = path;
+        self.ring = LineRing::new(doc.lines);
+        self.load_failed = doc.read_failed;
+    }
+
+    /// Enter in F3: open the highlighted chapter in F2. Separators are structure,
+    /// not chapters — they open nothing.
+    pub fn open_current_chapter(&mut self) {
+        let entry = self.library.current().to_string();
+        if entry.is_empty() || library::is_separator(&entry) {
+            return;
+        }
+        let path = library::chapter_path(&self.void_dir, &entry);
+        self.set_active_file(path);
+        self.switch_to(View::F2);
+    }
+
+    /// Start naming a new chapter, to be created below the current entry.
+    pub fn begin_new_chapter(&mut self) {
+        self.pending_new = true;
+        self.entry.clear();
+    }
+
+    /// Leaving a half-named entry settles it: a name is created (no Enter
+    /// needed), an empty one is dropped. You can never end up with a blank title.
+    pub fn settle_pending(&mut self) -> io::Result<()> {
+        if !self.pending_new {
+            return Ok(());
+        }
+        self.pending_new = false;
+        let name = self.entry.text();
+        self.entry.clear();
+        self.new_chapter(&name).map(|_| ())
+    }
+
+    /// Escape: throw the half-named entry away outright.
+    pub fn cancel_pending(&mut self) {
+        self.pending_new = false;
+        self.entry.clear();
+    }
+
+    /// Create a chapter named `name` directly below the current entry — next to
+    /// what you were working on — and list it. Returns its path.
+    pub fn new_chapter(&mut self, name: &str) -> io::Result<Option<PathBuf>> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Ok(None);
+        }
+        let file = format!("{name}.txt");
+        if self.library.position(&file).is_some() {
+            return Ok(None); // an existing name keeps its file; never clobber it
+        }
+        let path = library::chapter_path(&self.void_dir, &file);
+        if !path.exists() {
+            void::atomic_write(&path, &[".".to_string()], false)?;
+        }
+        let at = self.library.index;
+        self.library.insert_below(at, file);
+        self.library.index = (at + 1).min(self.library.entries.len() - 1);
+        self.library.save(&self.void_dir)?;
+        Ok(Some(path))
     }
 
     /// F2 saves on every keystroke. Blank text is never written over a line and
@@ -492,6 +578,114 @@ mod tests {
         v.entry.set_text("nueva");
         v.switch_to(View::F1);
         assert_eq!(v.ring.lines[1], "nueva");
+    }
+
+    // ── F3 ────────────────────────────────────────────────────────────────────
+
+    /// A void with two chapters and the scratch, as F3 would find it.
+    fn book() -> (tempfile::TempDir, Voider) {
+        let d = tempfile::tempdir().unwrap();
+        let i = d.path().join("I");
+        std::fs::create_dir_all(&i).unwrap();
+        void::atomic_write(&i.join("Uno.txt"), &[".".into(), "de uno".into()], false).unwrap();
+        void::atomic_write(&i.join("Dos.txt"), &[".".into(), "de dos".into()], false).unwrap();
+        let v = Voider::open(d.path(), i.join("Uno.txt"));
+        (d, v)
+    }
+
+    #[test]
+    fn f3_lists_the_book_and_lands_on_the_active_file() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        assert_eq!(v.library.entries, vec!["Dos.txt", "Uno.txt"]); // sorted on first build
+        assert_eq!(v.library.current(), "Uno.txt"); // where we were
+    }
+
+    #[test]
+    fn opening_a_chapter_loads_it_into_f2() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.index = v.library.position("Dos.txt").unwrap();
+        v.open_current_chapter();
+        assert_eq!(v.view, View::F2);
+        assert!(v.current_file.ends_with("Dos.txt"));
+        assert!(v.ring.lines.contains(&"de dos".to_string()));
+    }
+
+    #[test]
+    fn a_separator_opens_nothing() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.entries.insert(0, ".".into());
+        v.library.index = 0;
+        let before = v.current_file.clone();
+        v.open_current_chapter();
+        assert_eq!(v.current_file, before);
+        assert_eq!(v.view, View::F3);
+    }
+
+    #[test]
+    fn a_new_chapter_lands_below_the_current_one() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.index = v.library.position("Dos.txt").unwrap();
+        let path = v.new_chapter("Tres").unwrap().unwrap();
+        assert!(path.exists());
+        assert_eq!(v.library.entries, vec!["Dos.txt", "Tres.txt", "Uno.txt"]);
+        assert_eq!(v.library.current(), "Tres.txt");
+        // and it survives a reload from disk
+        assert!(Library::load(&v.void_dir).entries.contains(&"Tres.txt".to_string()));
+    }
+
+    #[test]
+    fn leaving_a_named_entry_creates_it_without_enter() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.begin_new_chapter();
+        v.entry.set_text("Tres");
+        v.settle_pending().unwrap(); // e.g. navigating away
+        assert!(!v.pending_new);
+        assert!(v.library.entries.contains(&"Tres.txt".to_string()));
+    }
+
+    #[test]
+    fn leaving_an_unnamed_entry_drops_it() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        let n = v.library.entries.len();
+        v.begin_new_chapter();
+        v.settle_pending().unwrap();
+        assert_eq!(v.library.entries.len(), n); // no blank title ever persists
+    }
+
+    #[test]
+    fn escape_throws_a_named_entry_away() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        let n = v.library.entries.len();
+        v.begin_new_chapter();
+        v.entry.set_text("Descartame");
+        v.cancel_pending();
+        assert_eq!(v.library.entries.len(), n);
+        assert!(!v.pending_new);
+    }
+
+    #[test]
+    fn an_empty_name_creates_nothing() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        let n = v.library.entries.len();
+        assert!(v.new_chapter("   ").unwrap().is_none());
+        assert_eq!(v.library.entries.len(), n);
+    }
+
+    #[test]
+    fn an_existing_name_never_clobbers_its_file() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        assert!(v.new_chapter("Dos").unwrap().is_none());
+        let doc = void::load_doc(&library::chapter_path(&v.void_dir, "Dos.txt"));
+        assert!(doc.lines.contains(&"de dos".to_string())); // untouched
     }
 
     #[test]

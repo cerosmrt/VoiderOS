@@ -7,6 +7,7 @@
 //! just "what do I draw this frame?".
 
 mod app;
+mod library;
 mod line_ring;
 mod text_line;
 mod void;
@@ -57,6 +58,12 @@ impl VoiderApp {
                         self.voider.entry.insert(&text_line::neutralize_caps(&t, caps));
                         let _ = self.voider.doc_live_save();
                     }
+                    // In F3 typing only means something while naming a new entry.
+                    View::F3 => {
+                        if self.voider.pending_new {
+                            self.voider.entry.insert(&text_line::neutralize_caps(&t, caps));
+                        }
+                    }
                 },
                 egui::Event::Key { key, pressed: true, modifiers, .. } => {
                     if self.handle_global_key(key, modifiers) {
@@ -65,6 +72,7 @@ impl VoiderApp {
                     match self.voider.view {
                         View::F1 => self.handle_f1_key(key, caps),
                         View::F2 => self.handle_f2_key(key, caps),
+                        View::F3 => self.handle_f3_key(key, modifiers),
                     }
                 }
                 _ => {}
@@ -78,6 +86,7 @@ impl VoiderApp {
         match key {
             Key::F1 => self.voider.switch_to(View::F1),
             Key::F2 => self.voider.switch_to(View::F2),
+            Key::F3 => self.voider.switch_to(View::F3),
             Key::W if m.ctrl && m.shift => {
                 self.voider.typewriter = !self.voider.typewriter;
                 self.voider.status = format!(
@@ -152,6 +161,38 @@ impl VoiderApp {
             Key::ArrowRight => self.voider.entry.move_caret(1),
             Key::Home => self.voider.entry.home(),
             Key::End => self.voider.entry.end(),
+            _ => {}
+        }
+    }
+
+    fn handle_f3_key(&mut self, key: egui::Key, m: egui::Modifiers) {
+        use egui::Key;
+        match key {
+            // Shift+Enter opens a blank entry to name; Enter confirms it, or
+            // opens the highlighted chapter when we're just browsing.
+            Key::Enter if m.shift => self.voider.begin_new_chapter(),
+            Key::Enter => {
+                if self.voider.pending_new {
+                    let _ = self.voider.settle_pending();
+                } else {
+                    self.voider.open_current_chapter();
+                }
+            }
+            Key::Escape => self.voider.cancel_pending(),
+            Key::Backspace => {
+                if self.voider.pending_new {
+                    self.voider.entry.backspace();
+                }
+            }
+            // Moving away settles a named entry instead of losing it.
+            Key::ArrowUp => {
+                let _ = self.voider.settle_pending();
+                self.voider.library.move_by(-1);
+            }
+            Key::ArrowDown => {
+                let _ = self.voider.settle_pending();
+                self.voider.library.move_by(1);
+            }
             _ => {}
         }
     }
@@ -256,6 +297,47 @@ impl VoiderApp {
         self.draw_entry_line(painter, ctx, centre, rect, self.voider.typewriter);
     }
 
+    /// The library: chapter titles in reading order, the current one centred.
+    /// Separators show as a dot; the naming of a new entry happens in place.
+    fn draw_f3(&self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
+        let centre = rect.center();
+        let line_h = FONT_SIZE * 1.7;
+        let font = egui::FontId::proportional(FONT_SIZE);
+        let lib = &self.voider.library;
+        let reach = (rect.height() / 2.0 / line_h).ceil() as isize;
+        let n = lib.entries.len() as isize;
+
+        if n > 0 {
+            for offset in -reach..=reach {
+                if offset == 0 && self.voider.pending_new {
+                    continue; // the name being typed is drawn as the entry line
+                }
+                let i = (lib.index as isize + offset).rem_euclid(n) as usize;
+                let label = library::display_name(&lib.entries[i]);
+                let dist = offset.unsigned_abs() as f32;
+                let alpha = if offset == 0 {
+                    255
+                } else {
+                    let fade = (1.0 - (dist / F2_FADE_LINES)).clamp(0.0, 1.0);
+                    (fade * fade * 200.0) as u8
+                };
+                if alpha == 0 {
+                    continue;
+                }
+                painter.text(
+                    egui::pos2(centre.x, centre.y + offset as f32 * line_h),
+                    egui::Align2::CENTER_CENTER,
+                    label,
+                    font.clone(),
+                    egui::Color32::from_white_alpha(alpha),
+                );
+            }
+        }
+        if self.voider.pending_new {
+            self.draw_entry_line(painter, ctx, centre, rect, false);
+        }
+    }
+
     fn draw_title(&self, painter: &egui::Painter, rect: egui::Rect) {
         if !self.voider.show_title {
             return;
@@ -287,6 +369,7 @@ impl eframe::App for VoiderApp {
                 match self.voider.view {
                     View::F1 => self.draw_f1(&painter, ctx, rect),
                     View::F2 => self.draw_f2(&painter, ctx, rect),
+                    View::F3 => self.draw_f3(&painter, ctx, rect),
                 }
                 self.draw_title(&painter, rect);
                 if !self.voider.status.is_empty() {
