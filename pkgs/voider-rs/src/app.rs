@@ -37,14 +37,26 @@ pub fn caps_lock_on() -> bool {
     false
 }
 
+/// Which view is on screen. Both edit the same ring and the same active file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum View {
+    /// Focus writing: one line at a time, into the active file.
+    F1,
+    /// The document as a circular list, editing the centred line in place.
+    F2,
+}
+
 pub struct Voider {
     pub void_dir: PathBuf,
     pub current_file: PathBuf,
     pub ring: LineRing,
-    /// The line being written in F1.
+    pub view: View,
+    /// The line being edited: the write line in F1, the centred line in F2.
     pub entry: TextLine,
     /// Typewriter mode: the caret is pinned and the text slides under it.
     pub typewriter: bool,
+    /// The pinned, centred title at the top of the view (a toggle).
+    pub show_title: bool,
     /// Set when the active file existed but could not be read — saving must stay
     /// blocked, or we would overwrite content we never saw.
     pub load_failed: bool,
@@ -61,8 +73,10 @@ impl Voider {
             void_dir,
             current_file,
             ring: LineRing::new(doc.lines),
+            view: View::F1,
             entry: TextLine::new(""),
             typewriter: false,
+            show_title: false,
             load_failed: doc.read_failed,
             status: String::new(),
         }
@@ -121,6 +135,94 @@ impl Voider {
     pub fn show_current(&mut self) {
         let cur = self.ring.current();
         self.entry.set_text(if cur == "." { "" } else { cur });
+    }
+
+    // ── F2: the document as a ring, editing the centred line ──────────────────
+
+    /// Switch views, carrying the edit with you: leaving F2 persists the line,
+    /// and each view mirrors the ring line the way it shows it.
+    pub fn switch_to(&mut self, view: View) {
+        if self.view == View::F2 {
+            let _ = self.doc_live_save();
+        }
+        self.view = view;
+        match view {
+            View::F1 => self.show_current(),
+            View::F2 => {
+                let cur = self.ring.current().to_string();
+                self.entry.set_text(&cur);
+                self.entry.home(); // F2 lands at the start of the line
+            }
+        }
+    }
+
+    /// F2 saves on every keystroke. Blank text is never written over a line and
+    /// a `.` separator is never overwritten — they're structure, not content.
+    pub fn doc_live_save(&mut self) -> io::Result<()> {
+        let text = self.entry.text();
+        if text.trim().is_empty() || self.ring.lines.is_empty() {
+            return Ok(());
+        }
+        let i = self.ring.index;
+        if self.ring.lines[i] == "." {
+            return Ok(());
+        }
+        self.ring.lines[i] = text;
+        self.save()
+    }
+
+    /// Move through the document. The caret lands at the start of the new line —
+    /// unless it was sitting at the end of the old one, in which case it stays
+    /// at the end, so walking a paragraph feels continuous.
+    pub fn doc_navigate(&mut self, delta: isize) -> io::Result<()> {
+        let at_end = self.entry.caret() == self.entry.len();
+        self.doc_live_save()?;
+        self.ring.move_by(delta);
+        let cur = self.ring.current().to_string();
+        self.entry.set_text(&cur);
+        if at_end {
+            self.entry.end();
+        } else {
+            self.entry.home();
+        }
+        Ok(())
+    }
+
+    /// Enter in F2 breaks the line at the caret: what's after it becomes the
+    /// next line, and you land on it.
+    pub fn doc_split_line(&mut self) -> io::Result<()> {
+        if self.ring.lines.is_empty() {
+            return Ok(());
+        }
+        let chars: Vec<char> = self.entry.text().chars().collect();
+        let pos = self.entry.caret().min(chars.len());
+        let before: String = chars[..pos].iter().collect();
+        let after: String = chars[pos..].iter().collect();
+        let i = self.ring.index;
+        self.ring.lines[i] = before;
+        self.ring.lines.insert(i + 1, after);
+        self.ring.index = i + 1;
+        let cur = self.ring.current().to_string();
+        self.entry.set_text(&cur);
+        self.entry.home();
+        self.save()
+    }
+
+    /// Backspace at the start of a line joins it onto the one above, with the
+    /// caret left at the seam. Separators are never swallowed.
+    pub fn doc_join_prev(&mut self) -> io::Result<()> {
+        let i = self.ring.index;
+        if i == 0 || self.ring.lines[i] == "." || self.ring.lines[i - 1] == "." {
+            return Ok(());
+        }
+        let cur = self.ring.lines.remove(i);
+        let seam = self.ring.lines[i - 1].chars().count();
+        self.ring.lines[i - 1].push_str(&cur);
+        self.ring.index = i - 1;
+        let joined = self.ring.lines[i - 1].clone();
+        self.entry.set_text(&joined);
+        self.entry.set_caret(seam);
+        self.save()
     }
 
     /// Commit the whole void to git, as Ctrl+Shift+G does in the Python.
@@ -288,6 +390,108 @@ mod tests {
         v.save().unwrap();
         let on_disk = void::load_doc(&v.current_file);
         assert!(on_disk.lines.contains(&"importante".to_string())); // untouched
+    }
+
+    // ── F2 ────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn entering_f2_shows_the_line_with_the_caret_at_the_start() {
+        let (_d, mut v) = app(&[".", "una linea"]);
+        v.ring.index = 1;
+        v.switch_to(View::F2);
+        assert_eq!(v.entry.text(), "una linea");
+        assert_eq!(v.entry.caret(), 0);
+    }
+
+    #[test]
+    fn f2_live_save_writes_through_to_disk() {
+        let (_d, mut v) = app(&[".", "vieja"]);
+        v.ring.index = 1;
+        v.switch_to(View::F2);
+        v.entry.set_text("editada");
+        v.doc_live_save().unwrap();
+        assert_eq!(v.ring.lines[1], "editada");
+        assert!(void::load_doc(&v.current_file).lines.contains(&"editada".to_string()));
+    }
+
+    #[test]
+    fn f2_never_blanks_a_line_or_a_separator() {
+        let (_d, mut v) = app(&[".", "texto"]);
+        v.ring.index = 1;
+        v.entry.set_text("   ");
+        v.doc_live_save().unwrap();
+        assert_eq!(v.ring.lines[1], "texto"); // blank never overwrites
+
+        v.ring.index = 0; // on the '.'
+        v.entry.set_text("nope");
+        v.doc_live_save().unwrap();
+        assert_eq!(v.ring.lines[0], "."); // structure survives
+    }
+
+    #[test]
+    fn navigating_persists_the_edit_and_keeps_an_end_caret() {
+        let (_d, mut v) = app(&[".", "a", "bb"]);
+        v.ring.index = 1;
+        v.switch_to(View::F2);
+        v.entry.set_text("editada");
+        v.entry.end();
+        v.doc_navigate(1).unwrap();
+        assert_eq!(v.ring.lines[1], "editada"); // the edit was kept
+        assert_eq!(v.entry.text(), "bb");
+        assert_eq!(v.entry.caret(), 2); // was at the end, stays at the end
+    }
+
+    #[test]
+    fn navigating_from_mid_line_lands_at_the_start() {
+        let (_d, mut v) = app(&[".", "a", "bb"]);
+        v.ring.index = 1;
+        v.switch_to(View::F2);
+        v.entry.set_caret(0);
+        v.doc_navigate(1).unwrap();
+        assert_eq!(v.entry.caret(), 0);
+    }
+
+    #[test]
+    fn enter_splits_the_line_at_the_caret() {
+        let (_d, mut v) = app(&[".", "hola mundo"]);
+        v.ring.index = 1;
+        v.switch_to(View::F2);
+        v.entry.set_caret(4);
+        v.doc_split_line().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "hola", " mundo"]);
+        assert_eq!(v.ring.index, 2); // landed on the new line
+        assert_eq!(v.entry.text(), " mundo");
+        assert_eq!(v.entry.caret(), 0);
+    }
+
+    #[test]
+    fn backspace_at_the_start_joins_with_the_line_above() {
+        let (_d, mut v) = app(&[".", "hola", "mundo"]);
+        v.ring.index = 2;
+        v.switch_to(View::F2);
+        v.doc_join_prev().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "holamundo"]);
+        assert_eq!(v.ring.index, 1);
+        assert_eq!(v.entry.caret(), 4); // the caret sits at the seam
+    }
+
+    #[test]
+    fn joining_never_swallows_a_separator() {
+        let (_d, mut v) = app(&[".", "texto"]);
+        v.ring.index = 1;
+        v.switch_to(View::F2);
+        v.doc_join_prev().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "texto"]); // '.' above → refused
+    }
+
+    #[test]
+    fn leaving_f2_persists_the_edit() {
+        let (_d, mut v) = app(&[".", "vieja"]);
+        v.ring.index = 1;
+        v.switch_to(View::F2);
+        v.entry.set_text("nueva");
+        v.switch_to(View::F1);
+        assert_eq!(v.ring.lines[1], "nueva");
     }
 
     #[test]

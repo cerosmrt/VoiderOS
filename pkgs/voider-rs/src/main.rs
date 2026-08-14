@@ -13,11 +13,13 @@ mod void;
 
 use eframe::egui;
 
-use app::{caps_lock_on, Voider};
+use app::{caps_lock_on, View, Voider};
 
 const FONT_SIZE: f32 = 22.0;
 /// Matches the Python view: the circle inset from the shorter side.
 const CIRCLE_INSET: f32 = 35.0;
+/// How far the fade reaches in F2, in lines above and below the centre.
+const F2_FADE_LINES: f32 = 7.0;
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -42,53 +44,27 @@ impl VoiderApp {
         Self { voider: app::open_sandbox() }
     }
 
-    /// Keys for F1. Text arrives as `Event::Text`, already Caps-applied by the
-    /// OS — `type_text` undoes that, and turns the spacebar into "release the
-    /// line" while Caps is on (scriptio continua).
     fn handle_input(&mut self, ctx: &egui::Context) {
         let caps = caps_lock_on();
         let events = ctx.input(|i| i.events.clone());
         for event in events {
             match event {
-                egui::Event::Text(t) => {
-                    let _ = self.voider.type_text(&t, caps);
-                }
+                egui::Event::Text(t) => match self.voider.view {
+                    View::F1 => {
+                        let _ = self.voider.type_text(&t, caps);
+                    }
+                    View::F2 => {
+                        self.voider.entry.insert(&text_line::neutralize_caps(&t, caps));
+                        let _ = self.voider.doc_live_save();
+                    }
+                },
                 egui::Event::Key { key, pressed: true, modifiers, .. } => {
-                    use egui::Key;
-                    match key {
-                        Key::Enter => {
-                            let _ = self.voider.commit_line();
-                        }
-                        Key::Backspace => {
-                            self.voider.backspace(caps);
-                        }
-                        Key::Delete => {
-                            self.voider.entry.delete();
-                        }
-                        Key::ArrowLeft => self.voider.entry.move_caret(-1),
-                        Key::ArrowRight => self.voider.entry.move_caret(1),
-                        Key::Home => self.voider.entry.home(),
-                        Key::End => self.voider.entry.end(),
-                        // Ring navigation mirrors the entry, as F1 does.
-                        Key::ArrowUp => {
-                            self.voider.ring.move_by(-1);
-                            self.voider.show_current();
-                        }
-                        Key::ArrowDown => {
-                            self.voider.ring.move_by(1);
-                            self.voider.show_current();
-                        }
-                        Key::W if modifiers.ctrl && modifiers.shift => {
-                            self.voider.typewriter = !self.voider.typewriter;
-                            self.voider.status = format!(
-                                "Typewriter {}",
-                                if self.voider.typewriter { "ON" } else { "OFF" }
-                            );
-                        }
-                        Key::G if modifiers.ctrl && modifiers.shift => {
-                            self.voider.commit_void();
-                        }
-                        _ => {}
+                    if self.handle_global_key(key, modifiers) {
+                        continue;
+                    }
+                    match self.voider.view {
+                        View::F1 => self.handle_f1_key(key, caps),
+                        View::F2 => self.handle_f2_key(key, caps),
                     }
                 }
                 _ => {}
@@ -96,60 +72,131 @@ impl VoiderApp {
         }
     }
 
-    fn draw_f1(&self, ui: &egui::Ui, ctx: &egui::Context) {
-        let painter = ui.painter();
-        let rect = ui.max_rect();
-        let center = rect.center();
-        let radius = (rect.width().min(rect.height())) / 2.0 - CIRCLE_INSET;
+    /// Keys that mean the same thing everywhere. Returns true when handled.
+    fn handle_global_key(&mut self, key: egui::Key, m: egui::Modifiers) -> bool {
+        use egui::Key;
+        match key {
+            Key::F1 => self.voider.switch_to(View::F1),
+            Key::F2 => self.voider.switch_to(View::F2),
+            Key::W if m.ctrl && m.shift => {
+                self.voider.typewriter = !self.voider.typewriter;
+                self.voider.status = format!(
+                    "Typewriter {}",
+                    if self.voider.typewriter { "ON" } else { "OFF" }
+                );
+            }
+            Key::T if m.ctrl && m.shift => {
+                self.voider.show_title = !self.voider.show_title;
+            }
+            Key::G if m.ctrl && m.shift => self.voider.commit_void(),
+            _ => return false,
+        }
+        true
+    }
 
-        painter.circle_stroke(
-            center,
-            radius,
-            egui::Stroke::new(10.0_f32, egui::Color32::WHITE),
-        );
+    fn handle_f1_key(&mut self, key: egui::Key, caps: bool) {
+        use egui::Key;
+        match key {
+            Key::Enter => {
+                let _ = self.voider.commit_line();
+            }
+            Key::Backspace => {
+                self.voider.backspace(caps);
+            }
+            Key::Delete => {
+                self.voider.entry.delete();
+            }
+            Key::ArrowLeft => self.voider.entry.move_caret(-1),
+            Key::ArrowRight => self.voider.entry.move_caret(1),
+            Key::Home => self.voider.entry.home(),
+            Key::End => self.voider.entry.end(),
+            Key::ArrowUp => {
+                self.voider.ring.move_by(-1);
+                self.voider.show_current();
+            }
+            Key::ArrowDown => {
+                self.voider.ring.move_by(1);
+                self.voider.show_current();
+            }
+            _ => {}
+        }
+    }
 
+    fn handle_f2_key(&mut self, key: egui::Key, caps: bool) {
+        use egui::Key;
+        match key {
+            Key::Enter => {
+                let _ = self.voider.doc_split_line();
+            }
+            Key::Backspace => {
+                if caps {
+                    // scriptio continua: type and send, no editing
+                } else if self.voider.entry.caret() == 0 {
+                    let _ = self.voider.doc_join_prev();
+                } else {
+                    self.voider.entry.backspace();
+                    let _ = self.voider.doc_live_save();
+                }
+            }
+            Key::Delete => {
+                self.voider.entry.delete();
+                let _ = self.voider.doc_live_save();
+            }
+            Key::ArrowUp => {
+                let _ = self.voider.doc_navigate(-1);
+            }
+            Key::ArrowDown => {
+                let _ = self.voider.doc_navigate(1);
+            }
+            Key::ArrowLeft => self.voider.entry.move_caret(-1),
+            Key::ArrowRight => self.voider.entry.move_caret(1),
+            Key::Home => self.voider.entry.home(),
+            Key::End => self.voider.entry.end(),
+            _ => {}
+        }
+    }
+
+    // ── drawing ───────────────────────────────────────────────────────────────
+
+    /// Lay out the entry and draw it with our own caret. `anchor_caret` pins the
+    /// caret to the centre (typewriter) instead of centring the whole line.
+    fn draw_entry_line(
+        &self,
+        painter: &egui::Painter,
+        ctx: &egui::Context,
+        centre: egui::Pos2,
+        clip: egui::Rect,
+        anchor_caret: bool,
+    ) {
         let font = egui::FontId::proportional(FONT_SIZE);
         let text = self.voider.entry.text();
         let before = self.voider.entry.before_caret();
-        // Lay out both halves to know where the caret falls inside the line.
-        let galley = ctx.fonts(|f| {
-            f.layout_no_wrap(text.clone(), font.clone(), egui::Color32::WHITE)
-        });
-        let before_w = ctx.fonts(|f| {
-            f.layout_no_wrap(before, font.clone(), egui::Color32::WHITE)
-                .size()
-                .x
-        });
+        let galley =
+            ctx.fonts(|f| f.layout_no_wrap(text, font.clone(), egui::Color32::WHITE));
+        let before_w =
+            ctx.fonts(|f| f.layout_no_wrap(before, font, egui::Color32::WHITE).size().x);
 
-        // Typewriter: place the line so the caret lands exactly on the centre —
-        // then the caret never moves and the text slides under it, including
-        // when the arrows walk through the line. Classic: plain centred text.
-        let left_x = if self.voider.typewriter {
-            center.x - before_w
+        let size = galley.size();
+        let left_x = if anchor_caret {
+            centre.x - before_w
         } else {
-            center.x - galley.size().x / 2.0
+            centre.x - size.x / 2.0
         };
-        let top_y = center.y - galley.size().y / 2.0;
+        let top_y = centre.y - size.y / 2.0;
 
-        // Nothing may show outside the circle.
-        let band = egui::Rect::from_min_max(
-            egui::pos2(center.x - radius, rect.top()),
-            egui::pos2(center.x + radius, rect.bottom()),
-        );
-        let clipped = painter.with_clip_rect(band);
-        let galley_size = galley.size();
-        clipped.galley(egui::pos2(left_x, top_y), galley, egui::Color32::WHITE);
+        let p = painter.with_clip_rect(clip);
+        p.galley(egui::pos2(left_x, top_y), galley, egui::Color32::WHITE);
 
         // The caret blinks only while the line is empty; once there is text it
         // holds still, so the last letter typed is the thing you look at.
-        let caret_x = left_x + before_w;
         let blinking = self.voider.entry.is_empty();
         let visible = !blinking || (ctx.input(|i| i.time) * 1.6).sin() > 0.0;
         if visible {
-            clipped.line_segment(
+            let x = left_x + before_w;
+            p.line_segment(
                 [
-                    egui::pos2(caret_x, top_y + 2.0),
-                    egui::pos2(caret_x, top_y + galley_size.y - 2.0),
+                    egui::pos2(x, top_y + 2.0),
+                    egui::pos2(x, top_y + size.y - 2.0),
                 ],
                 egui::Stroke::new(2.0_f32, egui::Color32::WHITE),
             );
@@ -157,16 +204,70 @@ impl VoiderApp {
         if blinking {
             ctx.request_repaint_after(std::time::Duration::from_millis(120));
         }
+    }
 
-        if !self.voider.status.is_empty() {
+    fn draw_f1(&self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
+        let centre = rect.center();
+        let radius = rect.width().min(rect.height()) / 2.0 - CIRCLE_INSET;
+        painter.circle_stroke(
+            centre,
+            radius,
+            egui::Stroke::new(10.0_f32, egui::Color32::WHITE),
+        );
+        // Nothing may show outside the circle.
+        let band = egui::Rect::from_min_max(
+            egui::pos2(centre.x - radius, rect.top()),
+            egui::pos2(centre.x + radius, rect.bottom()),
+        );
+        self.draw_entry_line(painter, ctx, centre, band, self.voider.typewriter);
+    }
+
+    /// The document as a ring: the current line centred and lit, the rest fading
+    /// away above and below.
+    fn draw_f2(&self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
+        let centre = rect.center();
+        let line_h = FONT_SIZE * 1.7;
+        let font = egui::FontId::proportional(FONT_SIZE);
+        let reach = (rect.height() / 2.0 / line_h).ceil() as isize;
+
+        for offset in -reach..=reach {
+            if offset == 0 {
+                continue; // the centred line is the editable entry, drawn below
+            }
+            let text = self.voider.ring.get(offset);
+            if text.is_empty() {
+                continue;
+            }
+            let dist = offset.unsigned_abs() as f32;
+            let fade = (1.0 - (dist / F2_FADE_LINES)).clamp(0.0, 1.0);
+            let alpha = (fade * fade * 200.0) as u8;
+            if alpha == 0 {
+                continue;
+            }
+            let y = centre.y + offset as f32 * line_h;
             painter.text(
-                egui::pos2(center.x, rect.bottom() - 24.0),
+                egui::pos2(centre.x, y),
                 egui::Align2::CENTER_CENTER,
-                &self.voider.status,
-                egui::FontId::proportional(13.0),
-                egui::Color32::from_gray(90),
+                text,
+                font.clone(),
+                egui::Color32::from_white_alpha(alpha),
             );
         }
+        self.draw_entry_line(painter, ctx, centre, rect, self.voider.typewriter);
+    }
+
+    fn draw_title(&self, painter: &egui::Painter, rect: egui::Rect) {
+        if !self.voider.show_title {
+            return;
+        }
+        let title = app::file_title(&self.voider.current_file).to_uppercase();
+        painter.text(
+            egui::pos2(rect.center().x, rect.top() + 34.0),
+            egui::Align2::CENTER_CENTER,
+            title,
+            egui::FontId::proportional(FONT_SIZE + 3.0),
+            egui::Color32::WHITE,
+        );
     }
 }
 
@@ -180,6 +281,23 @@ impl eframe::App for VoiderApp {
         self.handle_input(ctx);
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(egui::Color32::BLACK))
-            .show(ctx, |ui| self.draw_f1(ui, ctx));
+            .show(ctx, |ui| {
+                let rect = ui.max_rect();
+                let painter = ui.painter().clone();
+                match self.voider.view {
+                    View::F1 => self.draw_f1(&painter, ctx, rect),
+                    View::F2 => self.draw_f2(&painter, ctx, rect),
+                }
+                self.draw_title(&painter, rect);
+                if !self.voider.status.is_empty() {
+                    painter.text(
+                        egui::pos2(rect.center().x, rect.bottom() - 24.0),
+                        egui::Align2::CENTER_CENTER,
+                        &self.voider.status,
+                        egui::FontId::proportional(13.0),
+                        egui::Color32::from_gray(90),
+                    );
+                }
+            });
     }
 }
