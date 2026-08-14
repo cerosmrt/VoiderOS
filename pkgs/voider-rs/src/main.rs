@@ -7,6 +7,7 @@
 //! just "what do I draw this frame?".
 
 mod app;
+mod f5;
 mod library;
 mod line_ring;
 mod text_line;
@@ -64,6 +65,7 @@ impl VoiderApp {
                             self.voider.entry.insert(&text_line::neutralize_caps(&t, caps));
                         }
                     }
+                    View::F5 => {}
                 },
                 egui::Event::Key { key, pressed: true, modifiers, .. } => {
                     if self.handle_global_key(key, modifiers) {
@@ -73,6 +75,7 @@ impl VoiderApp {
                         View::F1 => self.handle_f1_key(key, caps),
                         View::F2 => self.handle_f2_key(key, caps),
                         View::F3 => self.handle_f3_key(key, modifiers),
+                        View::F5 => self.handle_f5_key(key, modifiers),
                     }
                 }
                 _ => {}
@@ -87,6 +90,7 @@ impl VoiderApp {
             Key::F1 => self.voider.switch_to(View::F1),
             Key::F2 => self.voider.switch_to(View::F2),
             Key::F3 => self.voider.switch_to(View::F3),
+            Key::F5 => self.voider.switch_to(View::F5),
             Key::W if m.ctrl && m.shift => {
                 self.voider.typewriter = !self.voider.typewriter;
                 self.voider.status = format!(
@@ -193,6 +197,41 @@ impl VoiderApp {
                 let _ = self.voider.settle_pending();
                 self.voider.library.move_by(1);
             }
+            _ => {}
+        }
+    }
+
+    fn handle_f5_key(&mut self, key: egui::Key, m: egui::Modifiers) {
+        use egui::Key;
+        // With the catalogue open, the keys belong to it.
+        if self.voider.picker_open {
+            match key {
+                Key::Escape | Key::ArrowLeft => self.voider.picker_open = false,
+                Key::Enter | Key::ArrowRight => {
+                    let entries = self.voider.picker_entries();
+                    if let Some(e) = entries.get(self.voider.picker_idx).cloned() {
+                        let _ = self.voider.send_para_to(&e);
+                    }
+                }
+                Key::ArrowDown | Key::Tab => self.voider.picker_cycle(1),
+                Key::ArrowUp => self.voider.picker_cycle(-1),
+                _ => {}
+            }
+            return;
+        }
+        match key {
+            // Alt+Up/Down moves the paragraph; plain Up/Down walks them.
+            Key::ArrowUp if m.alt => {
+                let _ = self.voider.f5_swap(-1);
+            }
+            Key::ArrowDown if m.alt => {
+                let _ = self.voider.f5_swap(1);
+            }
+            Key::ArrowUp => self.voider.f5_step(-1),
+            Key::ArrowDown => self.voider.f5_step(1),
+            Key::ArrowRight => self.voider.open_picker(),
+            Key::Enter => self.voider.f5_to_f2(),
+            Key::Escape => self.voider.switch_to(View::F1),
             _ => {}
         }
     }
@@ -338,11 +377,148 @@ impl VoiderApp {
         }
     }
 
+    /// Paragraphs in order, the current one centred and lit, drawn outward from
+    /// it and stopped at the screen edges — only what's visible is ever laid out,
+    /// so a scratch of thousands of paragraphs stays instant.
+    fn draw_f5(&self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
+        let units = f5::units(&self.voider.ring.lines);
+        if units.is_empty() {
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "ø",
+                egui::FontId::proportional(48.0),
+                egui::Color32::from_gray(45),
+            );
+            return;
+        }
+        // The catalogue takes the right third when open.
+        let panel_w = if self.voider.picker_open { rect.width() * 0.38 } else { 0.0 };
+        let col = egui::Rect::from_min_max(
+            rect.min,
+            egui::pos2(rect.max.x - panel_w, rect.max.y),
+        );
+        let pad = (col.width() * 0.14).max(48.0);
+        let text_w = col.width() - 2.0 * pad;
+        let font = egui::FontId::proportional(FONT_SIZE);
+        let line_h = FONT_SIZE * 1.5;
+
+        let cur = units
+            .iter()
+            .position(|u| matches!(u, f5::Unit::Para { ordinal, .. } if *ordinal == self.voider.para_idx))
+            .unwrap_or(0);
+
+        let layout = |u: &f5::Unit, lit: bool| {
+            let (text, colour) = match u {
+                f5::Unit::Para { text, .. } => (
+                    text.clone(),
+                    if lit {
+                        egui::Color32::WHITE
+                    } else {
+                        egui::Color32::from_gray(90)
+                    },
+                ),
+                f5::Unit::Mark { name } => {
+                    (format!("/{name}"), egui::Color32::from_gray(180))
+                }
+            };
+            ctx.fonts(|f| f.layout(text, font.clone(), colour, text_w))
+        };
+
+        // Centre the current unit, then walk outward until off-screen.
+        let here = layout(&units[cur], true);
+        let mut y = col.center().y - here.size().y / 2.0;
+        let cur_top = y;
+        painter.galley(egui::pos2(col.min.x + pad, y), here.clone(), egui::Color32::WHITE);
+        // The '>' cue: Right opens the catalogue to send this paragraph.
+        painter.text(
+            egui::pos2(col.max.x - pad / 2.0, cur_top + here.size().y / 2.0),
+            egui::Align2::CENTER_CENTER,
+            ">",
+            font.clone(),
+            egui::Color32::WHITE,
+        );
+
+        y = cur_top + here.size().y + line_h;
+        for u in &units[cur + 1..] {
+            if y > col.max.y {
+                break;
+            }
+            let g = layout(u, false);
+            let h = g.size().y;
+            painter.galley(egui::pos2(col.min.x + pad, y), g, egui::Color32::WHITE);
+            y += h + line_h;
+        }
+        let mut top = cur_top;
+        for u in units[..cur].iter().rev() {
+            let g = layout(u, false);
+            let h = g.size().y;
+            top -= h + line_h;
+            if top + h < col.min.y {
+                break;
+            }
+            painter.galley(egui::pos2(col.min.x + pad, top), g, egui::Color32::WHITE);
+        }
+
+        if self.voider.picker_open {
+            self.draw_picker(painter, col.max.x, panel_w, rect);
+        }
+    }
+
+    /// The side catalogue: chapters this paragraph can be sent to.
+    fn draw_picker(&self, painter: &egui::Painter, x: f32, w: f32, rect: egui::Rect) {
+        painter.line_segment(
+            [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+            egui::Stroke::new(1.0_f32, egui::Color32::from_gray(40)),
+        );
+        let entries = self.voider.picker_entries();
+        if entries.is_empty() {
+            return;
+        }
+        let font = egui::FontId::proportional(FONT_SIZE - 4.0);
+        let line_h = FONT_SIZE * 1.9;
+        let cy = rect.center().y;
+        let cur = self.voider.picker_idx.min(entries.len() - 1);
+        let reach = (rect.height() / 2.0 / line_h).ceil() as isize;
+
+        for d in -reach..=reach {
+            let i = cur as isize + d;
+            if i < 0 || i as usize >= entries.len() {
+                continue;
+            }
+            let colour = if d == 0 {
+                egui::Color32::from_gray(235)
+            } else {
+                let a = (110 - d.unsigned_abs().min(3) as i32 * 22).max(45) as u8;
+                egui::Color32::from_gray(a)
+            };
+            painter.text(
+                egui::pos2(x + w / 2.0, cy + d as f32 * line_h),
+                egui::Align2::CENTER_CENTER,
+                library::display_name(&entries[i as usize]),
+                font.clone(),
+                colour,
+            );
+        }
+        painter.text(
+            egui::pos2(x + w / 2.0, rect.bottom() - 24.0),
+            egui::Align2::CENTER_CENTER,
+            "→ enviar   ← volver",
+            egui::FontId::proportional(12.0),
+            egui::Color32::from_gray(70),
+        );
+    }
+
     fn draw_title(&self, painter: &egui::Painter, rect: egui::Rect) {
         if !self.voider.show_title {
             return;
         }
-        let title = app::file_title(&self.voider.current_file).to_uppercase();
+        // In F5 the title is the chapter the paragraph sits under.
+        let title = match self.voider.view {
+            View::F5 => self.voider.f5_title(),
+            _ => app::file_title(&self.voider.current_file),
+        }
+        .to_uppercase();
         painter.text(
             egui::pos2(rect.center().x, rect.top() + 34.0),
             egui::Align2::CENTER_CENTER,
@@ -370,6 +546,7 @@ impl eframe::App for VoiderApp {
                     View::F1 => self.draw_f1(&painter, ctx, rect),
                     View::F2 => self.draw_f2(&painter, ctx, rect),
                     View::F3 => self.draw_f3(&painter, ctx, rect),
+                    View::F5 => self.draw_f5(&painter, ctx, rect),
                 }
                 self.draw_title(&painter, rect);
                 if !self.voider.status.is_empty() {

@@ -9,6 +9,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::f5;
 use crate::library::{self, Library};
 use crate::line_ring::LineRing;
 use crate::text_line::{self, TextLine};
@@ -47,6 +48,8 @@ pub enum View {
     F2,
     /// The library: the book's chapters in reading order.
     F3,
+    /// The active file as paragraphs, in order, to be moved or sent away.
+    F5,
 }
 
 pub struct Voider {
@@ -63,6 +66,11 @@ pub struct Voider {
     pub show_title: bool,
     /// F3 is holding a blank entry waiting to be named.
     pub pending_new: bool,
+    /// F5: which paragraph the cursor is on.
+    pub para_idx: usize,
+    /// F5: the side catalogue for sending a paragraph to a chapter.
+    pub picker_open: bool,
+    pub picker_idx: usize,
     /// Set when the active file existed but could not be read — saving must stay
     /// blocked, or we would overwrite content we never saw.
     pub load_failed: bool,
@@ -85,6 +93,9 @@ impl Voider {
             typewriter: false,
             show_title: false,
             pending_new: false,
+            para_idx: 0,
+            picker_open: false,
+            picker_idx: 0,
             load_failed: doc.read_failed,
             status: String::new(),
         }
@@ -170,7 +181,149 @@ impl Voider {
                     }
                 }
             }
+            View::F5 => {
+                // Land on the paragraph holding the line you were editing.
+                self.para_idx = f5::para_at_line(&self.ring.lines, self.ring.index);
+                let n = f5::para_count(&self.ring.lines);
+                self.para_idx = if n == 0 { 0 } else { self.para_idx.min(n - 1) };
+                self.picker_open = false;
+                self.library = Library::load(&self.void_dir);
+            }
         }
+    }
+
+    // ── F5: paragraphs ────────────────────────────────────────────────────────
+
+    /// Step through paragraphs. Linear and clamped — F5 doesn't wrap.
+    pub fn f5_step(&mut self, delta: isize) {
+        let n = f5::para_count(&self.ring.lines);
+        if n == 0 {
+            return;
+        }
+        let i = (self.para_idx as isize + delta).clamp(0, n as isize - 1);
+        self.para_idx = i as usize;
+    }
+
+    /// Move the current paragraph. Fences and separators keep their slots, so a
+    /// paragraph pushed past a fence crosses into the next chapter.
+    pub fn f5_swap(&mut self, direction: isize) -> io::Result<()> {
+        if let Some((lines, ord)) = f5::swap(&self.ring.lines, self.para_idx, direction) {
+            self.ring.lines = lines;
+            self.para_idx = ord;
+            if self.ring.index >= self.ring.lines.len() {
+                self.ring.index = self.ring.lines.len().saturating_sub(1);
+            }
+            self.save()?;
+        }
+        Ok(())
+    }
+
+    /// Enter in F5: jump to F2 on this paragraph's first line.
+    pub fn f5_to_f2(&mut self) {
+        self.ring.index = f5::line_of_para(&self.ring.lines, self.para_idx);
+        self.switch_to(View::F2);
+    }
+
+    /// The title pinned in F5: the fence the paragraph sits under, else the file.
+    pub fn f5_title(&self) -> String {
+        f5::chapter_of_para(&self.ring.lines, self.para_idx)
+            .unwrap_or_else(|| file_title(&self.current_file))
+    }
+
+    /// Chapters a paragraph can be sent to: never a separator, the portal, or
+    /// the file it already lives in.
+    pub fn picker_entries(&self) -> Vec<String> {
+        let src = self
+            .current_file
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        self.library
+            .entries
+            .iter()
+            .filter(|e| !library::is_separator(e) && !library::is_portal(e) && **e != src)
+            .cloned()
+            .collect()
+    }
+
+    /// Open the catalogue parked on the chapter nearest the active file, so
+    /// origin and destination start together and you navigate out from there.
+    pub fn open_picker(&mut self) {
+        self.picker_open = true;
+        self.picker_idx = self.picker_start_idx();
+    }
+
+    pub fn picker_start_idx(&self) -> usize {
+        let entries = self.picker_entries();
+        if entries.is_empty() {
+            return 0;
+        }
+        let Some(name) = self.current_file.file_name() else {
+            return 0;
+        };
+        let Some(anchor) = self.library.position(&name.to_string_lossy()) else {
+            return 0;
+        };
+        // Nearest by library position; ties break toward the chapter just after.
+        entries
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, e)| {
+                let p = self.library.position(e).unwrap_or(usize::MAX / 2);
+                (p.abs_diff(anchor), p < anchor)
+            })
+            .map(|(i, _)| i)
+            .unwrap_or(0)
+    }
+
+    pub fn picker_cycle(&mut self, delta: isize) {
+        let n = self.picker_entries().len();
+        if n == 0 {
+            return;
+        }
+        self.picker_idx = (self.picker_idx as isize + delta).rem_euclid(n as isize) as usize;
+    }
+
+    /// Move the current paragraph out of this file and append it to `entry`.
+    /// Snapshots the void first: this rewrites two files.
+    pub fn send_para_to(&mut self, entry: &str) -> io::Result<bool> {
+        let target = library::chapter_path(&self.void_dir, entry);
+        if target == self.current_file {
+            return Ok(false);
+        }
+        let Some((para, rest)) = f5::take_para(&self.ring.lines, self.para_idx) else {
+            return Ok(false);
+        };
+        void::git_commit(
+            &self.void_dir,
+            "I/",
+            &format!("f5-send {}", void::timestamp()),
+        );
+
+        // Read the target raw (no synthesised leading dot) and append after a
+        // separator, so the arriving paragraph stays a paragraph of its own.
+        let mut existing: Vec<String> = std::fs::read_to_string(&target)
+            .map(|t| t.lines().map(|l| l.trim_end().to_string()).collect())
+            .unwrap_or_default();
+        while existing.last().is_some_and(|l| l.trim().is_empty()) {
+            existing.pop();
+        }
+        let mut combined = existing;
+        if !combined.is_empty() {
+            combined.push(".".to_string());
+        }
+        combined.extend(para);
+        void::atomic_write(&target, &combined, false)?;
+
+        self.ring.lines = rest;
+        if self.ring.index >= self.ring.lines.len() {
+            self.ring.index = self.ring.lines.len().saturating_sub(1);
+        }
+        self.save()?;
+        let n = f5::para_count(&self.ring.lines);
+        self.para_idx = if n == 0 { 0 } else { self.para_idx.min(n - 1) };
+        self.picker_open = false;
+        Ok(true)
     }
 
     // ── F3: the library ───────────────────────────────────────────────────────
@@ -686,6 +839,110 @@ mod tests {
         assert!(v.new_chapter("Dos").unwrap().is_none());
         let doc = void::load_doc(&library::chapter_path(&v.void_dir, "Dos.txt"));
         assert!(doc.lines.contains(&"de dos".to_string())); // untouched
+    }
+
+    // ── F5 ────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn entering_f5_lands_on_the_paragraph_you_were_editing() {
+        let (_d, mut v) = app(&[".", "a", ".", "b"]);
+        v.ring.index = 3; // on 'b'
+        v.switch_to(View::F5);
+        assert_eq!(v.para_idx, 1);
+    }
+
+    #[test]
+    fn f5_steps_are_clamped_at_the_ends() {
+        let (_d, mut v) = app(&[".", "a", ".", "b"]);
+        v.switch_to(View::F5);
+        v.f5_step(-1);
+        assert_eq!(v.para_idx, 0); // no wrap
+        v.f5_step(5);
+        assert_eq!(v.para_idx, 1);
+    }
+
+    #[test]
+    fn f5_swap_reorders_and_persists() {
+        let (_d, mut v) = app(&[".", "a", ".", "b"]);
+        v.switch_to(View::F5);
+        v.para_idx = 0;
+        v.f5_swap(1).unwrap();
+        assert_eq!(v.ring.lines, vec![".", "b", ".", "a"]);
+        assert_eq!(v.para_idx, 1); // the cursor follows the paragraph
+        assert!(void::load_doc(&v.current_file).lines.contains(&"b".to_string()));
+    }
+
+    #[test]
+    fn enter_in_f5_returns_to_f2_on_that_paragraph() {
+        let (_d, mut v) = app(&[".", "a", ".", "b"]);
+        v.switch_to(View::F5);
+        v.para_idx = 1;
+        v.f5_to_f2();
+        assert_eq!(v.view, View::F2);
+        assert_eq!(v.ring.index, 3); // the first line of 'b'
+        assert_eq!(v.entry.text(), "b");
+    }
+
+    #[test]
+    fn the_f5_title_is_the_fence_or_the_file() {
+        let (_d, mut v) = app(&["a", "/Segundo", "b"]);
+        v.switch_to(View::F5);
+        v.para_idx = 0;
+        assert_eq!(v.f5_title(), "c"); // no fence above → the file's own name
+        v.para_idx = 1;
+        assert_eq!(v.f5_title(), "Segundo");
+    }
+
+    #[test]
+    fn the_catalogue_excludes_the_source_the_portal_and_separators() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F5); // active file is Uno.txt
+        v.library.entries = vec![
+            "Uno.txt".into(),
+            ".".into(),
+            "0.txt".into(),
+            "Dos.txt".into(),
+        ];
+        assert_eq!(v.picker_entries(), vec!["Dos.txt"]);
+    }
+
+    #[test]
+    fn the_catalogue_opens_next_to_the_active_file() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F5);
+        v.library.entries = vec![
+            "A.txt".into(),
+            "Uno.txt".into(), // the active file
+            "B.txt".into(),
+            "C.txt".into(),
+        ];
+        // entries seen: A, B, C — the nearest to Uno (index 1) is B, just after.
+        v.open_picker();
+        assert!(v.picker_open);
+        assert_eq!(v.picker_entries()[v.picker_idx], "B.txt");
+    }
+
+    #[test]
+    fn sending_a_paragraph_moves_it_into_the_chapter() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F5);
+        v.para_idx = 0; // 'de uno'
+        assert!(v.send_para_to("Dos.txt").unwrap());
+
+        // it arrived, after a separator, and left the source
+        let dest = void::load_doc(&library::chapter_path(&v.void_dir, "Dos.txt"));
+        assert!(dest.lines.contains(&"de uno".to_string()));
+        assert!(dest.lines.contains(&"de dos".to_string()));
+        assert!(!v.ring.lines.contains(&"de uno".to_string()));
+        assert!(!v.picker_open);
+    }
+
+    #[test]
+    fn sending_to_its_own_file_is_refused() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F5);
+        assert!(!v.send_para_to("Uno.txt").unwrap());
+        assert!(v.ring.lines.contains(&"de uno".to_string()));
     }
 
     #[test]
