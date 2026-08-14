@@ -13,6 +13,7 @@ use crate::config::Config;
 use crate::f5;
 use crate::fonts;
 use crate::library::{self, Library};
+use crate::paragraphs;
 use crate::line_ring::LineRing;
 use crate::text_line::{self, TextLine};
 use crate::void;
@@ -481,6 +482,10 @@ impl Voider {
         if n < 2 {
             return Ok(());
         }
+        // On a separator, the whole paragraph moves rather than the dot.
+        if self.ring.current() == "." {
+            return self.doc_move_paragraph(direction);
+        }
         self.doc_live_save()?;
         let cur = self.ring.index;
         let other = (cur as isize + direction).rem_euclid(n as isize) as usize;
@@ -488,6 +493,24 @@ impl Voider {
         self.ring.index = other;
         let text = self.ring.current().to_string();
         self.entry.set_text(&text);
+        self.entry.home();
+        self.save()
+    }
+
+    /// Alt+Up/Down while sitting on a `.`: move that whole paragraph. At the
+    /// ends it moves round rather than swapping — the first becomes the last.
+    pub fn doc_move_paragraph(&mut self, direction: isize) -> io::Result<()> {
+        let (_, paras) = paragraphs::from_lines(&self.ring.lines);
+        let Some(k) = paragraphs::para_at_dot(&self.ring.lines, self.ring.index) else {
+            return Ok(());
+        };
+        let Some((moved, dest)) = paragraphs::move_paragraph(&paras, k, direction) else {
+            return Ok(());
+        };
+        self.ring.lines = paragraphs::to_lines(&moved);
+        self.ring.index = paragraphs::dot_line_index(dest, &moved);
+        let cur = self.ring.current().to_string();
+        self.entry.set_text(&cur);
         self.entry.home();
         self.save()
     }
@@ -972,11 +995,31 @@ mod tests {
     #[test]
     fn moving_a_line_wraps_at_the_ends() {
         let (_d, mut v) = app(&["a", "b"]); // loads as [".", "a", "b"]
-        assert_eq!(v.ring.lines.len(), 3);
+        v.ring.index = 1; // on 'a', a content line
+        v.switch_to(View::F2);
+        v.doc_swap_line(-1).unwrap();
+        assert_eq!(v.ring.index, 0); // moved up onto the separator's slot
+        assert_eq!(v.ring.lines, vec!["a", ".", "b"]);
+    }
+
+    #[test]
+    fn on_a_separator_alt_moves_the_whole_paragraph() {
+        let (_d, mut v) = app(&[".", "a1", "a2", ".", "b"]);
+        v.ring.index = 0; // sitting on the first '.'
+        v.switch_to(View::F2);
+        v.doc_swap_line(1).unwrap(); // Alt+Down
+        assert_eq!(v.ring.lines, vec![".", "b", ".", "a1", "a2"]);
+        assert_eq!(v.ring.index, 2); // the cursor rode with the paragraph
+    }
+
+    #[test]
+    fn the_first_paragraph_moved_up_goes_to_the_end() {
+        let (_d, mut v) = app(&[".", "a", ".", "b", ".", "c"]);
         v.ring.index = 0;
         v.switch_to(View::F2);
         v.doc_swap_line(-1).unwrap();
-        assert_eq!(v.ring.index, 2); // wrapped round to the bottom
+        // it moves round rather than swapping with the one above
+        assert_eq!(v.ring.lines, vec![".", "b", ".", "c", ".", "a"]);
     }
 
     #[test]

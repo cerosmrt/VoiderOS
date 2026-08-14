@@ -11,6 +11,7 @@ mod config;
 mod f5;
 mod fonts;
 mod library;
+mod paragraphs;
 mod line_ring;
 mod text_line;
 mod void;
