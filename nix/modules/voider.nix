@@ -112,6 +112,25 @@ THEME
     exec ${voiderPython}/bin/python3 voider.py
   '';
 
+  # voider-rs: the Rust/egui mirror (pkgs/voider-rs). Built out of tree with its
+  # own toolchain (see pkgs/voider-rs/shell.nix — the system rustc is older than
+  # the deps need), so this just runs the binary and says how to build it if it
+  # isn't there yet. Runs against its own sandbox void, never ~/void.
+  voiderRs = pkgs.writeShellScriptBin "voider-rs" ''
+    cd /home/federico/VoiderOS/pkgs/voider-rs
+    export LD_LIBRARY_PATH=${lib.makeLibraryPath [ pkgs.wayland pkgs.libxkbcommon pkgs.libGL ]}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+    export WAYLAND_DISPLAY=''${WAYLAND_DISPLAY:-wayland-1}
+    BIN=target/release/voider-rs
+    [ -x "$BIN" ] || BIN=target/debug/voider-rs
+    if [ ! -x "$BIN" ]; then
+      echo "voider-rs no está compilado todavía. Compilalo con:"
+      echo "  cd ~/VoiderOS/pkgs/voider-rs && nix-shell --run 'cargo build --release'"
+      read -r -p "Enter para cerrar..." _
+      exit 1
+    fi
+    exec ./"$BIN" "$@"
+  '';
+
   # voider-radio: plays random internet radio (jazz, ambient, classical)
   # First call starts playback, second call stops it.
   voiderRadio = pkgs.writeShellScriptBin "voider-radio" ''
@@ -478,6 +497,7 @@ THEME
     bind = SUPER, B, exec, firefox
     bind = SUPER, A, exec, pavucontrol
     bind = SUPER, P, exec, kitty --title proto-voider -e proto-voider
+    bind = SUPER, O, exec, kitty --title voider-rs -e voider-rs
     bind = SUPER, E, exec, thunar
     bind = SUPER, Q, killactive,
     bind = SUPER, F, togglefloating, active
@@ -582,6 +602,7 @@ in
     voiderShell
     voiderPy
     voiderProto
+    voiderRs
     voiderCursor
     fxUpdate
     fxOpenPanel
