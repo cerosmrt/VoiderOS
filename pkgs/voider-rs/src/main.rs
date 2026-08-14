@@ -10,6 +10,7 @@
 //! views come next.
 
 mod line_ring;
+mod void;
 
 use eframe::egui;
 
