@@ -7,17 +7,19 @@
 //! just "what do I draw this frame?".
 
 mod app;
+mod config;
 mod f5;
+mod fonts;
 mod library;
 mod line_ring;
 mod text_line;
 mod void;
+mod words;
 
 use eframe::egui;
 
 use app::{caps_lock_on, View, Voider};
 
-const FONT_SIZE: f32 = 22.0;
 /// Matches the Python view: the circle inset from the shorter side.
 const CIRCLE_INSET: f32 = 35.0;
 /// How far the fade reaches in F2, in lines above and below the centre.
@@ -33,8 +35,29 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "voider-rs",
         options,
-        Box::new(|_cc| Ok(Box::new(VoiderApp::new()))),
+        Box::new(|cc| {
+            let app = VoiderApp::new();
+            install_font(&cc.egui_ctx, &app.voider.config.font_family);
+            Ok(Box::new(app))
+        }),
     )
+}
+
+/// Load the writing font into egui, if it can be found on this machine. Falls
+/// back to the built-in face rather than failing — you can always keep writing.
+fn install_font(ctx: &egui::Context, family: &str) {
+    let Some(bytes) = fonts::load_family(family) else {
+        return;
+    };
+    let mut defs = egui::FontDefinitions::default();
+    defs.font_data.insert(
+        "voider".to_owned(),
+        egui::FontData::from_owned(bytes),
+    );
+    for fam in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        defs.families.entry(fam).or_default().insert(0, "voider".to_owned());
+    }
+    ctx.set_fonts(defs);
 }
 
 struct VoiderApp {
@@ -44,6 +67,11 @@ struct VoiderApp {
 impl VoiderApp {
     fn new() -> Self {
         Self { voider: app::open_sandbox() }
+    }
+
+    /// The size the writer chose, used by every view.
+    fn font_size(&self) -> f32 {
+        self.voider.config.font_size
     }
 
     fn handle_input(&mut self, ctx: &egui::Context) {
@@ -69,7 +97,7 @@ impl VoiderApp {
                             self.voider.entry.insert(&text_line::neutralize_caps(&t, caps));
                         }
                     }
-                    View::F5 => {}
+                    View::F5 | View::F10 => {}
                 },
                 egui::Event::Key { key, pressed: true, modifiers, .. } => {
                     if self.handle_global_key(key, modifiers) {
@@ -77,9 +105,10 @@ impl VoiderApp {
                     }
                     match self.voider.view {
                         View::F1 => self.handle_f1_key(key, caps),
-                        View::F2 => self.handle_f2_key(key, caps),
+                        View::F2 => self.handle_f2_key(key, caps, modifiers),
                         View::F3 => self.handle_f3_key(key, modifiers),
                         View::F5 => self.handle_f5_key(key, modifiers),
+                        View::F10 => self.handle_f10_key(key),
                     }
                 }
                 _ => {}
@@ -95,6 +124,10 @@ impl VoiderApp {
             Key::F2 => self.voider.switch_to(View::F2),
             Key::F3 => self.voider.switch_to(View::F3),
             Key::F5 => self.voider.switch_to(View::F5),
+            Key::F10 => self.voider.switch_to(View::F10),
+            // Size from anywhere, as the Python has it.
+            Key::Plus | Key::Equals if m.ctrl => self.voider.settings_step_size(1),
+            Key::Minus if m.ctrl => self.voider.settings_step_size(-1),
             Key::W if m.ctrl && m.shift => {
                 self.voider.typewriter = !self.voider.typewriter;
                 self.voider.status = format!(
@@ -141,7 +174,7 @@ impl VoiderApp {
         }
     }
 
-    fn handle_f2_key(&mut self, key: egui::Key, caps: bool) {
+    fn handle_f2_key(&mut self, key: egui::Key, caps: bool, m: egui::Modifiers) {
         use egui::Key;
         match key {
             Key::Enter => {
@@ -160,6 +193,19 @@ impl VoiderApp {
             Key::Delete => {
                 self.voider.entry.delete();
                 let _ = self.voider.doc_live_save();
+            }
+            // Alt moves things: the line up/down, the word left/right.
+            Key::ArrowUp if m.alt => {
+                let _ = self.voider.doc_swap_line(-1);
+            }
+            Key::ArrowDown if m.alt => {
+                let _ = self.voider.doc_swap_line(1);
+            }
+            Key::ArrowLeft if m.alt => {
+                let _ = self.voider.doc_swap_words(-1);
+            }
+            Key::ArrowRight if m.alt => {
+                let _ = self.voider.doc_swap_words(1);
             }
             Key::ArrowUp => {
                 let _ = self.voider.doc_navigate(-1);
@@ -242,6 +288,20 @@ impl VoiderApp {
         }
     }
 
+    /// F10: ↑↓ walks the fonts (adopting each as you land on it, so you see it),
+    /// ←→ the size. Escape goes back to writing.
+    fn handle_f10_key(&mut self, key: egui::Key) {
+        use egui::Key;
+        match key {
+            Key::ArrowUp => self.voider.settings_step_family(-1),
+            Key::ArrowDown => self.voider.settings_step_family(1),
+            Key::ArrowLeft => self.voider.settings_step_size(-1),
+            Key::ArrowRight => self.voider.settings_step_size(1),
+            Key::Escape | Key::Enter => self.voider.switch_to(View::F1),
+            _ => {}
+        }
+    }
+
     // ── drawing ───────────────────────────────────────────────────────────────
 
     /// Lay out the entry and draw it with our own caret. `anchor_caret` pins the
@@ -254,7 +314,7 @@ impl VoiderApp {
         clip: egui::Rect,
         anchor_caret: bool,
     ) {
-        let font = egui::FontId::proportional(FONT_SIZE);
+        let font = egui::FontId::proportional(self.font_size());
         let text = self.voider.entry.text();
         let before = self.voider.entry.before_caret();
         let galley =
@@ -312,8 +372,8 @@ impl VoiderApp {
     /// away above and below.
     fn draw_f2(&self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
         let centre = rect.center();
-        let line_h = FONT_SIZE * 1.7;
-        let font = egui::FontId::proportional(FONT_SIZE);
+        let line_h = self.font_size() * 1.7;
+        let font = egui::FontId::proportional(self.font_size());
         let reach = (rect.height() / 2.0 / line_h).ceil() as isize;
 
         for offset in -reach..=reach {
@@ -346,8 +406,8 @@ impl VoiderApp {
     /// Separators show as a dot; the naming of a new entry happens in place.
     fn draw_f3(&self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
         let centre = rect.center();
-        let line_h = FONT_SIZE * 1.7;
-        let font = egui::FontId::proportional(FONT_SIZE);
+        let line_h = self.font_size() * 1.7;
+        let font = egui::FontId::proportional(self.font_size());
         let lib = &self.voider.library;
         let reach = (rect.height() / 2.0 / line_h).ceil() as isize;
         let n = lib.entries.len() as isize;
@@ -406,8 +466,8 @@ impl VoiderApp {
         );
         let pad = (col.width() * 0.14).max(48.0);
         let text_w = col.width() - 2.0 * pad;
-        let font = egui::FontId::proportional(FONT_SIZE);
-        let line_h = FONT_SIZE * 1.5;
+        let font = egui::FontId::proportional(self.font_size());
+        let line_h = self.font_size() * 1.5;
 
         let cur = units
             .iter()
@@ -481,8 +541,8 @@ impl VoiderApp {
         if entries.is_empty() {
             return;
         }
-        let font = egui::FontId::proportional(FONT_SIZE - 4.0);
-        let line_h = FONT_SIZE * 1.9;
+        let font = egui::FontId::proportional(self.font_size() - 4.0);
+        let line_h = self.font_size() * 1.9;
         let cy = rect.center().y;
         let cur = self.voider.picker_idx.min(entries.len() - 1);
         let reach = (rect.height() / 2.0 / line_h).ceil() as isize;
@@ -515,6 +575,51 @@ impl VoiderApp {
         );
     }
 
+    /// The settings: the families this machine has, the current one lit, and the
+    /// size — all drawn in the font itself, so choosing is seeing.
+    fn draw_f10(&self, painter: &egui::Painter, rect: egui::Rect) {
+        let families = self.voider.font_families();
+        let centre = rect.center();
+        let line_h = self.font_size() * 1.6;
+        let font = egui::FontId::proportional(self.font_size());
+        let cur = self.voider.settings_idx.min(families.len().saturating_sub(1));
+        let reach = (rect.height() / 2.5 / line_h).ceil() as isize;
+
+        for d in -reach..=reach {
+            let i = cur as isize + d;
+            if i < 0 || i as usize >= families.len() {
+                continue;
+            }
+            let colour = if d == 0 {
+                egui::Color32::WHITE
+            } else {
+                let fade = (1.0 - (d.unsigned_abs() as f32 / 6.0)).clamp(0.0, 1.0);
+                egui::Color32::from_white_alpha((fade * fade * 190.0) as u8)
+            };
+            painter.text(
+                egui::pos2(centre.x, centre.y + d as f32 * line_h),
+                egui::Align2::CENTER_CENTER,
+                &families[i as usize],
+                font.clone(),
+                colour,
+            );
+        }
+        painter.text(
+            egui::pos2(centre.x, rect.bottom() - 70.0),
+            egui::Align2::CENTER_CENTER,
+            format!("←  {}  →", self.font_size() as i32),
+            egui::FontId::proportional(self.font_size()),
+            egui::Color32::from_gray(200),
+        );
+        painter.text(
+            egui::pos2(centre.x, rect.bottom() - 28.0),
+            egui::Align2::CENTER_CENTER,
+            "↑↓ fuente   ←→ tamaño   ⏎ volver",
+            egui::FontId::proportional(12.0),
+            egui::Color32::from_gray(70),
+        );
+    }
+
     fn draw_title(&self, painter: &egui::Painter, rect: egui::Rect) {
         if !self.voider.show_title {
             return;
@@ -529,7 +634,7 @@ impl VoiderApp {
             egui::pos2(rect.center().x, rect.top() + 34.0),
             egui::Align2::CENTER_CENTER,
             title,
-            egui::FontId::proportional(FONT_SIZE + 3.0),
+            egui::FontId::proportional(self.font_size() + 3.0),
             egui::Color32::WHITE,
         );
     }
@@ -543,6 +648,16 @@ impl eframe::App for VoiderApp {
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_input(ctx);
+        // A font chosen in F10 takes effect on this very frame.
+        if self.voider.font_dirty {
+            self.voider.font_dirty = false;
+            let family = self.voider.config.font_family.clone();
+            if family == "Default" {
+                ctx.set_fonts(egui::FontDefinitions::default());
+            } else {
+                install_font(ctx, &family);
+            }
+        }
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(egui::Color32::BLACK))
             .show(ctx, |ui| {
@@ -553,6 +668,7 @@ impl eframe::App for VoiderApp {
                     View::F2 => self.draw_f2(&painter, ctx, rect),
                     View::F3 => self.draw_f3(&painter, ctx, rect),
                     View::F5 => self.draw_f5(&painter, ctx, rect),
+                    View::F10 => self.draw_f10(&painter, rect),
                 }
                 self.draw_title(&painter, rect);
                 if !self.voider.status.is_empty() {

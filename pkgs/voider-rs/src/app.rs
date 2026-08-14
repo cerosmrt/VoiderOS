@@ -9,11 +9,14 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::config::Config;
 use crate::f5;
+use crate::fonts;
 use crate::library::{self, Library};
 use crate::line_ring::LineRing;
 use crate::text_line::{self, TextLine};
 use crate::void;
+use crate::words;
 
 /// True when any keyboard's Caps Lock LED is lit.
 ///
@@ -50,6 +53,8 @@ pub enum View {
     F3,
     /// The active file as paragraphs, in order, to be moved or sent away.
     F5,
+    /// Settings: the writing font and its size.
+    F10,
 }
 
 pub struct Voider {
@@ -73,6 +78,12 @@ pub struct Voider {
     pub picker_idx: usize,
     /// Where the backtick came from, so it can take you back.
     pub scratch_return: Option<(PathBuf, View)>,
+    /// Persisted settings: the writing font, its size, the toggles.
+    pub config: Config,
+    /// F10: which font family is highlighted.
+    pub settings_idx: usize,
+    /// Raised when the font changed, so the view rebuilds it.
+    pub font_dirty: bool,
     /// Set when the active file existed but could not be read — saving must stay
     /// blocked, or we would overwrite content we never saw.
     pub load_failed: bool,
@@ -85,20 +96,24 @@ impl Voider {
         let void_dir = void_dir.into();
         let current_file = file.into();
         let doc = void::load_doc(&current_file);
+        let config = Config::load(&void_dir);
         Self {
+            typewriter: config.typewriter,
+            show_title: config.show_title,
+            config,
             void_dir,
             current_file,
             ring: LineRing::new(doc.lines),
             library: Library::default(),
             view: View::F1,
             entry: TextLine::new(""),
-            typewriter: false,
-            show_title: false,
             pending_new: false,
             para_idx: 0,
             picker_open: false,
             picker_idx: 0,
             scratch_return: None,
+            settings_idx: 0,
+            font_dirty: false,
             load_failed: doc.read_failed,
             status: String::new(),
         }
@@ -183,6 +198,14 @@ impl Voider {
                         self.library.index = i;
                     }
                 }
+            }
+            View::F10 => {
+                // Start the highlight on the font currently in use.
+                let families = self.font_families();
+                self.settings_idx = families
+                    .iter()
+                    .position(|f| fonts::normalise(f) == fonts::normalise(&self.config.font_family))
+                    .unwrap_or(0);
             }
             View::F5 => {
                 // Land on the paragraph holding the line you were editing.
@@ -450,6 +473,37 @@ impl Voider {
         self.save()
     }
 
+    /// Alt+Up/Down in F2: move the current line past its neighbour, wrapping at
+    /// the ends. The cursor travels with the line, so it can be walked up a
+    /// paragraph.
+    pub fn doc_swap_line(&mut self, direction: isize) -> io::Result<()> {
+        let n = self.ring.lines.len();
+        if n < 2 {
+            return Ok(());
+        }
+        self.doc_live_save()?;
+        let cur = self.ring.index;
+        let other = (cur as isize + direction).rem_euclid(n as isize) as usize;
+        self.ring.lines.swap(cur, other);
+        self.ring.index = other;
+        let text = self.ring.current().to_string();
+        self.entry.set_text(&text);
+        self.entry.home();
+        self.save()
+    }
+
+    /// Alt+Left/Right in F2: move the word under the caret along the line.
+    pub fn doc_swap_words(&mut self, direction: isize) -> io::Result<()> {
+        if let Some((text, caret)) =
+            words::swap_words(&self.entry.text(), self.entry.caret(), direction)
+        {
+            self.entry.set_text(&text);
+            self.entry.set_caret(caret);
+            self.doc_live_save()?;
+        }
+        Ok(())
+    }
+
     /// Backspace at the start of a line joins it onto the one above, with the
     /// caret left at the seam. Separators are never swallowed.
     pub fn doc_join_prev(&mut self) -> io::Result<()> {
@@ -465,6 +519,41 @@ impl Voider {
         self.entry.set_text(&joined);
         self.entry.set_caret(seam);
         self.save()
+    }
+
+    // ── F10: settings ─────────────────────────────────────────────────────────
+
+    /// The font families this machine can offer.
+    pub fn font_families(&self) -> Vec<String> {
+        fonts::available_families()
+    }
+
+    /// Move the highlight through the offered families and adopt the one landed
+    /// on, so the change is visible while you choose.
+    pub fn settings_step_family(&mut self, delta: isize) {
+        let families = self.font_families();
+        if families.is_empty() {
+            return;
+        }
+        let n = families.len() as isize;
+        self.settings_idx = (self.settings_idx as isize + delta).rem_euclid(n) as usize;
+        self.config.font_family = families[self.settings_idx].clone();
+        self.font_dirty = true;
+        self.persist_config();
+    }
+
+    pub fn settings_step_size(&mut self, delta: isize) {
+        self.config.step_size(delta);
+        self.persist_config();
+    }
+
+    /// Write the settings out, keeping the live toggles in step with them.
+    pub fn persist_config(&mut self) {
+        self.config.typewriter = self.typewriter;
+        self.config.show_title = self.show_title;
+        if let Err(e) = self.config.save(&self.void_dir) {
+            self.status = format!("Could not save settings: {e}");
+        }
     }
 
     /// The scratch, `I/0.txt` — where writing goes when it has no home yet.
@@ -866,6 +955,39 @@ mod tests {
         assert!(v.new_chapter("Dos").unwrap().is_none());
         let doc = void::load_doc(&library::chapter_path(&v.void_dir, "Dos.txt"));
         assert!(doc.lines.contains(&"de dos".to_string())); // untouched
+    }
+
+    #[test]
+    fn alt_moves_the_line_and_the_cursor_follows() {
+        let (_d, mut v) = app(&[".", "a", "b"]);
+        v.ring.index = 1;
+        v.switch_to(View::F2);
+        v.doc_swap_line(1).unwrap();
+        assert_eq!(v.ring.lines, vec![".", "b", "a"]);
+        assert_eq!(v.ring.index, 2); // travelled with the line
+        assert_eq!(v.entry.text(), "a");
+        assert!(void::load_doc(&v.current_file).lines.contains(&"b".to_string()));
+    }
+
+    #[test]
+    fn moving_a_line_wraps_at_the_ends() {
+        let (_d, mut v) = app(&["a", "b"]); // loads as [".", "a", "b"]
+        assert_eq!(v.ring.lines.len(), 3);
+        v.ring.index = 0;
+        v.switch_to(View::F2);
+        v.doc_swap_line(-1).unwrap();
+        assert_eq!(v.ring.index, 2); // wrapped round to the bottom
+    }
+
+    #[test]
+    fn alt_moves_the_word_under_the_caret() {
+        let (_d, mut v) = app(&[".", "hola mundo cruel"]);
+        v.ring.index = 1;
+        v.switch_to(View::F2);
+        v.entry.set_caret(0); // on 'hola'
+        v.doc_swap_words(1).unwrap();
+        assert_eq!(v.entry.text(), "mundo hola cruel");
+        assert_eq!(v.ring.lines[1], "mundo hola cruel"); // persisted
     }
 
     // ── F5 ────────────────────────────────────────────────────────────────────
