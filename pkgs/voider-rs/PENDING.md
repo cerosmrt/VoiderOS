@@ -11,7 +11,7 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
 
 ## 1. Safety — must land before the real `/void` is touched
 
-- [ ] **Undo / redo** (`Ctrl+Z` / `Ctrl+Shift+Z`) — `test_undo`, `test_undo_cursor`,
+- [x] **Undo / redo** (`Ctrl+Z` / `Ctrl+Shift+Z`) — `test_undo`, `test_undo_cursor`,
       `test_f3_undo` (19 tests). Text changes only; navigation is not undoable.
       Keystroke bursts on one line coalesce into a single step. F3 gets its own
       stack for library operations (rename/reorder/delete/merge/split).
@@ -25,13 +25,13 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
 
 ## 2. Navigation a writer uses constantly
 
-- [ ] **Paragraph jumps** (`PageUp`/`PageDown` → `goto_prev_dot`/`goto_next_dot`)
+- [x] **Paragraph jumps** (`PageUp`/`PageDown` → `goto_prev_dot`/`goto_next_dot`)
       — `test_movement`.
-- [ ] **Previous/next file** (`Alt+Up`/`Alt+Down` in F1 → `show_previous_file` /
+- [x] **Previous/next file** (`Alt+Up`/`Alt+Down` in F1 → `show_previous_file` /
       `show_next_file`) — walks the library without going through F3.
-- [ ] **Rebase the ring** (`Ctrl+0` → `rebase_to_index_zero`): make the current
+- [x] **Rebase the ring** (`Ctrl+0` → `rebase_to_index_zero`): make the current
       line the file's first. Also `_book_rebase` in F3.
-- [ ] **Home/End across the whole document** (`_doc_jump_start` / `_doc_jump_end`),
+- [x] **Home/End across the whole document** (`_doc_jump_start` / `_doc_jump_end`),
       not just the line.
 - [ ] **Remember position across runs**: last line per file, last view, last F3
       entry — `test_open_position`, `test_startup_restore` (10 tests).
@@ -39,16 +39,16 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
 
 ## 3. Shaping text
 
-- [ ] **Reformat** (`Ctrl+Shift+F` → `reformat_active_file`): one sentence per
+- [x] **Reformat** (`Ctrl+Shift+F` → `reformat_active_file`): one sentence per
       line — `test_reformat` (13 tests).
-- [ ] **Split a file at `/name` markers** into chapters (`Ctrl+Shift+S` →
+- [x] **Split a file at `/name` markers** into chapters (`Ctrl+Shift+S` →
       `_split_chapter_at_slash`): a marker seals everything above it; a name
       clash appends into the existing chapter — `test_split_chapter` (9).
 - [ ] **Split the scratch into documents** (`_split_zero_to_docs`).
 - [ ] **Merge books** (`Ctrl+Shift+M` → `_book_merge_prompt` / `_book_do_merge`)
       — `test_merge`.
 - [ ] **Dispatch paragraphs** (`Ctrl+Shift+D`) — `test_dispatch`.
-- [ ] **Shuffle the scratch** (`Ctrl+Shift+R` → `_shuffle_zero`) and **shuffle a
+- [~] **Shuffle the scratch** DONE (`Ctrl+Shift+R`); still to do: **shuffle a
       book** (Tab on a dot in F3, numbered titles keeping their order) —
       `test_shuffle`, `test_book_shuffle` (9).
 - [ ] **Paragraph focus** (Enter on a `.` in F2): isolate one paragraph and
@@ -58,7 +58,7 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
 
 ## 4. The cut-up (loop writing)
 
-- [ ] **Tab in F1**: pull a random line from the void into the entry
+- [x] **Tab in F1**: pull a random line from the void into the entry
       (`recycle_line_to_zero_txt`) — `test_controls` (32).
 - [ ] **Tab in F2**: insert/replace with a random fragment from `I/`
       (`_doc_insert_random_i_line`) — `test_doc_tab`, `test_tab_replace` (23).
@@ -84,7 +84,7 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
 
 - [ ] **Multi-instance IPC**: when one instance saves, the others reload —
       `test_integrity_sync` (5).
-- [ ] **Mouse cursor**: the white ring, auto-hidden while typing —
+- [x] **Mouse cursor**: the white ring, auto-hidden while typing —
       `test_cursor_autohide` (12). Trivial here; just not wired.
 - [ ] **Screenshots** (`F12`), **opacity** (`Ctrl+±`), **TTS** (`Ctrl+T`).
 - [ ] **Pickers**: active file, book folder, void folder.
