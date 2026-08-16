@@ -35,25 +35,54 @@ Rust tests today: **136**.
 - `test_files_module` (24): `void.rs` covers reading/writing; the wider file
   helpers are not ported.
 
-## Not built here yet
+## Landed since this file was first written
 
-Each of these is a feature, not a missing test:
+Everything below moved out of "not built" over the course of one long session.
+Each arrived the same way: read the Python source AND its tests, write the Rust
+tests from that spec, watch them fail, implement, keep the whole suite green.
 
 | Feature | Python suite | Notes |
 |---|---|---|
-| Undo / redo | `test_undo`, `test_undo_cursor`, `test_f3_undo` (19) | the biggest gap |
-| F4 reading & print/PDF | `test_reading_page`, `_sections`, `test_print` (29) | |
-| F6–F8: the `O/` reader, browser, oracle | `test_working_set`, `test_tab_ws` (26) | |
-| Tab cut-up (random line into the entry) | `test_doc_tab`, `test_controls`, `test_tab_replace` (55) | `controls.py` |
-| Reformat (one sentence per line) | `test_reformat` (13) | |
-| Dispatch / merge / trash cascade | `test_dispatch`, `test_merge`, `test_trash_cascade` (14) | |
-| Shuffle (0.txt, and Tab-on-dot in F3) | `test_shuffle`, `test_book_shuffle` (9) | |
+| Undo / redo | `test_undo`, `test_undo_cursor`, `test_f3_undo` (19) | was the biggest gap |
+| Reformat (one sentence per line) | `test_reformat` (13) | both branches — see below |
+| Dispatch / merge / trash cascade | `test_dispatch`, `test_merge`, `test_trash_cascade` | |
+| Split at markers, split the scratch | `test_split_chapter` | |
+| Shuffle (scratch, and Tab-on-dot in F3) | `test_shuffle`, `test_book_shuffle` | |
+| Tab cut-up in F1 and F2 | `test_doc_tab`, `test_controls`, `test_tab_replace` | |
+| Random line into the entry (Ctrl+0 / Ctrl+.) | `controls.py` | |
 | Smart copy | `test_smart_copy` (5) | |
-| Multi-instance IPC | `test_integrity_sync` (5) | |
-| Lock screen | `test_lock_screen` (7) | |
-| TTS | — | |
-| Mouse cursor auto-hide | `test_cursor_autohide` (12) | trivial in egui, just not wired |
+| Search in F2 and F3 | — (no Python test exists) | from the source |
+| Position / view / active file across runs | `test_startup_restore` | |
 | F9 prose editor | `test_editor_view` (2) | |
+| F4 reading | `test_reading_page`, `_sections`, `test_open_position` | print/PDF still open |
+| F11 help overlay | `help_overlay.py` | table rewritten, not ported |
+| Multi-instance IPC | `test_integrity_sync` (5) | on `std::os::unix::net` |
+| Backup to a drive (Ctrl+B) | — (built to `roadmap/pending.txt`) | better than `_backup_vault` |
+| Screenshot (F12), opacity (Ctrl+±) | — | `grim`; opacity was mis-bound |
+| Mouse cursor auto-hide | `test_cursor_autohide` (12) | |
+
+One thing worth recording, because it corrects a claim made earlier in this
+same file's history: `reformat_active_file` has TWO branches, and both are now
+here. The ring-side one (`reformat`) treats every line as its own unit, because
+`load_doc` has already removed the blank lines a paragraph break would need.
+The raw-prose one (`reformat_prose`) joins wrapped lines before splitting them
+into sentences, and is reachable only through F9, which writes what you typed
+straight to disk without passing through `load_doc`. Calling the second branch
+"unreachable" was right about the ring and wrong about the program.
+
+## Not built here yet
+
+| Feature | Python suite | Notes |
+|---|---|---|
+| F6–F8: the `O/` reader, browser, oracle | `test_working_set`, `test_tab_ws` (26) | needs the corpus |
+| Print / PDF export from F4 | `test_print` | needs a PDF crate + `lp` |
+| Justified, hyphenated setting in F4 | `test_reading_page` | no Spanish hyphenation here |
+| Lock screen | `test_lock_screen` (7) | PAM — see PENDING.md |
+| TTS | — | needs a speech engine decision |
+| Alt+Tab in F2 (working-set fragment) | `test_tab_ws` | needs F7 |
+| Pickers (active file, book folder, void folder) | — | |
+| Merge stray `0.txt` files | — | doesn't fit the flat `I/` model |
+| Be the desktop (wlr-layer-shell) | — | |
 
 ## Before pointing this at the real `/void`
 
@@ -65,16 +94,24 @@ The mirror writes to a sandbox on purpose. What has to be true first:
    `snapshot_on_entry`, beyond what the Python does.
 3. **Save-time shrink guard.** ✅ A `.rescue` copy before a write that would gut
    a substantial file (`rescue_on_large_shrink`).
-4. **The destructive paths are covered**: send-to-chapter, paragraph moves, split
-   and the library rewrite all pass tests, but they have not been run over a
-   real book with hundreds of chapters — different scale can hide different
-   bugs than unit tests do.
-5. **Run it a while on a copy of the real void** — same size, same file names
+4. **Instances don't overwrite each other.** ✅ `ipc.rs` — every save announces
+   itself and the others re-read, so two open windows can't lose each other's
+   lines. The Python's own solution, ported.
+5. **A copy that leaves the machine.** ✅ Ctrl+B, with the whole void and its
+   git history, and a confirm step before anything is written.
+6. **The destructive paths are covered**: send-to-chapter, paragraph moves,
+   split, merge, dispatch, the trash cascade and the library rewrite all pass
+   tests — but they have not been run over a real book with hundreds of
+   chapters. Different scale hides different bugs than unit tests do.
+7. **Run it a while on a copy of the real void** — same size, same file names
    (accents, `:`, `?`), same `I.txt` — and diff the results against the Python.
 
-Items 4 and 5 are the remaining gate: not a feature to build, a judgement call
-on whether the mirror is trustworthy enough with the actual book. That decision
-should not be made lightly.
+Items 6 and 7 are the remaining gate, and they are the same gate they always
+were: not a feature to build, a judgement call on whether the mirror is
+trustworthy enough with the actual book. Everything mechanical that could be
+done before that call has now been done. The call itself is Federico's, and
+should be made with him at the keyboard — the sensible shape is a copy of the
+real void, a while spent working in it, and a diff, not a switch thrown.
 
 Until then `VOIDER_RS_VOID` points at `~/.local/share/voider-rs/void`, and the
 real `/void` is untouched.
