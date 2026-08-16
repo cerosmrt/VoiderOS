@@ -106,7 +106,7 @@ impl VoiderApp {
                         continue;
                     }
                     match self.voider.view {
-                        View::F1 => self.handle_f1_key(key, caps),
+                        View::F1 => self.handle_f1_key(key, caps, modifiers),
                         View::F2 => self.handle_f2_key(key, caps, modifiers),
                         View::F3 => self.handle_f3_key(key, modifiers),
                         View::F5 => self.handle_f5_key(key, modifiers),
@@ -150,12 +150,19 @@ impl VoiderApp {
             }
             // Backtick: round trip to the scratch, from wherever you are.
             Key::Backtick => self.voider.scratch_toggle(),
+            // Paragraph jumps, everywhere the document is on screen.
+            Key::PageDown => self.voider.goto_dot(1),
+            Key::PageUp => self.voider.goto_dot(-1),
+            // Ctrl+0: make the current line the file's first.
+            Key::Num0 if m.ctrl => {
+                let _ = self.voider.rebase_to_current();
+            }
             _ => return false,
         }
         true
     }
 
-    fn handle_f1_key(&mut self, key: egui::Key, caps: bool) {
+    fn handle_f1_key(&mut self, key: egui::Key, caps: bool, m: egui::Modifiers) {
         use egui::Key;
         match key {
             Key::Enter => {
@@ -170,6 +177,9 @@ impl VoiderApp {
             Key::ArrowLeft => self.voider.entry.move_caret(-1),
             Key::ArrowRight => self.voider.entry.move_caret(1),
             Key::Home => self.voider.entry.home(),
+            // Alt walks the library without going through F3.
+            Key::ArrowUp if m.alt => self.voider.step_file(-1),
+            Key::ArrowDown if m.alt => self.voider.step_file(1),
             Key::End => self.voider.entry.end(),
             Key::ArrowUp => {
                 self.voider.ring.move_by(-1);
@@ -224,8 +234,8 @@ impl VoiderApp {
             }
             Key::ArrowLeft => self.voider.entry.move_caret(-1),
             Key::ArrowRight => self.voider.entry.move_caret(1),
-            Key::Home => self.voider.entry.home(),
-            Key::End => self.voider.entry.end(),
+            Key::Home => self.voider.doc_jump_edge(false),
+            Key::End => self.voider.doc_jump_edge(true),
             _ => {}
         }
     }

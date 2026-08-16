@@ -588,6 +588,92 @@ impl Voider {
         self.save()
     }
 
+    // ── Navigation ────────────────────────────────────────────────────────────
+
+    /// PageDown/PageUp: jump to the next/previous `.` — paragraph by paragraph.
+    /// Wraps, and stays put when the file has no separators.
+    pub fn goto_dot(&mut self, direction: isize) {
+        let n = self.ring.lines.len();
+        if n == 0 {
+            return;
+        }
+        let mut idx = self.ring.index as isize;
+        for _ in 0..n {
+            idx = (idx + direction).rem_euclid(n as isize);
+            if self.ring.lines[idx as usize] == "." {
+                self.ring.index = idx as usize;
+                self.sync_entry();
+                return;
+            }
+        }
+    }
+
+    /// Home/End in F2: the first / last line that carries text.
+    pub fn doc_jump_edge(&mut self, to_end: bool) {
+        let found = if to_end {
+            self.ring.lines.iter().rposition(|l| l != ".")
+        } else {
+            self.ring.lines.iter().position(|l| l != ".")
+        };
+        if let Some(i) = found {
+            self.ring.index = i;
+            self.sync_entry();
+            if to_end {
+                self.entry.end();
+            }
+        }
+    }
+
+    /// Ctrl+0: rotate the file so the current line becomes its first.
+    pub fn rebase_to_current(&mut self) -> io::Result<()> {
+        if self.ring.index == 0 {
+            return Ok(());
+        }
+        self.doc_live_save()?;
+        self.ring.rebase_to_current();
+        self.sync_entry();
+        self.save()
+    }
+
+    /// Alt+Up/Down in F1: walk the library without going through F3.
+    pub fn step_file(&mut self, direction: isize) {
+        if self.library.entries.is_empty() {
+            self.library = Library::load(&self.void_dir);
+        }
+        let chapters: Vec<String> = self
+            .library
+            .entries
+            .iter()
+            .filter(|e| !library::is_separator(e))
+            .cloned()
+            .collect();
+        if chapters.is_empty() {
+            return;
+        }
+        let name = self
+            .current_file
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let here = chapters.iter().position(|c| *c == name).unwrap_or(0) as isize;
+        let next = (here + direction).rem_euclid(chapters.len() as isize) as usize;
+        let path = library::chapter_path(&self.void_dir, &chapters[next]);
+        self.set_active_file(path);
+        self.sync_entry();
+    }
+
+    /// Show whatever the cursor is on, the way the current view shows it.
+    fn sync_entry(&mut self) {
+        match self.view {
+            View::F1 => self.show_current(),
+            _ => {
+                let cur = self.ring.current().to_string();
+                self.entry.set_text(&cur);
+                self.entry.home();
+            }
+        }
+    }
+
     /// Alt+Up/Down while sitting on a `.`: move that whole paragraph. At the
     /// ends it moves round rather than swapping — the first becomes the last.
     pub fn doc_move_paragraph(&mut self, direction: isize) -> io::Result<()> {
@@ -1122,6 +1208,83 @@ mod tests {
         v.doc_swap_words(1).unwrap();
         assert_eq!(v.entry.text(), "mundo hola cruel");
         assert_eq!(v.ring.lines[1], "mundo hola cruel"); // persisted
+    }
+
+    // ── navigation ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn page_down_and_up_walk_the_separators() {
+        let (_d, mut v) = app(&[".", "a", ".", "b", ".", "c"]);
+        v.ring.index = 1;
+        v.goto_dot(1);
+        assert_eq!(v.ring.index, 2);
+        v.goto_dot(1);
+        assert_eq!(v.ring.index, 4);
+        v.goto_dot(1);
+        assert_eq!(v.ring.index, 0); // wrapped
+        v.goto_dot(-1);
+        assert_eq!(v.ring.index, 4);
+    }
+
+    #[test]
+    fn with_no_separators_at_all_the_cursor_stays_put() {
+        // A loaded file always gains a leading '.', so build the ring directly.
+        let (_d, mut v) = app(&[".", "a", "b"]);
+        v.ring.lines = vec!["a".into(), "b".into()];
+        v.ring.index = 1;
+        v.goto_dot(1);
+        assert_eq!(v.ring.index, 1); // nowhere to jump to
+    }
+
+    #[test]
+    fn home_and_end_reach_the_first_and_last_text() {
+        let (_d, mut v) = app(&[".", "primera", ".", "ultima"]);
+        v.switch_to(View::F2);
+        v.doc_jump_edge(true);
+        assert_eq!(v.entry.text(), "ultima");
+        assert_eq!(v.entry.caret(), 6); // End leaves the caret at the end
+        v.doc_jump_edge(false);
+        assert_eq!(v.entry.text(), "primera");
+        assert_eq!(v.entry.caret(), 0);
+    }
+
+    #[test]
+    fn rebasing_makes_the_current_line_first() {
+        let (_d, mut v) = app(&[".", "a", ".", "b"]);
+        v.ring.index = 3; // on 'b'
+        v.switch_to(View::F2);
+        v.rebase_to_current().unwrap();
+        assert_eq!(v.ring.lines, vec!["b", ".", "a", "."]);
+        assert_eq!(v.ring.index, 0);
+        assert_eq!(void::load_doc(&v.current_file).lines[0], "."); // reloads well-formed
+    }
+
+    #[test]
+    fn rebasing_at_the_top_changes_nothing() {
+        let (_d, mut v) = app(&[".", "a"]);
+        v.ring.index = 0;
+        v.rebase_to_current().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "a"]);
+    }
+
+    #[test]
+    fn stepping_files_walks_the_library_and_wraps() {
+        let (_d, mut v) = book(); // Dos.txt, Uno.txt — active is Uno
+        v.library = Library::load(&v.void_dir);
+        v.step_file(1);
+        assert!(v.current_file.ends_with("Dos.txt")); // wrapped past the end
+        assert!(v.ring.lines.contains(&"de dos".to_string()));
+        v.step_file(-1);
+        assert!(v.current_file.ends_with("Uno.txt"));
+    }
+
+    #[test]
+    fn stepping_files_skips_separators() {
+        let (_d, mut v) = book();
+        v.library = Library::load(&v.void_dir);
+        v.library.entries.insert(1, ".".into()); // a separator between the two
+        v.step_file(1);
+        assert!(v.current_file.ends_with("Dos.txt")); // landed on a chapter, not a dot
     }
 
     // ── undo, end to end ──────────────────────────────────────────────────────
