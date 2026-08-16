@@ -14,6 +14,7 @@ use crate::f5;
 use crate::fonts;
 use crate::library::{self, Library};
 use crate::paragraphs;
+use crate::reformat;
 use crate::line_ring::LineRing;
 use crate::text_line::{self, TextLine};
 use crate::undo::{self, UndoManager};
@@ -588,6 +589,55 @@ impl Voider {
         self.save()
     }
 
+    // ── Shaping ───────────────────────────────────────────────────────────────
+
+    /// Ctrl+Shift+F: break the active file into one sentence per line. Backed up
+    /// to `.bak` first, and a single undo step.
+    pub fn reformat_file(&mut self) -> io::Result<()> {
+        let before = self.ring.lines.clone();
+        let after = reformat::reformat(&before);
+        if after == before {
+            self.status = "Already one sentence per line".into();
+            return Ok(());
+        }
+        void::atomic_write(&self.current_file, &after, true)?; // keeps a .bak
+        self.ring.lines = after.clone();
+        self.ring.index = self.ring.index.min(self.ring.lines.len() - 1);
+        self.sync_entry();
+        self.undo.record(self.current_file.clone(), before, after, None);
+        self.status = "Reformatted".into();
+        Ok(())
+    }
+
+    /// Ctrl+Shift+R on the scratch: randomise its lines. Only ever the scratch —
+    /// it is the formless place documents are formed from. A `.bak` is kept.
+    pub fn shuffle_scratch(&mut self) -> io::Result<()> {
+        if self.current_file != self.scratch_path() {
+            self.status = "Shuffle only applies to the scratch".into();
+            return Ok(());
+        }
+        let before = self.ring.lines.clone();
+        let mut content: Vec<String> = before
+            .iter()
+            .filter(|l| !l.trim().is_empty() && l.trim() != ".")
+            .cloned()
+            .collect();
+        if content.len() < 2 {
+            self.status = "Nothing to shuffle".into();
+            return Ok(());
+        }
+        shuffle(&mut content);
+        let mut after = vec![".".to_string()];
+        after.extend(content);
+        void::atomic_write(&self.current_file, &after, true)?;
+        self.ring.lines = after.clone();
+        self.ring.index = 0;
+        self.sync_entry();
+        self.undo.record(self.current_file.clone(), before, after, None);
+        self.status = "Shuffled".into();
+        Ok(())
+    }
+
     // ── Navigation ────────────────────────────────────────────────────────────
 
     /// PageDown/PageUp: jump to the next/previous `.` — paragraph by paragraph.
@@ -810,6 +860,22 @@ impl Voider {
             return false;
         }
         self.entry.backspace()
+    }
+}
+
+/// Shuffle in place. A small xorshift seeded from the clock — no dependency
+/// needed to make the scratch formless again.
+fn shuffle<T>(items: &mut [T]) {
+    let mut state = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0x2545F491)
+        | 1;
+    for i in (1..items.len()).rev() {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        items.swap(i, (state % (i as u64 + 1)) as usize);
     }
 }
 
@@ -1208,6 +1274,52 @@ mod tests {
         v.doc_swap_words(1).unwrap();
         assert_eq!(v.entry.text(), "mundo hola cruel");
         assert_eq!(v.ring.lines[1], "mundo hola cruel"); // persisted
+    }
+
+    // ── shaping ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn reformatting_breaks_the_file_into_sentences_and_is_undoable() {
+        let (_d, mut v) = app(&["Una frase. Otra frase."]);
+        v.reformat_file().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "Una frase.", "Otra frase."]);
+        assert_eq!(void::load_doc(&v.current_file).lines, v.ring.lines);
+        // and there is a .bak of what it was
+        assert!(void::backup_path(&v.current_file).exists());
+
+        v.undo().unwrap();
+        assert!(void::load_doc(&v.current_file)
+            .lines
+            .contains(&"Una frase. Otra frase.".to_string()));
+    }
+
+    #[test]
+    fn reformatting_an_already_formatted_file_does_nothing() {
+        let (_d, mut v) = app(&[".", "Sola."]);
+        v.reformat_file().unwrap();
+        assert_eq!(v.status, "Already one sentence per line");
+        assert!(!v.undo.can_undo());
+    }
+
+    #[test]
+    fn shuffling_only_applies_to_the_scratch() {
+        let (_d, mut v) = app(&[".", "a", "b", "c"]);
+        v.shuffle_scratch().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "a", "b", "c"]); // a chapter is left alone
+        assert!(v.status.contains("only applies"));
+    }
+
+    #[test]
+    fn shuffling_the_scratch_keeps_every_line() {
+        let (_d, mut v) = book();
+        v.set_active_file(v.scratch_path());
+        v.ring.lines = vec![".".into(), "a".into(), ".".into(), "b".into(), "c".into()];
+        v.shuffle_scratch().unwrap();
+        let mut got: Vec<String> = v.ring.lines.iter().filter(|l| *l != ".").cloned().collect();
+        got.sort();
+        assert_eq!(got, vec!["a", "b", "c"]); // nothing lost, nothing invented
+        assert_eq!(v.ring.lines[0], "."); // and still well-formed
+        assert!(v.undo.can_undo()); // undoable
     }
 
     // ── navigation ────────────────────────────────────────────────────────────

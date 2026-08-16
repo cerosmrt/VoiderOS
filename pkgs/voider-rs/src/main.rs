@@ -13,6 +13,7 @@ mod fonts;
 mod library;
 mod paragraphs;
 mod line_ring;
+mod reformat;
 mod text_line;
 mod undo;
 mod void;
@@ -153,6 +154,13 @@ impl VoiderApp {
             // Paragraph jumps, everywhere the document is on screen.
             Key::PageDown => self.voider.goto_dot(1),
             Key::PageUp => self.voider.goto_dot(-1),
+            // Shaping: one sentence per line, and the formless scratch.
+            Key::F if m.ctrl && m.shift => {
+                let _ = self.voider.reformat_file();
+            }
+            Key::R if m.ctrl && m.shift => {
+                let _ = self.voider.shuffle_scratch();
+            }
             // Ctrl+0: make the current line the file's first.
             Key::Num0 if m.ctrl => {
                 let _ = self.voider.rebase_to_current();
