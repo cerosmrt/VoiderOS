@@ -17,11 +17,13 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
       stack for library operations (rename/reorder/delete/merge/split).
       *Nothing else on this list matters as much: without it a wrong key has no
       way back but git.*
-- [ ] **Git snapshot on entry**, so any session can be walked back.
-- [ ] **Save-time shrink guard** — refuse/rescue when a save would drop a large
+- [x] **Git snapshot on entry**, so any session can be walked back — beyond the
+      Python, which only snapshots before specific destructive ops.
+- [x] **Save-time shrink guard** — refuse/rescue when a save would drop a large
       fraction of a file (`_rescue_on_large_shrink`).
 - [ ] **Backup to a pendrive** (`Ctrl+B`) — the faithful mirror + git, per the
-      Python's own pending item.
+      Python's own pending item. *Not a precondition for the real `/void`* — a
+      convenience, not a guard against what the mirror itself might do wrong.
 
 ## 2. Navigation a writer uses constantly
 

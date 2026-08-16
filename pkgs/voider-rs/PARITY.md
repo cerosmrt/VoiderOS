@@ -59,13 +59,22 @@ Each of these is a feature, not a missing test:
 
 The mirror writes to a sandbox on purpose. What has to be true first:
 
-1. **Undo exists.** Today a wrong keystroke here has no way back except git.
-2. **The destructive paths are covered**: send-to-chapter, paragraph moves and
-   the library rewrite all pass tests, but they have not been run over a real
-   book with hundreds of chapters.
-3. **A git snapshot on entry**, so a session can always be walked back.
-4. **Run it a while on a copy of the real void** — same size, same file names
+1. **Undo exists.** ✅ Ctrl+Z/Ctrl+Shift+Z, coalesced bursts, multi-file
+   transactions (`undo.rs`).
+2. **A git snapshot on entry**, so a session can always be walked back. ✅
+   `snapshot_on_entry`, beyond what the Python does.
+3. **Save-time shrink guard.** ✅ A `.rescue` copy before a write that would gut
+   a substantial file (`rescue_on_large_shrink`).
+4. **The destructive paths are covered**: send-to-chapter, paragraph moves, split
+   and the library rewrite all pass tests, but they have not been run over a
+   real book with hundreds of chapters — different scale can hide different
+   bugs than unit tests do.
+5. **Run it a while on a copy of the real void** — same size, same file names
    (accents, `:`, `?`), same `I.txt` — and diff the results against the Python.
+
+Items 4 and 5 are the remaining gate: not a feature to build, a judgement call
+on whether the mirror is trustworthy enough with the actual book. That decision
+should not be made lightly.
 
 Until then `VOIDER_RS_VOID` points at `~/.local/share/voider-rs/void`, and the
 real `/void` is untouched.
