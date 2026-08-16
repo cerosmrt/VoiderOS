@@ -76,6 +76,10 @@ pub struct Voider {
     pub show_title: bool,
     /// F3 is holding a blank entry waiting to be named.
     pub pending_new: bool,
+    /// F3: a blank naming line for the book being merged is open below its dot.
+    pub pending_merge: bool,
+    /// F3: which separator the merge started from.
+    pub merge_dot_idx: Option<usize>,
     /// F2: Enter on a `.` narrows navigation/swap to one paragraph.
     pub para_focus: bool,
     /// F2: the line indices that make up the focused paragraph.
@@ -121,6 +125,8 @@ impl Voider {
             view: View::F1,
             entry: TextLine::new(""),
             pending_new: false,
+            pending_merge: false,
+            merge_dot_idx: None,
             para_focus: false,
             para_focus_content: Vec::new(),
             para_idx: 0,
@@ -204,7 +210,16 @@ impl Voider {
         self.undo_applying = true;
         for change in &entry.files {
             let lines = if backwards { &change.before } else { &change.after };
-            void::atomic_write(&change.path, lines, false)?;
+            if lines.is_empty() {
+                // A real Voider file always has at least a '.' — an empty target
+                // means this file did not exist at this point in history (a
+                // merge's freshly-made container going back, or a chapter a
+                // merge deleted going forward), so undo restores that by
+                // removing it, not by writing an empty file.
+                let _ = std::fs::remove_file(&change.path);
+            } else {
+                void::atomic_write(&change.path, lines, false)?;
+            }
             // If it's the file on screen, show the restored version at once.
             if change.path == self.current_file {
                 let keep = self.ring.index;
@@ -564,6 +579,115 @@ impl Voider {
         }
         library::shuffle(&mut candidates);
         self.library.index = candidates[0];
+    }
+
+    // ── merging a book into one chapter (Ctrl+Shift+M on a dot in F3) ────────
+
+    /// Ctrl+Shift+M on a separator: open a blank naming line right below it.
+    /// Only makes sense on a dot — a no-op elsewhere or mid-merge already.
+    pub fn book_merge_prompt(&mut self) {
+        if !library::is_separator(self.library.current()) || self.pending_merge {
+            return;
+        }
+        let idx = self.library.index;
+        self.merge_dot_idx = Some(idx);
+        self.library.entries.insert(idx + 1, String::new());
+        self.library.index = idx + 1;
+        self.pending_merge = true;
+        self.entry.clear();
+    }
+
+    /// Remove the blank naming line and leave the book untouched.
+    pub fn book_cancel_merge(&mut self) {
+        self.pending_merge = false;
+        let ph = self.merge_dot_idx.unwrap_or(self.library.index.saturating_sub(1)) + 1;
+        if ph < self.library.entries.len() && self.library.entries[ph].is_empty() {
+            self.library.entries.remove(ph);
+        }
+        let n = self.library.entries.len();
+        self.library.index = ph.saturating_sub(1).min(n.saturating_sub(1));
+        self.merge_dot_idx = None;
+    }
+
+    /// Collapse the book (from the dot to the next one) into ONE chapter named
+    /// by what's in the entry: each chapter's lines, followed by a `/name` seal
+    /// marker, originals removed. Re-splitting (Ctrl+Shift+S) restores them.
+    /// Stays in F3. An empty name or an empty book cancels instead of merging.
+    /// Returns how many chapters were merged (0 = cancelled).
+    pub fn book_do_merge(&mut self) -> io::Result<usize> {
+        let name = self.entry.text().trim().to_string();
+        let dot_idx = self.merge_dot_idx.unwrap_or(self.library.index.saturating_sub(1));
+        let ph = dot_idx + 1;
+        let n = self.library.entries.len();
+        let mut chapters: Vec<(usize, String)> = Vec::new();
+        let mut i = ph + 1;
+        while i < n && self.library.entries[i] != library::SEPARATOR {
+            let fname = self.library.entries[i].clone();
+            if !fname.is_empty() && !library::is_portal(&fname) {
+                chapters.push((i, fname));
+            }
+            i += 1;
+        }
+        if name.is_empty() || chapters.is_empty() {
+            self.book_cancel_merge();
+            return Ok(0);
+        }
+
+        void::git_commit(&self.void_dir, "I/", &format!("merge {}", void::timestamp()));
+        let i_dir = self.void_dir.join("I");
+
+        let mut merged: Vec<String> = Vec::new();
+        for (_, fname) in &chapters {
+            let fpath = library::chapter_path(&self.void_dir, fname);
+            let mut lines: Vec<String> = std::fs::read_to_string(&fpath)
+                .map(|t| t.lines().map(|l| l.trim_end().to_string()).collect())
+                .unwrap_or_default();
+            while lines.last().map(|l| l.trim().is_empty()).unwrap_or(false) {
+                lines.pop();
+            }
+            merged.extend(lines);
+            merged.push(format!("/{}", library::display_name(fname)));
+        }
+
+        // A name clash steps to "name-2", "name-3", ... like a new chapter would.
+        let mut cname = format!("{name}.txt");
+        let mut cpath = i_dir.join(&cname);
+        let mut k = 2;
+        while cpath.exists() || self.library.entries.contains(&cname) {
+            cname = format!("{name}-{k}.txt");
+            cpath = i_dir.join(&cname);
+            k += 1;
+        }
+
+        let mut changes = vec![undo::FileChange {
+            path: cpath.clone(),
+            before: Vec::new(),
+            after: merged.clone(),
+        }];
+        void::atomic_write(&cpath, &merged, false)?;
+
+        self.library.entries[ph] = cname.clone();
+        let mut removed = chapters.clone();
+        removed.sort_by(|a, b| b.0.cmp(&a.0)); // remove back-to-front
+        for (idx, fname) in &removed {
+            let fpath = library::chapter_path(&self.void_dir, fname);
+            let before: Vec<String> = std::fs::read_to_string(&fpath)
+                .map(|t| t.lines().map(|l| l.trim_end().to_string()).collect())
+                .unwrap_or_default();
+            changes.push(undo::FileChange { path: fpath.clone(), before, after: Vec::new() });
+            let _ = std::fs::remove_file(&fpath);
+            self.library.entries.remove(*idx);
+        }
+
+        self.pending_merge = false;
+        self.merge_dot_idx = None;
+        self.library.index = ph;
+        self.library.save(&self.void_dir)?;
+        self.undo.record_transaction(changes, Some("merge".into()));
+        self.entry.clear();
+        let n_chapters = chapters.len();
+        self.status = format!("Merged {n_chapters} chapter(s) → {cname}");
+        Ok(n_chapters)
     }
 
     /// F2 saves on every keystroke. Blank text is never written over a line and
@@ -1057,17 +1181,30 @@ impl Voider {
         }
 
         // An emptied container is no longer a chapter of the book — unless a
-        // marker named it, in which case it now holds that sealed text.
+        // marker named it (then it holds that sealed text) or it's the scratch
+        // (which always needs to exist). Removed for real, on disk and all, so
+        // a merged book re-splits cleanly (the merge left no A.txt/B.txt behind
+        // for this exact reason).
         let sealed_into_container = plan
             .sealed
             .iter()
             .any(|c| format!("{}.txt", c.name) == source_name);
-        if !remainder_has_text && !sealed_into_container && source_name != library::PORTAL {
+        let container_removed =
+            !remainder_has_text && !sealed_into_container && source_name != library::PORTAL;
+        if container_removed {
             self.library.entries.retain(|e| *e != source_name);
+            let _ = std::fs::remove_file(&self.current_file);
+            if let Some(c) = changes.first_mut() {
+                c.after.clear(); // tells undo this file should not exist
+            }
         }
         self.library.save(&self.void_dir)?;
 
-        self.ring = LineRing::new(void::load_doc(&self.current_file).lines);
+        self.ring = if container_removed {
+            LineRing::new([".".to_string()])
+        } else {
+            LineRing::new(void::load_doc(&self.current_file).lines)
+        };
         self.sync_entry();
         self.undo.record_transaction(changes, Some("split".into()));
         let n = plan.sealed.len();
@@ -1739,7 +1876,11 @@ mod tests {
         let mut got = v.library.entries[1..4].to_vec();
         got.sort();
         assert_eq!(got, vec!["A.txt", "B.txt", "C.txt"]); // same files
-        assert_eq!(Library::load(&v.void_dir).entries.len(), v.library.entries.len());
+        // Force-persist and reload: whether or not this particular shuffle
+        // happened to land back on the original order (and so skipped its own
+        // save), the in-memory state should always be what disk holds.
+        v.library.save(&v.void_dir).unwrap();
+        assert_eq!(Library::load(&v.void_dir).entries, v.library.entries);
     }
 
     #[test]
@@ -2160,6 +2301,128 @@ mod tests {
         let before = v.ring.lines.clone();
         assert_eq!(v.split_at_markers().unwrap(), 0);
         assert_eq!(v.ring.lines, before);
+    }
+
+    // ── merging a book (Ctrl+Shift+M on a dot in F3) ───────────────────────────
+
+    fn merge_book_app() -> (tempfile::TempDir, Voider) {
+        let d = tempfile::tempdir().unwrap();
+        let i = d.path().join("I");
+        std::fs::create_dir_all(&i).unwrap();
+        std::fs::write(i.join("A.txt"), "a1\na2\n").unwrap();
+        std::fs::write(i.join("B.txt"), "b1\n").unwrap();
+        let mut v = Voider::open(d.path(), i.join("A.txt"));
+        v.library = Library {
+            entries: vec![".".into(), "A.txt".into(), "B.txt".into()],
+            index: 0,
+        };
+        (d, v)
+    }
+
+    #[test]
+    fn merge_prompt_only_fires_on_a_separator() {
+        let (_d, mut v) = merge_book_app();
+        v.library.index = 1; // on 'A.txt', not a dot
+        v.book_merge_prompt();
+        assert!(!v.pending_merge);
+        assert_eq!(v.library.entries.len(), 3); // unchanged
+    }
+
+    #[test]
+    fn merge_prompt_opens_a_blank_naming_line() {
+        let (_d, mut v) = merge_book_app();
+        v.book_merge_prompt();
+        assert!(v.pending_merge);
+        assert_eq!(v.library.entries, vec![".", "", "A.txt", "B.txt"]);
+        assert_eq!(v.library.index, 1);
+    }
+
+    #[test]
+    fn merge_collapses_the_book_into_one_sealed_chapter() {
+        let (_d, mut v) = merge_book_app();
+        v.book_merge_prompt();
+        v.entry.set_text("Book1");
+        let n = v.book_do_merge().unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(v.library.entries, vec![".", "Book1.txt"]);
+
+        let merged = void::load_doc(&v.void_dir.join("I/Book1.txt"));
+        assert_eq!(merged.lines, vec![".", "a1", "a2", "/A", "b1", "/B"]);
+        assert!(!v.void_dir.join("I/A.txt").exists());
+        assert!(!v.void_dir.join("I/B.txt").exists());
+        assert!(!v.pending_merge); // stays in F3, not opened
+    }
+
+    #[test]
+    fn merging_then_splitting_restores_the_original_chapters() {
+        let (_d, mut v) = merge_book_app();
+        v.book_merge_prompt();
+        v.entry.set_text("Book1");
+        v.book_do_merge().unwrap();
+
+        v.set_active_file(v.void_dir.join("I/Book1.txt"));
+        v.split_at_markers().unwrap();
+
+        let mut names: Vec<String> = v
+            .library
+            .entries
+            .iter()
+            .filter(|e| !library::is_separator(e))
+            .cloned()
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["A.txt", "B.txt"]);
+        assert_eq!(void::load_doc(&v.void_dir.join("I/A.txt")).lines, vec![".", "a1", "a2"]);
+        assert_eq!(void::load_doc(&v.void_dir.join("I/B.txt")).lines, vec![".", "b1"]);
+        assert!(!v.void_dir.join("I/Book1.txt").exists());
+    }
+
+    #[test]
+    fn an_empty_name_cancels_the_merge() {
+        let (_d, mut v) = merge_book_app();
+        v.book_merge_prompt();
+        // entry left empty
+        let n = v.book_do_merge().unwrap();
+        assert_eq!(n, 0);
+        assert_eq!(v.library.entries, vec![".", "A.txt", "B.txt"]); // naming line gone
+        assert!(v.void_dir.join("I/A.txt").exists()); // untouched
+        assert!(!v.pending_merge);
+    }
+
+    #[test]
+    fn escape_cancels_a_pending_merge() {
+        let (_d, mut v) = merge_book_app();
+        v.book_merge_prompt();
+        v.entry.set_text("Discarded");
+        v.book_cancel_merge();
+        assert!(!v.pending_merge);
+        assert_eq!(v.library.entries, vec![".", "A.txt", "B.txt"]);
+        assert!(v.void_dir.join("I/A.txt").exists());
+    }
+
+    #[test]
+    fn a_name_clash_gets_a_numbered_suffix() {
+        let (_d, mut v) = merge_book_app();
+        std::fs::write(v.void_dir.join("I/Book1.txt"), "ya existe\n").unwrap();
+        v.book_merge_prompt();
+        v.entry.set_text("Book1");
+        v.book_do_merge().unwrap();
+        assert!(v.library.entries.contains(&"Book1-2.txt".to_string()));
+        // the pre-existing Book1.txt was never touched by the merge
+        assert_eq!(void::load_doc(&v.void_dir.join("I/Book1.txt")).lines, vec![".", "ya existe"]);
+    }
+
+    #[test]
+    fn merging_is_one_undo_step_across_every_file() {
+        let (_d, mut v) = merge_book_app();
+        v.book_merge_prompt();
+        v.entry.set_text("Book1");
+        v.book_do_merge().unwrap();
+
+        v.undo().unwrap();
+        assert!(!v.void_dir.join("I/Book1.txt").exists());
+        assert_eq!(void::load_doc(&v.void_dir.join("I/A.txt")).lines, vec![".", "a1", "a2"]);
+        assert_eq!(void::load_doc(&v.void_dir.join("I/B.txt")).lines, vec![".", "b1"]);
     }
 
     // ── navigation ────────────────────────────────────────────────────────────

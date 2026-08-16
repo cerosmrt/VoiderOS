@@ -141,9 +141,10 @@ impl VoiderApp {
                         self.voider.entry.insert(&text_line::neutralize_caps(&t, caps));
                         let _ = self.voider.doc_live_save();
                     }
-                    // In F3 typing only means something while naming a new entry.
+                    // In F3 typing only means something while naming a new entry
+                    // or a book being merged.
                     View::F3 => {
-                        if self.voider.pending_new {
+                        if self.voider.pending_new || self.voider.pending_merge {
                             self.voider.entry.insert(&text_line::neutralize_caps(&t, caps));
                         }
                     }
@@ -324,9 +325,15 @@ impl VoiderApp {
     fn handle_f3_key(&mut self, key: egui::Key, m: egui::Modifiers) {
         use egui::Key;
         match key {
+            // Ctrl+Shift+M on a separator: name and merge that book into one file.
+            Key::M if m.ctrl && m.shift => self.voider.book_merge_prompt(),
             // Shift+Enter opens a blank entry to name; Enter confirms it, or
-            // opens the highlighted chapter when we're just browsing.
+            // opens the highlighted chapter when we're just browsing. A pending
+            // merge takes priority — it's naming a book, not a single chapter.
             Key::Enter if m.shift => self.voider.begin_new_chapter(),
+            Key::Enter if self.voider.pending_merge => {
+                let _ = self.voider.book_do_merge();
+            }
             Key::Enter => {
                 if self.voider.pending_new {
                     let _ = self.voider.settle_pending();
@@ -334,9 +341,10 @@ impl VoiderApp {
                     self.voider.open_current_chapter();
                 }
             }
+            Key::Escape if self.voider.pending_merge => self.voider.book_cancel_merge(),
             Key::Escape => self.voider.cancel_pending(),
             Key::Backspace => {
-                if self.voider.pending_new {
+                if self.voider.pending_new || self.voider.pending_merge {
                     self.voider.entry.backspace();
                 }
             }
@@ -518,7 +526,7 @@ impl VoiderApp {
 
         if n > 0 {
             for offset in -reach..=reach {
-                if offset == 0 && self.voider.pending_new {
+                if offset == 0 && (self.voider.pending_new || self.voider.pending_merge) {
                     continue; // the name being typed is drawn as the entry line
                 }
                 let i = (lib.index as isize + offset).rem_euclid(n) as usize;
@@ -542,7 +550,7 @@ impl VoiderApp {
                 );
             }
         }
-        if self.voider.pending_new {
+        if self.voider.pending_new || self.voider.pending_merge {
             self.draw_entry_line(painter, ctx, centre, rect, false);
         }
     }
