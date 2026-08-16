@@ -201,16 +201,6 @@ impl VoiderApp {
             // Paragraph jumps, everywhere the document is on screen.
             Key::PageDown => self.voider.goto_dot(1),
             Key::PageUp => self.voider.goto_dot(-1),
-            // Shaping: one sentence per line, and the formless scratch.
-            Key::F if m.ctrl && m.shift => {
-                let _ = self.voider.reformat_file();
-            }
-            Key::S if m.ctrl && m.shift => {
-                let _ = self.voider.split_at_markers();
-            }
-            Key::R if m.ctrl && m.shift => {
-                let _ = self.voider.shuffle_scratch();
-            }
             // Ctrl+0: make the current line the file's first.
             Key::Num0 if m.ctrl => {
                 let _ = self.voider.rebase_to_current();
@@ -310,6 +300,21 @@ impl VoiderApp {
             Key::ArrowRight => self.voider.entry.move_caret(1),
             Key::Home => self.voider.doc_jump_edge(false),
             Key::End => self.voider.doc_jump_edge(true),
+            // On the scratch this formats AND splits '/name' blocks out; on any
+            // other file it just reformats into one sentence per line.
+            Key::F if m.ctrl && m.shift => {
+                if self.voider.current_file == self.voider.scratch_path() {
+                    let _ = self.voider.split_scratch_into_docs();
+                } else {
+                    let _ = self.voider.reformat_file();
+                }
+            }
+            Key::S if m.ctrl && m.shift => {
+                let _ = self.voider.split_at_markers();
+            }
+            Key::R if m.ctrl && m.shift => {
+                let _ = self.voider.shuffle_scratch();
+            }
             Key::Escape if self.voider.para_focus => self.voider.exit_para_focus(),
             Key::Escape => self.voider.switch_to(View::F1),
             _ => {}

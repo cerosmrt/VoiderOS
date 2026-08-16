@@ -20,6 +20,7 @@ use crate::line_ring::LineRing;
 use crate::text_line::{self, TextLine};
 use crate::undo::{self, UndoManager};
 use crate::void;
+use chrono::Datelike;
 use crate::words;
 
 /// True when any keyboard's Caps Lock LED is lit.
@@ -815,6 +816,145 @@ impl Voider {
         Ok(())
     }
 
+    /// Ctrl+Shift+F on the scratch: FORMAT, then SPLIT.
+    ///
+    /// 1. Reformat the scratch into one sentence per line (the `.bak` this
+    ///    leaves holds the true original, since nothing is written until step 3).
+    /// 2. Every block whose LAST line is a `/name` marker moves to `I/name.txt`
+    ///    (created below the `0` portal in the library, or appended if the name
+    ///    already exists) and leaves the scratch. `/` alone is auto-named
+    ///    `YY-M-D_N`. A block that's ONLY a marker (nothing above it) is left
+    ///    exactly as it was — there is nothing to move.
+    /// 3. What's left of the scratch — the unmarked blocks, reformatted — is
+    ///    written back.
+    ///
+    /// Chaos in, documents out. One git snapshot, one undo step for everything
+    /// this touches. Returns (blocks moved, new docs created).
+    pub fn split_scratch_into_docs(&mut self) -> io::Result<(usize, usize)> {
+        if self.current_file != self.scratch_path() {
+            self.status = "Format/split only applies to the scratch".into();
+            return Ok((0, 0));
+        }
+        if self.library.entries.is_empty() {
+            self.library = Library::load(&self.void_dir);
+        }
+
+        let original = self.ring.lines.clone();
+        let formatted = reformat::reformat(&original);
+        let blocks = zero_blocks(&formatted);
+
+        let i_dir = self.void_dir.join("I");
+        let now = chrono::Local::now();
+        let date_base = format!(
+            "{}-{}-{}",
+            now.year() % 100,
+            now.month(),
+            now.day()
+        );
+        let mut used_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        let mut kept: Vec<Vec<String>> = Vec::new();
+        let mut moves: Vec<(String, Vec<String>)> = Vec::new();
+        for blk in blocks {
+            let last = blk.last().map(|s| s.trim()).unwrap_or("");
+            if last.starts_with('/') {
+                let content = blk[..blk.len() - 1].to_vec();
+                if content.is_empty() {
+                    kept.push(blk); // only a marker: nothing to move
+                    continue;
+                }
+                let mut name = last.trim_start_matches('/').trim().to_string();
+                if name.is_empty() {
+                    name = next_auto_name(&i_dir, &date_base, &mut used_names);
+                }
+                moves.push((name, content));
+            } else {
+                kept.push(blk);
+            }
+        }
+
+        if moves.is_empty() {
+            // Formatting always writes (and backs up), even when nothing actually
+            // changed — the write is the point, not an optimisation.
+            void::atomic_write(&self.current_file, &formatted, true)?;
+            self.ring.lines = formatted.clone();
+            self.sync_entry();
+            self.undo.record(self.current_file.clone(), original, formatted, None);
+            self.status = "Formatted — no '/name' blocks to split".into();
+            return Ok((0, 0));
+        }
+
+        void::git_commit(&self.void_dir, "I/", &format!("split-zero {}", void::timestamp()));
+
+        let mut changes: Vec<undo::FileChange> = Vec::new();
+        let mut created: Vec<(String, PathBuf)> = Vec::new();
+
+        for (name, content) in &moves {
+            let fname = if name.to_lowercase().ends_with(".txt") {
+                name.clone()
+            } else {
+                format!("{name}.txt")
+            };
+            let path = i_dir.join(&fname);
+            let is_new = !path.exists();
+            let before: Vec<String> = if is_new {
+                Vec::new()
+            } else {
+                std::fs::read_to_string(&path)
+                    .map(|t| t.lines().map(|l| l.trim_end().to_string()).collect())
+                    .unwrap_or_default()
+            };
+            let mut after = before.clone();
+            if !after.is_empty() {
+                after.push(".".to_string());
+            }
+            after.extend(content.iter().cloned());
+            void::atomic_write(&path, &after, false)?;
+            changes.push(undo::FileChange { path: path.clone(), before, after });
+            if is_new {
+                created.push((fname, path));
+            }
+        }
+
+        let mut new_zero: Vec<String> = Vec::new();
+        for blk in &kept {
+            new_zero.push(".".to_string());
+            new_zero.extend(blk.iter().cloned());
+        }
+        if new_zero.is_empty() {
+            new_zero.push(".".to_string());
+        }
+        // Backs up whatever is STILL on disk — the untouched original, since
+        // nothing has been written to the scratch until this line.
+        void::atomic_write(&self.current_file, &new_zero, true)?;
+        changes.push(undo::FileChange {
+            path: self.current_file.clone(),
+            before: original,
+            after: new_zero.clone(),
+        });
+        self.ring.lines = new_zero;
+        self.sync_entry();
+
+        if !created.is_empty() {
+            let portal_at = self
+                .library
+                .entries
+                .iter()
+                .position(|e| library::is_portal(e));
+            let mut ins = portal_at.map(|i| i + 1).unwrap_or(self.library.entries.len());
+            for (fname, _) in &created {
+                self.library.entries.insert(ins, fname.clone());
+                ins += 1;
+            }
+            self.library.save(&self.void_dir)?;
+        }
+
+        self.undo.record_transaction(changes, Some("split-zero".into()));
+        let (n_moved, n_created) = (moves.len(), created.len());
+        self.status = format!("Split: {n_moved} block(s) moved, {n_created} new doc(s)");
+        Ok((n_moved, n_created))
+    }
+
     /// Ctrl+Shift+R on the scratch: randomise its lines. Only ever the scratch —
     /// it is the formless place documents are formed from. A `.bak` is kept.
     pub fn shuffle_scratch(&mut self) -> io::Result<()> {
@@ -1205,6 +1345,40 @@ impl Voider {
             return false;
         }
         self.entry.backspace()
+    }
+}
+
+/// Parse lines into blocks: the runs of non-dot, non-blank lines between `.`
+/// separators, in order. A port of `_zero_blocks`.
+fn zero_blocks(lines: &[String]) -> Vec<Vec<String>> {
+    let mut blocks = Vec::new();
+    let mut cur: Vec<String> = Vec::new();
+    for line in lines {
+        let s = line.trim();
+        if s == "." {
+            if !cur.is_empty() {
+                blocks.push(std::mem::take(&mut cur));
+            }
+        } else if !s.is_empty() {
+            cur.push(line.clone());
+        }
+    }
+    if !cur.is_empty() {
+        blocks.push(cur);
+    }
+    blocks
+}
+
+/// `YY-M-D_N`: the next name not already used this run or taken on disk.
+fn next_auto_name(i_dir: &Path, date_base: &str, used: &mut std::collections::HashSet<String>) -> String {
+    let mut n = 1usize;
+    loop {
+        let cand = format!("{date_base}_{n}");
+        if !used.contains(&cand) && !i_dir.join(format!("{cand}.txt")).exists() {
+            used.insert(cand.clone());
+            return cand;
+        }
+        n += 1;
     }
 }
 
@@ -1785,6 +1959,133 @@ mod tests {
         assert_eq!(got, vec!["a", "b", "c"]); // nothing lost, nothing invented
         assert_eq!(v.ring.lines[0], "."); // and still well-formed
         assert!(v.undo.can_undo()); // undoable
+    }
+
+    // ── split the scratch into documents (Ctrl+Shift+F on 0.txt) ──────────────
+
+    fn scratch_split_app(zero_lines: &[&str]) -> (tempfile::TempDir, Voider) {
+        let d = tempfile::tempdir().unwrap();
+        let i_dir = d.path().join("I");
+        std::fs::create_dir_all(&i_dir).unwrap();
+        let scratch = i_dir.join("0.txt");
+        let lines: Vec<String> = zero_lines.iter().map(|s| s.to_string()).collect();
+        void::atomic_write(&scratch, &lines, false).unwrap();
+        let v = Voider::open(d.path(), &scratch);
+        (d, v)
+    }
+
+    #[test]
+    fn a_named_marker_creates_a_doc_and_leaves_the_scratch() {
+        let (_d, mut v) = scratch_split_app(&[".", "one", "two", "/mydoc", ".", "stays here"]);
+        v.split_scratch_into_docs().unwrap();
+
+        let target = void::load_doc(&v.void_dir.join("I/mydoc.txt"));
+        assert!(target.lines.contains(&"one".to_string()));
+        assert!(target.lines.contains(&"two".to_string()));
+        assert!(!v.ring.lines.contains(&"one".to_string()));
+        assert!(!v.ring.lines.contains(&"two".to_string()));
+        assert!(v.ring.lines.contains(&"stays here".to_string()));
+    }
+
+    #[test]
+    fn the_marker_line_itself_never_lands_in_the_target() {
+        let (_d, mut v) = scratch_split_app(&[".", "body", "/doc"]);
+        v.split_scratch_into_docs().unwrap();
+        let target = void::load_doc(&v.void_dir.join("I/doc.txt"));
+        assert!(!target.lines.iter().any(|l| l.starts_with('/')));
+    }
+
+    #[test]
+    fn splitting_into_an_existing_doc_appends() {
+        let (_d, mut v) = scratch_split_app(&[".", "new line", "/existing"]);
+        void::atomic_write(&v.void_dir.join("I/existing.txt"), &[".".to_string(), "old line".to_string()], false).unwrap();
+        v.split_scratch_into_docs().unwrap();
+        let out = void::load_doc(&v.void_dir.join("I/existing.txt"));
+        assert!(out.lines.contains(&"old line".to_string())); // kept
+        assert!(out.lines.contains(&"new line".to_string())); // and arrived
+    }
+
+    #[test]
+    fn a_bare_slash_gets_an_auto_dated_name() {
+        let (_d, mut v) = scratch_split_app(&[".", "orphan", "/"]);
+        v.split_scratch_into_docs().unwrap();
+        let now = chrono::Local::now();
+        let base = format!("{}-{}-{}", now.year() % 100, now.month(), now.day());
+        assert!(v.void_dir.join(format!("I/{base}_1.txt")).exists());
+    }
+
+    #[test]
+    fn several_bare_slashes_get_sequential_names() {
+        let (_d, mut v) = scratch_split_app(&[".", "a", "/", ".", "b", "/"]);
+        v.split_scratch_into_docs().unwrap();
+        let now = chrono::Local::now();
+        let base = format!("{}-{}-{}", now.year() % 100, now.month(), now.day());
+        assert!(v.void_dir.join(format!("I/{base}_1.txt")).exists());
+        assert!(v.void_dir.join(format!("I/{base}_2.txt")).exists());
+    }
+
+    #[test]
+    fn a_new_doc_lands_right_below_the_portal() {
+        let (_d, mut v) = scratch_split_app(&[".", "x", "/fresh"]);
+        v.library.entries = vec!["PROLOGUE.txt".into(), "0.txt".into(), "OTHER.txt".into()];
+        v.split_scratch_into_docs().unwrap();
+        assert_eq!(v.library.entries[2], "fresh.txt");
+    }
+
+    #[test]
+    fn no_markers_still_formats_but_splits_nothing() {
+        let (_d, mut v) = scratch_split_app(&[".", "just text", ".", "more"]);
+        v.split_scratch_into_docs().unwrap();
+        let mut names: Vec<String> = std::fs::read_dir(v.void_dir.join("I"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["0.txt", "0.txt.bak"]); // no new docs created
+    }
+
+    #[test]
+    fn it_formats_into_sentences_even_without_markers() {
+        let (_d, mut v) = scratch_split_app(&[".", "First sentence. Second sentence."]);
+        v.split_scratch_into_docs().unwrap();
+        assert!(v.ring.lines.contains(&"First sentence.".to_string()));
+        assert!(v.ring.lines.contains(&"Second sentence.".to_string()));
+    }
+
+    #[test]
+    fn splitting_writes_a_backup_of_the_original() {
+        let (_d, mut v) = scratch_split_app(&[".", "body", "/doc", ".", "keep"]);
+        v.split_scratch_into_docs().unwrap();
+        assert!(v.void_dir.join("I/0.txt.bak").exists());
+    }
+
+    #[test]
+    fn splitting_refuses_a_non_scratch_file() {
+        let (_d, mut v) = book(); // active file is Uno.txt, not the scratch
+        let before = v.ring.lines.clone();
+        v.split_scratch_into_docs().unwrap();
+        assert_eq!(v.ring.lines, before); // untouched
+        assert!(!v.void_dir.join("I/doc.txt").exists());
+    }
+
+    #[test]
+    fn a_marker_only_block_with_nothing_above_it_is_left_alone() {
+        let (_d, mut v) = scratch_split_app(&[".", "/onlymarker", ".", "real content"]);
+        v.split_scratch_into_docs().unwrap();
+        assert!(!v.void_dir.join("I/onlymarker.txt").exists());
+        assert!(v.ring.lines.iter().any(|l| l == "/onlymarker")); // left in place
+    }
+
+    #[test]
+    fn a_split_is_one_undo_step_across_every_file_touched() {
+        let (_d, mut v) = scratch_split_app(&[".", "one", "two", "/mydoc"]);
+        let original = v.ring.lines.clone();
+        v.split_scratch_into_docs().unwrap();
+        assert!(v.void_dir.join("I/mydoc.txt").exists());
+
+        v.undo().unwrap();
+        assert_eq!(void::load_doc(&v.current_file).lines, original);
+        assert!(!void::load_doc(&v.void_dir.join("I/mydoc.txt")).lines.contains(&"one".to_string()));
     }
 
     #[test]

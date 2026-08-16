@@ -18,41 +18,51 @@ const ABBREVS: [&str; 24] = [
 /// Punctuation that can trail a sentence's final mark: `.»` `?"` `.)`.
 const TRAILING: [char; 8] = ['.', '!', '?', '\'', '"', '»', ')', '…'];
 
-/// Reformat whole lines: blank lines become separators, prose is split into
-/// sentences, and a leading separator is guaranteed.
+/// Reformat lines the way Voider's own format expects: every line is its own
+/// unit — NEVER joined with its neighbour, because by the time text reaches
+/// `self.ring.lines` (this function's real input) `load_doc` has already
+/// dropped blank lines and guaranteed a leading `.`, so there is no paragraph
+/// boundary left to detect. This mirrors the "already in Voider format" branch
+/// of `reformat_active_file` — the only branch reachable from the ring; the
+/// raw-pasted-prose branch only fires on a file that's never touched `load_doc`,
+/// which cannot happen here.
+///
+/// A run of separator-only lines (blank, `.`, `..`, `...`) collapses to one
+/// `.`; a line with several sentences splits into several lines; a line with
+/// none (a `/name` marker, an unfinished thought) passes through unchanged —
+/// so a marker always lands on its own line without needing special-casing.
 pub fn reformat(lines: &[String]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    let mut para: Vec<String> = Vec::new();
-
-    // A paragraph ends at a blank line or an existing separator; its lines are
-    // joined back together before being split into sentences, so a sentence
-    // broken across two lines is healed.
-    let flush = |para: &mut Vec<String>, out: &mut Vec<String>| {
-        if para.is_empty() {
-            return;
-        }
-        let joined = para.join(" ");
-        para.clear();
-        if out.last().map(|l| l != ".").unwrap_or(true) {
-            out.push(".".to_string());
-        }
-        out.extend(split_sentences(&joined));
-    };
+    let mut prev_sep = false;
 
     for raw in lines {
-        let s = raw.trim();
-        if s.is_empty() || s == "." {
-            flush(&mut para, &mut out);
-        } else {
-            para.push(s.to_string());
+        let trimmed = raw.trim();
+        let is_sep = trimmed.is_empty() || trimmed.chars().all(|c| c == '.');
+        if is_sep {
+            if !prev_sep && !out.is_empty() {
+                out.push(".".to_string());
+            }
+            prev_sep = true;
+            continue;
         }
+        let normalised = normalise_spaces(trimmed);
+        let split = split_sentences(&normalised);
+        if !split.is_empty() {
+            out.extend(split);
+        } else if !normalised.is_empty() {
+            out.push(normalised);
+        }
+        prev_sep = false;
     }
-    flush(&mut para, &mut out);
 
-    if out.is_empty() {
-        out.push(".".to_string());
+    if out.first().map(|l| l != ".").unwrap_or(true) {
+        out.insert(0, ".".to_string());
     }
     out
+}
+
+fn normalise_spaces(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Split one paragraph's text into sentences.
@@ -289,12 +299,47 @@ mod tests {
     }
 
     #[test]
-    fn lines_of_one_paragraph_are_joined_before_splitting() {
-        // a paragraph broken mid-sentence across lines is put back together
+    fn each_line_is_reformatted_on_its_own_never_joined_with_its_neighbour() {
+        // Matches the Python's "already in Voider format" branch — the only one
+        // reachable once a file has passed through load_doc, which is always,
+        // by the time anything reaches the ring. A prior version of this
+        // function joined adjacent lines, which does not match that branch.
         let out = reformat(&v(&["Una frase que sigue", "en la linea de abajo. Y otra."]));
         assert_eq!(
             out,
-            v(&[".", "Una frase que sigue en la linea de abajo.", "Y otra."])
+            v(&[".", "Una frase que sigue", "en la linea de abajo.", "Y otra."])
         );
+    }
+
+    #[test]
+    fn a_slash_marker_line_is_never_absorbed_into_the_prose_around_it() {
+        let out = reformat(&v(&[
+            ".", "El texto del parrafo.", "/El Logos", ".", "Otro parrafo.", "/El Altar",
+        ]));
+        assert_eq!(
+            out,
+            v(&[
+                ".", "El texto del parrafo.", "/El Logos", ".", "Otro parrafo.", "/El Altar",
+            ])
+        );
+    }
+
+    #[test]
+    fn a_multi_sentence_line_still_splits_on_its_own() {
+        let out = reformat(&v(&[".", "One. Two. Three."]));
+        assert_eq!(out, v(&[".", "One.", "Two.", "Three."]));
+    }
+
+    #[test]
+    fn a_run_of_junk_dot_lines_collapses_to_one_separator() {
+        let out = reformat(&v(&[".", "A.", "..", ".", "...", "B."]));
+        assert_eq!(out, v(&[".", "A.", ".", "B."]));
+    }
+
+    #[test]
+    fn reformatting_twice_is_stable() {
+        let once = reformat(&v(&[".", "One. Two.", ".", "Three."]));
+        let twice = reformat(&once);
+        assert_eq!(once, twice);
     }
 }
