@@ -47,7 +47,7 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
       `_split_chapter_at_slash`): a marker seals everything above it; a name
       clash appends into the existing chapter — `test_split_chapter` (9).
 - [x] **Split the scratch into documents** (`_split_zero_to_docs`).
-- [ ] **Merge books** (`Ctrl+Shift+M` → `_book_merge_prompt` / `_book_do_merge`)
+- [x] **Merge books** (`Ctrl+Shift+M` → `_book_merge_prompt` / `_book_do_merge`)
       — `test_merge`.
 - [ ] **Dispatch paragraphs** (`Ctrl+Shift+D`) — `test_dispatch`.
 - [x] **Shuffle the scratch** (`Ctrl+Shift+R`) and **shuffle a book** (Tab on a
@@ -60,7 +60,7 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
 - [ ] **Merge stray `0.txt` files** (`_merge_zero_files`, Ctrl+Shift+F in F3):
       absorbs subdirectory scratches into the root one. Doesn't map cleanly onto
       the flat `I/` model here (no nested folders); deferred, low value.
-- [ ] **`_book_split_current`** (Ctrl+Shift+S in F3): split the file the F3
+- [x] **`_book_split_current`** (Ctrl+Shift+S in F3): split the file the F3
       cursor is highlighting, without opening it. `split_at_markers` already
       does the real work on the ACTIVE file from F2 — this would just be a
       thin F3 entry point onto the same logic.

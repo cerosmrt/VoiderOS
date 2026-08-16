@@ -565,6 +565,22 @@ impl Voider {
     }
 
     /// Jump to a random real chapter — never a separator, never the portal.
+    /// Ctrl+Shift+S in F3: split the HIGHLIGHTED chapter at its `/name` markers,
+    /// without opening it first — a thin wrapper over `split_at_markers`, which
+    /// does the real work, over whichever file the cursor happens to sit on.
+    pub fn book_split_current(&mut self) -> io::Result<usize> {
+        let cur = self.library.current();
+        if library::is_separator(cur) || library::is_portal(cur) {
+            return Ok(0);
+        }
+        let path = library::chapter_path(&self.void_dir, cur);
+        if !path.exists() {
+            return Ok(0);
+        }
+        self.set_active_file(path);
+        self.split_at_markers()
+    }
+
     pub fn book_random(&mut self) {
         let mut candidates: Vec<usize> = self
             .library
@@ -2423,6 +2439,33 @@ mod tests {
         assert!(!v.void_dir.join("I/Book1.txt").exists());
         assert_eq!(void::load_doc(&v.void_dir.join("I/A.txt")).lines, vec![".", "a1", "a2"]);
         assert_eq!(void::load_doc(&v.void_dir.join("I/B.txt")).lines, vec![".", "b1"]);
+    }
+
+    #[test]
+    fn splitting_the_highlighted_chapter_does_not_require_opening_it_first() {
+        let (_d, mut v) = book(); // active file is Uno.txt
+        let doc_path = v.void_dir.join("I/doc.txt");
+        void::atomic_write(&doc_path, &["a".to_string(), "/X".to_string(), "b".to_string(), "/Y".to_string()], false).unwrap();
+        v.library = Library {
+            entries: vec!["doc.txt".into()],
+            index: 0,
+        };
+        let n = v.book_split_current().unwrap();
+        assert_eq!(n, 2);
+        assert!(v.library.entries.contains(&"X.txt".to_string()));
+        assert!(v.library.entries.contains(&"Y.txt".to_string()));
+        assert_eq!(void::load_doc(&v.void_dir.join("I/X.txt")).lines, vec![".", "a"]);
+        assert_eq!(void::load_doc(&v.void_dir.join("I/Y.txt")).lines, vec![".", "b"]);
+        assert!(!doc_path.exists()); // the emptied container is gone
+    }
+
+    #[test]
+    fn splitting_a_separator_or_the_portal_does_nothing() {
+        let (_d, mut v) = book();
+        v.library = Library { entries: vec![".".into(), "0.txt".into()], index: 0 };
+        assert_eq!(v.book_split_current().unwrap(), 0);
+        v.library.index = 1;
+        assert_eq!(v.book_split_current().unwrap(), 0);
     }
 
     // ── navigation ────────────────────────────────────────────────────────────

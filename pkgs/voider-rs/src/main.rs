@@ -327,6 +327,10 @@ impl VoiderApp {
         match key {
             // Ctrl+Shift+M on a separator: name and merge that book into one file.
             Key::M if m.ctrl && m.shift => self.voider.book_merge_prompt(),
+            // Split the highlighted (not necessarily open) chapter at its markers.
+            Key::S if m.ctrl && m.shift => {
+                let _ = self.voider.book_split_current();
+            }
             // Shift+Enter opens a blank entry to name; Enter confirms it, or
             // opens the highlighted chapter when we're just browsing. A pending
             // merge takes priority — it's naming a book, not a single chapter.
