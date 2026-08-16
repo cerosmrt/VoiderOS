@@ -256,6 +256,11 @@ impl VoiderApp {
     fn handle_f2_key(&mut self, key: egui::Key, caps: bool, m: egui::Modifiers) {
         use egui::Key;
         match key {
+            // At the start of the line, Enter is a command (enter/exit focus, or
+            // drop into F1 on a blank line); anywhere else it splits the line.
+            Key::Enter if self.voider.entry.caret() == 0 => {
+                let _ = self.voider.doc_confirm_edit();
+            }
             Key::Enter => {
                 let _ = self.voider.doc_split_line();
             }
@@ -296,6 +301,8 @@ impl VoiderApp {
             Key::ArrowRight => self.voider.entry.move_caret(1),
             Key::Home => self.voider.doc_jump_edge(false),
             Key::End => self.voider.doc_jump_edge(true),
+            Key::Escape if self.voider.para_focus => self.voider.exit_para_focus(),
+            Key::Escape => self.voider.switch_to(View::F1),
             _ => {}
         }
     }

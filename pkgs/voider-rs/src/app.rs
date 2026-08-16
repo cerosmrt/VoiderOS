@@ -75,6 +75,10 @@ pub struct Voider {
     pub show_title: bool,
     /// F3 is holding a blank entry waiting to be named.
     pub pending_new: bool,
+    /// F2: Enter on a `.` narrows navigation/swap to one paragraph.
+    pub para_focus: bool,
+    /// F2: the line indices that make up the focused paragraph.
+    pub para_focus_content: Vec<usize>,
     /// F5: which paragraph the cursor is on.
     pub para_idx: usize,
     /// F5: the side catalogue for sending a paragraph to a chapter.
@@ -116,6 +120,8 @@ impl Voider {
             view: View::F1,
             entry: TextLine::new(""),
             pending_new: false,
+            para_focus: false,
+            para_focus_content: Vec::new(),
             para_idx: 0,
             picker_open: false,
             picker_idx: 0,
@@ -578,11 +584,20 @@ impl Voider {
 
     /// Move through the document. The caret lands at the start of the new line —
     /// unless it was sitting at the end of the old one, in which case it stays
-    /// at the end, so walking a paragraph feels continuous.
+    /// at the end, so walking a paragraph feels continuous. Focused (see
+    /// `enter_para_focus`), it walks only within the paragraph, wrapping there.
     pub fn doc_navigate(&mut self, delta: isize) -> io::Result<()> {
         let at_end = self.entry.caret() == self.entry.len();
         self.doc_live_save()?;
-        self.ring.move_by(delta);
+        if self.para_focus && !self.para_focus_content.is_empty() {
+            let n = self.para_focus_content.len() as isize;
+            let cur = self.ring.index;
+            let pos = self.para_focus_content.iter().position(|&c| c == cur).unwrap_or(0);
+            let next = (pos as isize + delta).rem_euclid(n) as usize;
+            self.ring.index = self.para_focus_content[next];
+        } else {
+            self.ring.move_by(delta);
+        }
         let cur = self.ring.current().to_string();
         self.entry.set_text(&cur);
         if at_end {
@@ -594,7 +609,7 @@ impl Voider {
     }
 
     /// Enter in F2 breaks the line at the caret: what's after it becomes the
-    /// next line, and you land on it.
+    /// next line, and you land on it. Focused, the new line joins the paragraph.
     pub fn doc_split_line(&mut self) -> io::Result<()> {
         if self.ring.lines.is_empty() {
             return Ok(());
@@ -607,9 +622,104 @@ impl Voider {
         self.ring.lines[i] = before;
         self.ring.lines.insert(i + 1, after);
         self.ring.index = i + 1;
+        if self.para_focus {
+            for idx in self.para_focus_content.iter_mut() {
+                if *idx > i {
+                    *idx += 1;
+                }
+            }
+            if let Some(p) = self.para_focus_content.iter().position(|&c| c == i) {
+                self.para_focus_content.insert(p + 1, i + 1);
+            }
+        }
         let cur = self.ring.current().to_string();
         self.entry.set_text(&cur);
         self.entry.home();
+        self.save()
+    }
+
+    /// Enter with the caret at the start of the line: on a `.`, enter focus on
+    /// the paragraph after it; focused, leave it; otherwise split at 0 (a blank
+    /// line above) or, on an empty line, drop into F1 to write it.
+    pub fn doc_confirm_edit(&mut self) -> io::Result<()> {
+        let cur = self.ring.current().to_string();
+        if cur == "." && !self.para_focus {
+            self.enter_para_focus();
+            return Ok(());
+        }
+        if self.para_focus {
+            self.exit_para_focus();
+            return Ok(());
+        }
+        if cur.trim().is_empty() {
+            self.switch_to(View::F1);
+            Ok(())
+        } else {
+            self.doc_split_line()
+        }
+    }
+
+    /// Narrow to one paragraph: the lines between the dot at the cursor and the
+    /// next one. A no-op on an empty paragraph (nothing to focus on).
+    pub fn enter_para_focus(&mut self) {
+        let n = self.ring.lines.len();
+        if n == 0 {
+            return;
+        }
+        let dot_idx = self.ring.index;
+        let mut content = Vec::new();
+        let mut i = (dot_idx + 1) % n;
+        for _ in 0..n.saturating_sub(1) {
+            if self.ring.lines[i] == "." {
+                break;
+            }
+            content.push(i);
+            i = (i + 1) % n;
+        }
+        if content.is_empty() {
+            return;
+        }
+        self.para_focus = true;
+        self.ring.index = content[0];
+        self.para_focus_content = content;
+        self.sync_entry();
+    }
+
+    /// Leave focus and land back on the dot that opens the paragraph.
+    pub fn exit_para_focus(&mut self) {
+        self.para_focus = false;
+        self.para_focus_content.clear();
+        let n = self.ring.lines.len();
+        if n == 0 {
+            return;
+        }
+        let mut idx = (self.ring.index + n - 1) % n;
+        for _ in 0..n {
+            if self.ring.lines[idx] == "." {
+                self.ring.index = idx;
+                break;
+            }
+            idx = (idx + n - 1) % n;
+        }
+        self.sync_entry();
+    }
+
+    /// Alt+Up/Down while focused: swap the current line with its neighbour
+    /// WITHIN the paragraph, wrapping there rather than through the whole
+    /// document.
+    pub fn swap_line_in_focus(&mut self, delta: isize) -> io::Result<()> {
+        if self.para_focus_content.is_empty() {
+            return Ok(());
+        }
+        let n = self.para_focus_content.len() as isize;
+        let cur = self.ring.index;
+        let pos = self.para_focus_content.iter().position(|&c| c == cur).unwrap_or(0);
+        let other_pos = (pos as isize + delta).rem_euclid(n) as usize;
+        let other = self.para_focus_content[other_pos];
+        self.ring.lines.swap(cur, other);
+        self.para_focus_content.swap(pos, other_pos);
+        self.ring.index = other;
+        self.sync_entry();
         self.save()
     }
 
@@ -620,6 +730,10 @@ impl Voider {
         let n = self.ring.lines.len();
         if n < 2 {
             return Ok(());
+        }
+        // Focused, the swap stays inside the paragraph.
+        if self.para_focus {
+            return self.swap_line_in_focus(direction);
         }
         // On a separator, the whole paragraph moves rather than the dot.
         if self.ring.current() == "." {
@@ -1848,6 +1962,106 @@ mod tests {
         v.doc_swap_line(1).unwrap();
         v.undo().unwrap();
         assert_eq!(void::load_doc(&v.current_file).lines, vec![".", "a", "b"]);
+    }
+
+    // ── paragraph focus (Enter on a dot in F2) ─────────────────────────────────
+
+    #[test]
+    fn entering_focus_on_the_first_dot_sets_its_content() {
+        let (_d, mut v) = app(&[".", "a", "b", ".", "c"]);
+        v.ring.index = 0;
+        v.enter_para_focus();
+        assert!(v.para_focus);
+        let mut got = v.para_focus_content.clone();
+        got.sort();
+        assert_eq!(got, vec![1, 2]);
+    }
+
+    #[test]
+    fn entering_focus_on_the_second_dot() {
+        let (_d, mut v) = app(&[".", "a", "b", ".", "c"]);
+        v.ring.index = 3;
+        v.enter_para_focus();
+        assert_eq!(v.para_focus_content, vec![4]);
+    }
+
+    #[test]
+    fn an_empty_paragraph_does_not_enter_focus() {
+        let (_d, mut v) = app(&[".", ".", "a"]);
+        v.ring.index = 0; // the first dot has nothing after it before the next
+        v.enter_para_focus();
+        assert!(!v.para_focus);
+    }
+
+    #[test]
+    fn exiting_focus_clears_state_and_returns_to_the_dot() {
+        let (_d, mut v) = app(&[".", "a", "b"]);
+        v.ring.index = 0;
+        v.enter_para_focus();
+        v.ring.index = 2;
+        v.exit_para_focus();
+        assert!(!v.para_focus);
+        assert!(v.para_focus_content.is_empty());
+        assert_eq!(v.ring.lines[v.ring.index], ".");
+    }
+
+    #[test]
+    fn swap_in_focus_wraps_within_the_paragraph_only() {
+        let (_d, mut v) = app(&[".", "a", "b", "c", ".", "x"]);
+        v.ring.index = 0;
+        v.enter_para_focus();
+        v.ring.index = 1; // 'a'
+        v.swap_line_in_focus(-1).unwrap(); // wraps to the paragraph's last line
+        assert_eq!(v.ring.lines[v.ring.index], "a");
+        assert_eq!(v.ring.lines[1], "c");
+        assert_eq!(v.ring.lines[5], "x"); // outside the paragraph, untouched
+    }
+
+    #[test]
+    fn navigation_stays_inside_the_focused_paragraph() {
+        let (_d, mut v) = app(&[".", "a", "b", ".", "c"]);
+        v.switch_to(View::F2);
+        v.ring.index = 0;
+        v.enter_para_focus(); // content = [1, 2]
+        v.ring.index = 1;
+        v.doc_navigate(1).unwrap();
+        assert_eq!(v.ring.index, 2);
+        v.doc_navigate(1).unwrap(); // wraps within the paragraph
+        assert_eq!(v.ring.index, 1);
+        assert_ne!(v.ring.index, 3); // never spills into the next paragraph
+    }
+
+    #[test]
+    fn enter_on_a_dot_enters_focus_via_confirm_edit() {
+        let (_d, mut v) = app(&[".", "a", "b"]);
+        v.ring.index = 0;
+        v.doc_confirm_edit().unwrap();
+        assert!(v.para_focus);
+    }
+
+    #[test]
+    fn enter_again_while_focused_exits() {
+        let (_d, mut v) = app(&[".", "a", "b"]);
+        v.ring.index = 0;
+        v.doc_confirm_edit().unwrap(); // enters
+        v.doc_confirm_edit().unwrap(); // exits
+        assert!(!v.para_focus);
+    }
+
+    #[test]
+    fn splitting_a_line_inside_focus_keeps_it_in_the_paragraph() {
+        let (_d, mut v) = app(&[".", "hola mundo", "b"]);
+        v.ring.index = 0;
+        v.enter_para_focus(); // content = [1, 2]
+        v.ring.index = 1;
+        v.entry.set_text("hola mundo");
+        v.entry.set_caret(4); // split "hola" | " mundo"
+        v.doc_split_line().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "hola", " mundo", "b"]);
+        // the new line joined the focused paragraph, and the old member shifted
+        let mut got = v.para_focus_content.clone();
+        got.sort();
+        assert_eq!(got, vec![1, 2, 3]);
     }
 
     // ── F5 ────────────────────────────────────────────────────────────────────
