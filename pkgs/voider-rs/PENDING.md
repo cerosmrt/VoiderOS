@@ -35,8 +35,14 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
       line the file's first. Also `_book_rebase` in F3.
 - [x] **Home/End across the whole document** (`_doc_jump_start` / `_doc_jump_end`),
       not just the line.
-- [ ] **Remember position across runs**: last line per file, last view, last F3
-      entry — `test_open_position`, `test_startup_restore` (10 tests).
+- [x] **Remember position across runs**: last line per file
+      (`_save_last_line`/`_restore_last_line`, a `_last_lines.conf` sidecar in
+      `I/`) and the last restorable view + active file (`_restore_startup_view`)
+      — `test_startup_restore`. F3's own "last highlighted entry" is covered
+      for free: `switch_to(F3)` already re-lands on the active file's library
+      slot. `test_open_position` turned out to be F4 reading-view anchors
+      (paragraph ordinals for the HTML view), not position persistence — F4
+      isn't built yet, so that one's still open, filed under F4 below.
 - [ ] **Search** (`Ctrl+F` in F2 and F3) with a centred search bar.
 
 ## 3. Shaping text

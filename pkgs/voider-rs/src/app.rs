@@ -14,6 +14,7 @@ use crate::f5;
 use crate::fonts;
 use crate::library::{self, Library};
 use crate::paragraphs;
+use crate::position;
 use crate::reformat;
 use crate::split;
 use crate::line_ring::LineRing;
@@ -60,6 +61,28 @@ pub enum View {
     F5,
     /// Settings: the writing font and its size.
     F10,
+}
+
+impl View {
+    /// Restorable across a restart: F1, F2, F3 — matches Python's `(0, 1, 2, 3)`
+    /// minus F4, which doesn't exist here yet.
+    fn key(self) -> Option<&'static str> {
+        match self {
+            View::F1 => Some("F1"),
+            View::F2 => Some("F2"),
+            View::F3 => Some("F3"),
+            View::F5 | View::F10 => None,
+        }
+    }
+
+    fn from_key(s: &str) -> Option<Self> {
+        match s {
+            "F1" => Some(View::F1),
+            "F2" => Some(View::F2),
+            "F3" => Some(View::F3),
+            _ => None,
+        }
+    }
 }
 
 pub struct Voider {
@@ -117,13 +140,15 @@ impl Voider {
         let current_file = file.into();
         let doc = void::load_doc(&current_file);
         let config = Config::load(&void_dir);
+        let mut ring = LineRing::new(doc.lines);
+        ring.index = restored_index(&void_dir, &current_file, ring.lines.len());
         Self {
             typewriter: config.typewriter,
             show_title: config.show_title,
             config,
             void_dir,
             current_file,
-            ring: LineRing::new(doc.lines),
+            ring,
             library: Library::default(),
             view: View::F1,
             entry: TextLine::new(""),
@@ -292,6 +317,7 @@ impl Voider {
     pub fn switch_to(&mut self, view: View) {
         if self.view == View::F2 {
             let _ = self.doc_live_save();
+            self.save_last_line();
         }
         self.view = view;
         match view {
@@ -327,6 +353,7 @@ impl Voider {
                 self.library = Library::load(&self.void_dir);
             }
         }
+        self.save_last_view();
     }
 
     // ── F5: paragraphs ────────────────────────────────────────────────────────
@@ -490,9 +517,37 @@ impl Voider {
     pub fn set_active_file(&mut self, path: impl Into<PathBuf>) {
         let path = path.into();
         let doc = void::load_doc(&path);
+        let mut ring = LineRing::new(doc.lines);
+        ring.index = restored_index(&self.void_dir, &path, ring.lines.len());
         self.current_file = path;
-        self.ring = LineRing::new(doc.lines);
+        self.ring = ring;
         self.load_failed = doc.read_failed;
+        self.save_active_file();
+    }
+
+    /// Persist the ring's current position for the active file, so a restart
+    /// puts the cursor back where it was. A port of `_save_last_line`.
+    pub fn save_last_line(&self) {
+        if let Some(name) = self.current_file.file_name().and_then(|n| n.to_str()) {
+            position::save_last_line(&self.void_dir, name, self.ring.index);
+        }
+    }
+
+    /// Remember which file is active, independent of which view is showing it.
+    fn save_active_file(&mut self) {
+        if let Some(name) = self.current_file.file_name().and_then(|n| n.to_str()) {
+            self.config.active_file = Some(name.to_string());
+            let _ = self.config.save(&self.void_dir);
+        }
+    }
+
+    /// Remember the view to resume in, when it's one of the restorable ones.
+    fn save_last_view(&mut self) {
+        let Some(key) = self.view.key() else {
+            return;
+        };
+        self.config.last_view = Some(key.to_string());
+        let _ = self.config.save(&self.void_dir);
     }
 
     /// Enter in F3: open the highlighted chapter in F2. Separators are structure,
@@ -734,6 +789,7 @@ impl Voider {
     pub fn doc_navigate(&mut self, delta: isize) -> io::Result<()> {
         let at_end = self.entry.caret() == self.entry.len();
         self.doc_live_save()?;
+        self.save_last_line();
         if self.para_focus && !self.para_focus_content.is_empty() {
             let n = self.para_focus_content.len() as isize;
             let cur = self.ring.index;
@@ -1520,6 +1576,7 @@ impl Voider {
 
     /// Home/End in F2: the first / last line that carries text.
     pub fn doc_jump_edge(&mut self, to_end: bool) {
+        self.save_last_line();
         let found = if to_end {
             self.ring.lines.iter().rposition(|l| l != ".")
         } else {
@@ -1771,6 +1828,16 @@ impl Voider {
     }
 }
 
+/// The saved ring index for `file`, clamped into `[0, total)`. `0` when
+/// nothing was saved — the ordinary case for a file opened for the first time.
+fn restored_index(void_dir: &Path, file: &Path, total: usize) -> usize {
+    file.file_name()
+        .and_then(|n| n.to_str())
+        .and_then(|name| position::load_last_line(void_dir, name))
+        .map(|idx| idx.min(total.saturating_sub(1)))
+        .unwrap_or(0)
+}
+
 /// Walk `dir` recursively, collecting every `.txt` file that doesn't start
 /// with a dot. A port of the file-gathering half of `_random_line_from_dir`.
 fn collect_txt_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -1827,6 +1894,10 @@ fn next_auto_name(i_dir: &Path, date_base: &str, used: &mut std::collections::Ha
 
 /// A sandbox void with a scratch file, created on first run. The real `/void` is
 /// left alone until this mirror is proven.
+/// Open the sandbox void, resuming the last restorable view (F1/F2/F3) on
+/// whichever file was active when it was saved — or, with nothing saved yet
+/// (a fresh install, or a view that isn't restorable), the familiar default:
+/// F1 on the scratch, ready to write. A port of `_restore_startup_view`.
 pub fn open_sandbox() -> Voider {
     let dir = void::sandbox_dir();
     let _ = std::fs::create_dir_all(dir.join("I"));
@@ -1834,9 +1905,21 @@ pub fn open_sandbox() -> Voider {
     if !scratch.exists() {
         let _ = void::atomic_write(&scratch, &[".".to_string()], false);
     }
-    let mut v = Voider::open(&dir, &scratch);
+    let config = Config::load(&dir);
+    let restore_view = config.last_view.as_deref().and_then(View::from_key);
+    let target = config
+        .active_file
+        .as_ref()
+        .map(|name| library::chapter_path(&dir, name))
+        .filter(|p| p.exists())
+        .unwrap_or_else(|| scratch.clone());
+
+    let mut v = Voider::open(&dir, &target);
     v.snapshot_on_entry();
-    v.goto_end();
+    match restore_view {
+        Some(view @ (View::F2 | View::F3)) => v.switch_to(view),
+        _ => v.goto_end(),
+    }
     v
 }
 
@@ -2852,6 +2935,69 @@ mod tests {
         std::fs::write(i.join("chap.txt"), "line one\n.\nline two\n").unwrap();
         v.library = Library { entries: vec!["chap.txt".into()], index: 0 };
         assert_eq!(v.smart_copy(), Some("line one\n.\nline two".to_string()));
+    }
+
+    // ── Remembering position across runs ────────────────────────────────────────
+
+    #[test]
+    fn reopening_a_file_restores_its_saved_line() {
+        let (_d, mut v) = app(&[".", "a", "b", "c"]);
+        v.ring.index = 2;
+        v.save_last_line();
+        let reopened = Voider::open(&v.void_dir, &v.current_file);
+        assert_eq!(reopened.ring.index, 2);
+    }
+
+    #[test]
+    fn a_saved_line_past_the_end_is_clamped_not_out_of_bounds() {
+        let (_d, mut v) = app(&[".", "a", "b"]);
+        v.ring.index = 2;
+        v.save_last_line();
+        // The file shrank between sessions — reopening must not go out of range.
+        void::atomic_write(&v.current_file, &[".".to_string()], false).unwrap();
+        let reopened = Voider::open(&v.void_dir, &v.current_file);
+        assert_eq!(reopened.ring.index, 0);
+    }
+
+    #[test]
+    fn a_file_never_saved_before_opens_at_the_start() {
+        let (_d, v) = app(&[".", "a", "b"]);
+        assert_eq!(v.ring.index, 0);
+    }
+
+    #[test]
+    fn leaving_f2_saves_the_line_it_was_on() {
+        let (_d, mut v) = app(&[".", "a", "b"]);
+        v.view = View::F2;
+        v.ring.index = 2;
+        v.switch_to(View::F1);
+        let name = v.current_file.file_name().unwrap().to_str().unwrap();
+        assert_eq!(position::load_last_line(&v.void_dir, name), Some(2));
+    }
+
+    #[test]
+    fn switching_to_a_restorable_view_saves_it_as_the_last_view() {
+        let (_d, mut v) = app(&[".", "a"]);
+        v.switch_to(View::F3);
+        assert_eq!(Config::load(&v.void_dir).last_view.as_deref(), Some("F3"));
+    }
+
+    #[test]
+    fn switching_to_f5_does_not_overwrite_the_last_restorable_view() {
+        let (_d, mut v) = app(&[".", "a"]);
+        v.switch_to(View::F2);
+        v.switch_to(View::F5);
+        assert_eq!(Config::load(&v.void_dir).last_view.as_deref(), Some("F2"));
+    }
+
+    #[test]
+    fn opening_a_different_file_remembers_it_as_the_active_one() {
+        let (_d, mut v) = app(&["."]);
+        std::fs::create_dir_all(v.void_dir.join("I")).unwrap();
+        let other = v.void_dir.join("I").join("other.txt");
+        std::fs::write(&other, "x\n").unwrap();
+        v.set_active_file(other);
+        assert_eq!(Config::load(&v.void_dir).active_file.as_deref(), Some("other.txt"));
     }
 
     // ── merging a book (Ctrl+Shift+M on a dot in F3) ───────────────────────────

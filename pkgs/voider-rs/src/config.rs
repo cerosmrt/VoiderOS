@@ -16,6 +16,11 @@ pub struct Config {
     pub font_size: f32,
     pub typewriter: bool,
     pub show_title: bool,
+    /// The last restorable view (F1/F2/F3), so a restart resumes there rather
+    /// than always opening on F1.
+    pub last_view: Option<String>,
+    /// The file that was active when `last_view` was saved.
+    pub active_file: Option<String>,
 }
 
 impl Default for Config {
@@ -25,6 +30,8 @@ impl Default for Config {
             font_size: 22.0,
             typewriter: false,
             show_title: false,
+            last_view: None,
+            active_file: None,
         }
     }
 }
@@ -55,12 +62,19 @@ impl Config {
 
     /// Serialise to the lines that go on disk.
     pub fn to_lines(&self) -> Vec<String> {
-        vec![
+        let mut lines = vec![
             format!("font_family = {}", self.font_family),
             format!("font_size = {}", self.font_size),
             format!("typewriter = {}", self.typewriter),
             format!("show_title = {}", self.show_title),
-        ]
+        ];
+        if let Some(v) = &self.last_view {
+            lines.push(format!("last_view = {v}"));
+        }
+        if let Some(f) = &self.active_file {
+            lines.push(format!("active_file = {f}"));
+        }
+        lines
     }
 
     /// Parse from the lines on disk; anything missing or malformed keeps its
@@ -83,6 +97,8 @@ impl Config {
                 }
                 "typewriter" => c.typewriter = value == "true",
                 "show_title" => c.show_title = value == "true",
+                "last_view" if !value.is_empty() => c.last_view = Some(value.to_string()),
+                "active_file" if !value.is_empty() => c.active_file = Some(value.to_string()),
                 _ => {}
             }
         }
@@ -130,9 +146,18 @@ mod tests {
             font_size: 33.0,
             typewriter: true,
             show_title: true,
+            last_view: Some("F2".into()),
+            active_file: Some("Capitulo.txt".into()),
         };
         c.save(d.path()).unwrap();
         assert_eq!(Config::load(d.path()), c);
+    }
+
+    #[test]
+    fn last_view_and_active_file_default_to_nothing_saved() {
+        let c = Config::default();
+        assert_eq!(c.last_view, None);
+        assert_eq!(c.active_file, None);
     }
 
     #[test]

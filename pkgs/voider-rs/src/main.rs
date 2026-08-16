@@ -13,6 +13,7 @@ mod fonts;
 mod library;
 mod paragraphs;
 mod line_ring;
+mod position;
 mod reformat;
 mod split;
 mod text_line;
