@@ -105,8 +105,15 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
 - [ ] **F7 — the `O/` browser** and the working set — `test_working_set`,
       `test_tab_ws` (26).
 - [ ] **F8 — the oracle**: a random line from the corpus.
-- [ ] **F9 — prose editor**: the active file as flowing prose in one box, saved
-      on leave — `test_editor_view`.
+- [x] **F9 — prose editor**: the active file as flowing prose in one box, saved
+      on leave — `test_editor_view`. The one view built from a real widget
+      (egui's multiline box) instead of painted by hand — F9 wants *ordinary*
+      editing, which is precisely what that widget already is. It also made
+      `reformat_active_file`'s raw-prose branch reachable at last: F9 writes
+      what you typed straight to disk, so a blank line really is a paragraph
+      break there and wrapped lines DO join before splitting — the exact
+      opposite of the ring-side `reformat`. Both branches now exist, as
+      `reformat_prose` and `reformat`.
 - [ ] **F11 — help overlay**; **Escape → lock screen** — `test_lock_screen` (7).
 
 ## 6. The shell it lives in

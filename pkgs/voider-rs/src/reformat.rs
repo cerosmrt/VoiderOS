@@ -23,9 +23,10 @@ const TRAILING: [char; 8] = ['.', '!', '?', '\'', '"', '»', ')', '…'];
 /// `self.ring.lines` (this function's real input) `load_doc` has already
 /// dropped blank lines and guaranteed a leading `.`, so there is no paragraph
 /// boundary left to detect. This mirrors the "already in Voider format" branch
-/// of `reformat_active_file` — the only branch reachable from the ring; the
-/// raw-pasted-prose branch only fires on a file that's never touched `load_doc`,
-/// which cannot happen here.
+/// of `reformat_active_file` — the only branch reachable FROM THE RING. The
+/// raw-prose branch lives in `reformat_prose` below and fires on text that
+/// never passed through `load_doc`: F9 writes what you typed straight to disk
+/// and reformats that.
 ///
 /// A run of separator-only lines (blank, `.`, `..`, `...`) collapses to one
 /// `.`; a line with several sentences splits into several lines; a line with
@@ -59,6 +60,106 @@ pub fn reformat(lines: &[String]) -> Vec<String> {
         out.insert(0, ".".to_string());
     }
     out
+}
+
+/// Reformat RAW PROSE — the other branch of `reformat_active_file`, the one
+/// that fires on a file whose text does not start with `.`.
+///
+/// Unreachable from the ring (see `reformat` above), but F9 makes it reachable:
+/// the prose editor writes what you typed straight to disk, blank lines and
+/// all, and only then reformats it in place. So here a blank line IS a
+/// paragraph boundary, and the lines inside one paragraph ARE joined before
+/// being split into sentences — a paragraph you typed as flowing prose across
+/// several wrapped lines comes back as one sentence per line.
+///
+/// A `/name` marker still never merges into the prose around it: it flushes
+/// whatever came before and takes its own line, so `texto\n/Capitulo` stays
+/// split and ready for Ctrl+Shift+S.
+pub fn reformat_prose(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+
+    for para in split_paragraphs(text.trim()) {
+        if para.trim().is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push(".".to_string());
+        }
+        if para.trim() == "." {
+            continue;
+        }
+        let mut prose: Vec<String> = Vec::new();
+        for raw_line in para.lines() {
+            let s = raw_line.trim();
+            if s.starts_with('/') {
+                flush_prose(&mut prose, &mut out);
+                out.push(s.to_string());
+            } else if !s.is_empty() {
+                prose.push(s.to_string());
+            }
+        }
+        flush_prose(&mut prose, &mut out);
+    }
+
+    if out.first().map(|l| l != ".").unwrap_or(true) {
+        out.insert(0, ".".to_string());
+    }
+    out
+}
+
+/// Join a paragraph's prose lines into one string and split it into sentences.
+fn flush_prose(buf: &mut Vec<String>, out: &mut Vec<String>) {
+    if buf.is_empty() {
+        return;
+    }
+    let joined = normalise_spaces(&buf.join(" "));
+    if !joined.is_empty() {
+        out.extend(split_sentences(&joined));
+    }
+    buf.clear();
+}
+
+/// Split on blank lines (a run of them counts once), the Rust of
+/// `re.split(r'\n\s*\n+', raw)`.
+fn split_paragraphs(text: &str) -> Vec<String> {
+    let mut paras = Vec::new();
+    let mut cur: Vec<&str> = Vec::new();
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            if !cur.is_empty() {
+                paras.push(cur.join("\n"));
+                cur.clear();
+            }
+        } else {
+            cur.push(line);
+        }
+    }
+    if !cur.is_empty() {
+        paras.push(cur.join("\n"));
+    }
+    paras
+}
+
+/// The dot-model → paragraph strings, for showing a file as flowing prose.
+/// A port of `lines_to_paragraphs` from `reading_page.py`.
+pub fn lines_to_paragraphs(lines: &[String]) -> Vec<String> {
+    let mut paras: Vec<String> = Vec::new();
+    let mut cur: Vec<String> = Vec::new();
+    for raw in lines {
+        let s = raw.trim();
+        if s == "." {
+            if !cur.is_empty() {
+                paras.push(cur.join(" "));
+                cur.clear();
+            }
+        } else if !s.is_empty() && s != "ø" {
+            cur.push(s.to_string());
+        }
+    }
+    if !cur.is_empty() {
+        paras.push(cur.join(" "));
+    }
+    paras
 }
 
 fn normalise_spaces(s: &str) -> String {
@@ -341,5 +442,79 @@ mod tests {
         let once = reformat(&v(&[".", "One. Two.", ".", "Three."]));
         let twice = reformat(&once);
         assert_eq!(once, twice);
+    }
+
+    // ── raw prose (the F9 branch) ─────────────────────────────────────────────
+
+    #[test]
+    fn prose_paragraphs_become_dot_groups_and_sentences_become_lines() {
+        // The Python's own test_editor_view expectation, exactly.
+        let out = reformat_prose("First sentence. Second sentence.\n\nSecond paragraph here.");
+        assert_eq!(
+            out,
+            v(&[
+                ".",
+                "First sentence.",
+                "Second sentence.",
+                ".",
+                "Second paragraph here.",
+            ])
+        );
+    }
+
+    #[test]
+    fn wrapped_lines_of_one_prose_paragraph_are_joined_before_splitting() {
+        // The opposite of `reformat`: here a line break inside a paragraph is
+        // just wrapping, so the lines join and then split at the sentence.
+        let out = reformat_prose("Una frase que sigue\nen la linea de abajo. Y otra.");
+        assert_eq!(out, v(&[".", "Una frase que sigue en la linea de abajo.", "Y otra."]));
+    }
+
+    #[test]
+    fn a_run_of_blank_lines_is_a_single_paragraph_break() {
+        let out = reformat_prose("Uno.\n\n\n\nDos.");
+        assert_eq!(out, v(&[".", "Uno.", ".", "Dos."]));
+    }
+
+    #[test]
+    fn a_prose_marker_keeps_its_own_line_and_flushes_what_came_before() {
+        let out = reformat_prose("El texto del parrafo.\n/El Logos\n\nOtro parrafo.");
+        assert_eq!(
+            out,
+            v(&[".", "El texto del parrafo.", "/El Logos", ".", "Otro parrafo."])
+        );
+    }
+
+    #[test]
+    fn empty_prose_becomes_a_single_separator() {
+        assert_eq!(reformat_prose(""), v(&["."]));
+        assert_eq!(reformat_prose("   \n\n  "), v(&["."]));
+    }
+
+    #[test]
+    fn prose_reformatted_twice_is_stable_through_the_dot_model() {
+        let once = reformat_prose("Una frase. Otra frase.\n\nSegundo parrafo.");
+        // Round-tripping back out to prose and in again must not drift.
+        let prose = lines_to_paragraphs(&once).join("\n\n");
+        assert_eq!(reformat_prose(&prose), once);
+    }
+
+    // ── the dot model as prose ────────────────────────────────────────────────
+
+    #[test]
+    fn lines_join_into_a_paragraph_per_dot_group() {
+        let paras = lines_to_paragraphs(&v(&[".", "a", "b", ".", "c"]));
+        assert_eq!(paras, v(&["a b", "c"]));
+    }
+
+    #[test]
+    fn the_zero_glyph_is_never_prose() {
+        let paras = lines_to_paragraphs(&v(&[".", "ø", "texto"]));
+        assert_eq!(paras, v(&["texto"]));
+    }
+
+    #[test]
+    fn a_file_of_only_separators_has_no_paragraphs() {
+        assert!(lines_to_paragraphs(&v(&[".", ".", "."])).is_empty());
     }
 }

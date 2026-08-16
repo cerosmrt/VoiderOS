@@ -155,14 +155,19 @@ impl VoiderApp {
                             self.voider.entry.insert(&text_line::neutralize_caps(&t, caps));
                         }
                     }
-                    View::F5 | View::F10 => {}
+                    // F9's text goes into egui's own multiline widget, which
+                    // reads the same events itself — typing it again here would
+                    // double every character.
+                    View::F5 | View::F9 | View::F10 => {}
                 },
                 egui::Event::Key { key, pressed: true, modifiers, .. } => {
                     // There is no text selection to fall back to here, so
                     // Ctrl+C always means the contextual copy — unless a search
-                    // bar has focus, where a 'c' belongs in the query instead.
+                    // bar has focus (a 'c' belongs in the query) or we're in F9,
+                    // where the prose box has a real selection and its own copy.
                     if key == egui::Key::C
                         && modifiers.ctrl
+                        && self.voider.view != View::F9
                         && self.voider.f2_search.is_none()
                         && self.voider.f3_search.is_none()
                     {
@@ -179,6 +184,7 @@ impl VoiderApp {
                         View::F2 => self.handle_f2_key(key, caps, modifiers),
                         View::F3 => self.handle_f3_key(key, modifiers),
                         View::F5 => self.handle_f5_key(key, modifiers),
+                        View::F9 => self.handle_f9_key(key, modifiers),
                         View::F10 => self.handle_f10_key(key),
                     }
                 }
@@ -195,6 +201,7 @@ impl VoiderApp {
             Key::F2 => self.voider.switch_to(View::F2),
             Key::F3 => self.voider.switch_to(View::F3),
             Key::F5 => self.voider.switch_to(View::F5),
+            Key::F9 => self.voider.switch_to(View::F9),
             Key::F10 => self.voider.switch_to(View::F10),
             // Size from anywhere, as the Python has it.
             Key::Plus | Key::Equals if m.ctrl => self.voider.settings_step_size(1),
@@ -472,6 +479,19 @@ impl VoiderApp {
             Key::ArrowLeft => self.voider.settings_step_size(-1),
             Key::ArrowRight => self.voider.settings_step_size(1),
             Key::Escape | Key::Enter => self.voider.switch_to(View::F1),
+            _ => {}
+        }
+    }
+
+    /// F9 leaves editing to the widget: only Ctrl+S (save without leaving) and
+    /// Escape (back to F2, where save-on-leave does the writing) are ours.
+    fn handle_f9_key(&mut self, key: egui::Key, m: egui::Modifiers) {
+        use egui::Key;
+        match key {
+            Key::S if m.ctrl => {
+                let _ = self.voider.prose_save();
+            }
+            Key::Escape => self.voider.switch_to(View::F2),
             _ => {}
         }
     }
@@ -892,6 +912,39 @@ impl VoiderApp {
         );
     }
 
+    /// F9: the active file as one column of editable prose. Generous margins,
+    /// the same writing font, no visible scrollbar — a page, not a text box.
+    fn draw_f9(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+        let margin = (rect.width() * 0.22).max(60.0);
+        let inner = egui::Rect::from_min_max(
+            egui::pos2(rect.min.x + margin, rect.min.y + 56.0),
+            egui::pos2(rect.max.x - margin, rect.max.y - 56.0),
+        );
+        let font = egui::FontId::proportional(self.font_size());
+        let mut buffer = self.voider.prose.clone();
+
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner));
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+            .show(&mut child, |ui| {
+                let edit = egui::TextEdit::multiline(&mut buffer)
+                    .frame(false)
+                    .desired_width(f32::INFINITY)
+                    .font(font)
+                    .text_color(egui::Color32::from_gray(225));
+                let response = ui.add_sized([ui.available_width(), ui.available_height()], edit);
+                // Keep the caret in the prose without the user having to click.
+                if !response.has_focus() {
+                    response.request_focus();
+                }
+            });
+
+        // Routed through set_prose so an untouched visit stays clean and saves
+        // nothing when you leave.
+        self.voider.set_prose(&buffer);
+    }
+
     fn draw_title(&self, painter: &egui::Painter, rect: egui::Rect) {
         if !self.voider.show_title {
             return;
@@ -941,6 +994,11 @@ impl eframe::App for VoiderApp {
                     View::F2 => self.draw_f2(&painter, ctx, rect),
                     View::F3 => self.draw_f3(&painter, ctx, rect),
                     View::F5 => self.draw_f5(&painter, ctx, rect),
+                    // The only view built from a real widget rather than painted
+                    // by hand: F9 wants ordinary prose editing (wrapping,
+                    // selection, a caret that behaves), which is exactly what
+                    // egui's own multiline box already is.
+                    View::F9 => self.draw_f9(ui, rect),
                     View::F10 => self.draw_f10(&painter, rect),
                 }
                 self.draw_title(&painter, rect);

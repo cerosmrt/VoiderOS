@@ -59,6 +59,8 @@ pub enum View {
     F3,
     /// The active file as paragraphs, in order, to be moved or sent away.
     F5,
+    /// The active file as flowing prose in one box, saved on leaving.
+    F9,
     /// Settings: the writing font and its size.
     F10,
 }
@@ -71,7 +73,7 @@ impl View {
             View::F1 => Some("F1"),
             View::F2 => Some("F2"),
             View::F3 => Some("F3"),
-            View::F5 | View::F10 => None,
+            View::F5 | View::F9 | View::F10 => None,
         }
     }
 
@@ -131,6 +133,10 @@ pub struct Voider {
     /// blocked, or we would overwrite content we never saw.
     pub load_failed: bool,
     pub status: String,
+    /// F9: the active file as one editable block of prose.
+    pub prose: String,
+    /// Whether that prose was actually edited — viewing it saves nothing.
+    pub prose_dirty: bool,
     /// Ctrl+F in F2: filtering the ring to matching lines.
     pub f2_search: Option<SearchState>,
     /// Ctrl+F in F3: filtering the library to matching chapters.
@@ -189,6 +195,8 @@ impl Voider {
             undo_applying: false,
             load_failed: doc.read_failed,
             status: String::new(),
+            prose: String::new(),
+            prose_dirty: false,
             f2_search: None,
             f3_search: None,
         }
@@ -350,6 +358,10 @@ impl Voider {
         if view != View::F3 {
             self.f3_search_cancel();
         }
+        // Leaving the prose editor commits what was typed there.
+        if self.view == View::F9 && view != View::F9 {
+            let _ = self.prose_save();
+        }
         self.view = view;
         match view {
             View::F1 => self.show_current(),
@@ -383,8 +395,62 @@ impl Voider {
                 self.picker_open = false;
                 self.library = Library::load(&self.void_dir);
             }
+            View::F9 => self.enter_prose_editor(),
         }
         self.save_last_view();
+    }
+
+    // ── F9: the active file as prose ───────────────────────────────────────────
+
+    /// Fill the prose box from the ring: each dot group becomes one paragraph,
+    /// its lines joined back into flowing text, paragraphs separated by a blank
+    /// line. Entering is never a change — `prose_dirty` starts false, so simply
+    /// looking at a file and leaving writes nothing.
+    pub fn enter_prose_editor(&mut self) {
+        self.prose = reformat::lines_to_paragraphs(&self.ring.lines).join("\n\n");
+        self.prose_dirty = false;
+    }
+
+    /// Leaving F9 (or Ctrl+S): put the prose back into the dot model and write
+    /// it. Untouched prose is left alone entirely — no write, no `.bak`, no undo
+    /// step — so F9 is safe to browse in.
+    ///
+    /// The prose goes through `reformat_prose`, so paragraphs become dot groups
+    /// and sentences become their own lines: the file comes back in Voider's
+    /// format however freely it was typed.
+    pub fn prose_save(&mut self) -> io::Result<()> {
+        if !self.prose_dirty {
+            return Ok(());
+        }
+        if self.load_failed {
+            self.status = "Save blocked: the active file failed to load".into();
+            return Ok(());
+        }
+        let before = self.ring.lines.clone();
+        let after = reformat::reformat_prose(&self.prose);
+        self.prose_dirty = false;
+        if after == before {
+            self.status = "Prose unchanged".into();
+            return Ok(());
+        }
+        if void::rescue_on_large_shrink(&self.current_file, &after) {
+            self.status = "Large shrink — kept a .rescue copy".into();
+        }
+        void::atomic_write(&self.current_file, &after, true)?; // keeps a .bak
+        self.ring.lines = after.clone();
+        self.ring.index = self.ring.index.min(self.ring.lines.len() - 1);
+        self.sync_entry();
+        self.undo.record(self.current_file.clone(), before, after, None);
+        self.status = "Prose saved".into();
+        Ok(())
+    }
+
+    /// Replace the prose being edited, marking it dirty when it really changed.
+    pub fn set_prose(&mut self, text: &str) {
+        if self.prose != text {
+            self.prose = text.to_string();
+            self.prose_dirty = true;
+        }
     }
 
     // ── Search (Ctrl+F in F2 / F3) ───────────────────────────────────────────────
@@ -3197,6 +3263,97 @@ mod tests {
         std::fs::write(&other, "x\n").unwrap();
         v.set_active_file(other);
         assert_eq!(Config::load(&v.void_dir).active_file.as_deref(), Some("other.txt"));
+    }
+
+    // ── F9: the prose editor ─────────────────────────────────────────────────────
+
+    #[test]
+    fn entering_f9_shows_the_file_as_paragraphs_of_flowing_prose() {
+        let (_d, mut v) = app(&[".", "Una frase.", "Otra frase.", ".", "Segundo parrafo."]);
+        v.switch_to(View::F9);
+        assert_eq!(v.prose, "Una frase. Otra frase.\n\nSegundo parrafo.");
+        assert!(!v.prose_dirty); // merely looking is not editing
+    }
+
+    #[test]
+    fn leaving_f9_untouched_does_not_rewrite_the_file() {
+        // The Python's test_unmodified_does_not_rewrite.
+        let (_d, mut v) = app(&[".", "Unchanged line."]);
+        v.switch_to(View::F9);
+        let before = std::fs::read_to_string(&v.current_file).unwrap();
+        v.switch_to(View::F2);
+        assert_eq!(std::fs::read_to_string(&v.current_file).unwrap(), before);
+        assert!(!library::chapter_path(&v.void_dir, "c.txt.bak").exists()); // no backup either
+    }
+
+    #[test]
+    fn edited_prose_saves_back_as_the_dot_model() {
+        // The Python's test_edited_prose_saves_as_dot_model.
+        let (_d, mut v) = app(&[".", "Old."]);
+        v.switch_to(View::F9);
+        v.set_prose("First sentence. Second sentence.\n\nSecond paragraph here.");
+        v.switch_to(View::F2);
+        assert_eq!(
+            void::load_doc(&v.current_file).lines,
+            vec![
+                ".".to_string(),
+                "First sentence.".into(),
+                "Second sentence.".into(),
+                ".".into(),
+                "Second paragraph here.".into(),
+            ]
+        );
+        assert!(!v.prose_dirty); // the edit was consumed
+    }
+
+    #[test]
+    fn the_ring_follows_the_prose_that_was_saved() {
+        let (_d, mut v) = app(&[".", "Old."]);
+        v.switch_to(View::F9);
+        v.set_prose("Nuevo texto.");
+        v.switch_to(View::F2);
+        assert_eq!(v.ring.lines, vec![".".to_string(), "Nuevo texto.".into()]);
+    }
+
+    #[test]
+    fn ctrl_s_saves_without_leaving_the_prose_editor() {
+        let (_d, mut v) = app(&[".", "Old."]);
+        v.switch_to(View::F9);
+        v.set_prose("Nuevo.");
+        v.prose_save().unwrap();
+        assert_eq!(v.view, View::F9); // still here
+        assert_eq!(void::load_doc(&v.current_file).lines, vec![".".to_string(), "Nuevo.".into()]);
+        assert!(!v.prose_dirty);
+    }
+
+    #[test]
+    fn setting_the_same_prose_back_is_not_an_edit() {
+        let (_d, mut v) = app(&[".", "Igual."]);
+        v.switch_to(View::F9);
+        let same = v.prose.clone();
+        v.set_prose(&same);
+        assert!(!v.prose_dirty);
+    }
+
+    #[test]
+    fn a_prose_save_is_one_undo_step() {
+        let (_d, mut v) = app(&[".", "Original."]);
+        let before = v.ring.lines.clone();
+        v.switch_to(View::F9);
+        v.set_prose("Reemplazo entero.");
+        v.switch_to(View::F2);
+        v.undo().unwrap();
+        assert_eq!(void::load_doc(&v.current_file).lines, before);
+    }
+
+    #[test]
+    fn f9_is_not_a_view_a_restart_resumes_into() {
+        let (_d, mut v) = app(&[".", "a"]);
+        v.switch_to(View::F2);
+        v.switch_to(View::F9);
+        // F9 edits one file rather than being a place to be — like F5 and F10,
+        // it never becomes the remembered view.
+        assert_eq!(Config::load(&v.void_dir).last_view.as_deref(), Some("F2"));
     }
 
     // ── Search in F2 ─────────────────────────────────────────────────────────────
