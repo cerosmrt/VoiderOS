@@ -21,9 +21,17 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
       Python, which only snapshots before specific destructive ops.
 - [x] **Save-time shrink guard** — refuse/rescue when a save would drop a large
       fraction of a file (`_rescue_on_large_shrink`).
-- [ ] **Backup to a pendrive** (`Ctrl+B`) — the faithful mirror + git, per the
-      Python's own pending item. *Not a precondition for the real `/void`* — a
-      convenience, not a guard against what the mirror itself might do wrong.
+- [x] **Backup to a pendrive** (`Ctrl+B`) — the faithful mirror + git, built to
+      the design in `roadmap/pending.txt` rather than ported from
+      `_backup_vault` (which opens a folder dialog and copies only `.txt`,
+      losing the history). Detects the mounted drives, works out the whole copy
+      WITHOUT writing anything, shows destination + file count + size, and only
+      then — on Enter — commits the void and copies. Any other key cancels.
+      Two rules worth knowing: `.git` travels (that is the point), and
+      symlinked directories are reported but never followed, so `O/` → `/mnt/data`
+      can't silently turn a backup of the writing into a copy of the corpus.
+      Still open from that roadmap entry: the portable bundle (void + app + a
+      Windows rebuild path), and the reconciliation flow back from a pendrive.
 
 ## 2. Navigation a writer uses constantly
 

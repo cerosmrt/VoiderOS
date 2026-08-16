@@ -9,6 +9,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::backup;
 use crate::config::Config;
 use crate::f5;
 use crate::fonts;
@@ -135,6 +136,9 @@ pub struct Voider {
     pub status: String,
     /// F11: the shortcut reference, over whatever view is underneath.
     pub help_open: bool,
+    /// Ctrl+B: a backup worked out and waiting to be accepted. Nothing is
+    /// written to the drive until it is.
+    pub backup_prompt: Option<BackupPrompt>,
     /// F9: the active file as one editable block of prose.
     pub prose: String,
     /// Whether that prose was actually edited — viewing it saves nothing.
@@ -143,6 +147,15 @@ pub struct Voider {
     pub f2_search: Option<SearchState>,
     /// Ctrl+F in F3: filtering the library to matching chapters.
     pub f3_search: Option<SearchState>,
+}
+
+/// A backup that has been worked out but not yet written: which drives were
+/// found, which one is selected, and exactly what would go onto it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackupPrompt {
+    pub drives: Vec<PathBuf>,
+    pub idx: usize,
+    pub plan: backup::Plan,
 }
 
 /// A live filter over some indexed list (the ring's lines, or the library's
@@ -198,6 +211,7 @@ impl Voider {
             load_failed: doc.read_failed,
             status: String::new(),
             help_open: false,
+            backup_prompt: None,
             prose: String::new(),
             prose_dirty: false,
             f2_search: None,
@@ -401,6 +415,86 @@ impl Voider {
             View::F9 => self.enter_prose_editor(),
         }
         self.save_last_view();
+    }
+
+    // ── Ctrl+B: the copy that leaves the machine ───────────────────────────────
+
+    /// Today, as the backup folder names it.
+    fn backup_date(&self) -> String {
+        let now = chrono::Local::now();
+        format!("{:02}-{:02}-{:02}", now.year() % 100, now.month(), now.day())
+    }
+
+    /// Ctrl+B: find the drives and work out what a backup WOULD write, without
+    /// writing any of it. Nothing touches the drive until `backup_confirm`.
+    pub fn begin_backup(&mut self) {
+        let drives = backup::detect_drives();
+        let Some(first) = drives.first().cloned() else {
+            self.status = "No external drive found — plug one in".into();
+            return;
+        };
+        let plan = backup::plan(&self.void_dir, &first, &self.backup_date());
+        self.status = plan.summary();
+        self.backup_prompt = Some(BackupPrompt { drives, idx: 0, plan });
+    }
+
+    /// Several drives can be mounted at once; step between them, re-costing the
+    /// backup for each, so the wrong one is never accepted by accident.
+    pub fn backup_cycle_drive(&mut self, delta: isize) {
+        let Some(prompt) = &self.backup_prompt else {
+            return;
+        };
+        let n = prompt.drives.len();
+        if n < 2 {
+            return;
+        }
+        let idx = (prompt.idx as isize + delta).rem_euclid(n as isize) as usize;
+        let dest = prompt.drives[idx].clone();
+        let plan = backup::plan(&self.void_dir, &dest, &self.backup_date());
+        self.status = plan.summary();
+        if let Some(p) = &mut self.backup_prompt {
+            p.idx = idx;
+            p.plan = plan;
+        }
+    }
+
+    pub fn cancel_backup(&mut self) {
+        if self.backup_prompt.take().is_some() {
+            self.status = "Backup cancelled".into();
+        }
+    }
+
+    /// Accepted: commit the void first so nothing uncommitted is left behind,
+    /// then write the copy. Returns how many files landed.
+    pub fn backup_confirm(&mut self) -> io::Result<usize> {
+        let Some(prompt) = self.backup_prompt.take() else {
+            return Ok(0);
+        };
+        void::git_commit(
+            &self.void_dir,
+            ".",
+            &format!("backup {}", void::timestamp()),
+        );
+        // Re-plan: the commit just changed .git, and that history is the point.
+        let plan = backup::plan(
+            &self.void_dir,
+            &prompt.drives[prompt.idx],
+            &self.backup_date(),
+        );
+        match backup::run(&self.void_dir, &plan) {
+            Ok(n) => {
+                self.status = format!(
+                    "Backup: {n} archivos · {} → {}",
+                    backup::human_bytes(plan.total_bytes()),
+                    plan.dest().display()
+                );
+                Ok(n)
+            }
+            Err(e) => {
+                self.status = format!("Backup failed: {e}");
+                Err(e)
+            }
+        }
     }
 
     // ── F9: the active file as prose ───────────────────────────────────────────
@@ -3266,6 +3360,107 @@ mod tests {
         std::fs::write(&other, "x\n").unwrap();
         v.set_active_file(other);
         assert_eq!(Config::load(&v.void_dir).active_file.as_deref(), Some("other.txt"));
+    }
+
+    // ── Ctrl+B: the backup, and the question it asks first ───────────────────────
+
+    /// A Voider whose void has some content, plus a stand-in "drive" to copy to.
+    fn backup_app() -> (tempfile::TempDir, tempfile::TempDir, Voider) {
+        let d = tempfile::tempdir().unwrap();
+        let i = d.path().join("I");
+        std::fs::create_dir_all(&i).unwrap();
+        std::fs::write(i.join("a.txt"), ".\nhola\n").unwrap();
+        let drive = tempfile::tempdir().unwrap();
+        let v = Voider::open(d.path(), i.join("a.txt"));
+        (d, drive, v)
+    }
+
+    /// Put a prompt in place pointing at `drive`, as begin_backup would with a
+    /// real pendrive mounted (which a test can't rely on).
+    fn prompt_for(v: &mut Voider, drive: &Path) {
+        let plan = backup::plan(&v.void_dir, drive, "25-01-01");
+        v.backup_prompt = Some(BackupPrompt {
+            drives: vec![drive.to_path_buf()],
+            idx: 0,
+            plan,
+        });
+    }
+
+    #[test]
+    fn opening_the_backup_prompt_writes_nothing_to_the_drive() {
+        let (_d, drive, mut v) = backup_app();
+        prompt_for(&mut v, drive.path());
+        assert!(v.backup_prompt.is_some());
+        // The whole point of the confirm step: the drive is still untouched.
+        assert_eq!(std::fs::read_dir(drive.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn the_prompt_says_what_it_would_copy_and_where() {
+        let (_d, drive, mut v) = backup_app();
+        prompt_for(&mut v, drive.path());
+        let plan = &v.backup_prompt.as_ref().unwrap().plan;
+        assert_eq!(plan.files.len(), 1);
+        assert!(plan.summary().contains(&drive.path().display().to_string()));
+    }
+
+    #[test]
+    fn confirming_writes_the_copy() {
+        let (_d, drive, mut v) = backup_app();
+        prompt_for(&mut v, drive.path());
+        let n = v.backup_confirm().unwrap();
+        assert!(n >= 1);
+        assert!(v.backup_prompt.is_none());
+        // The file really is on the "drive", under its dated folder.
+        let folder = std::fs::read_dir(drive.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        assert_eq!(std::fs::read_to_string(folder.join("I/a.txt")).unwrap(), ".\nhola\n");
+    }
+
+    #[test]
+    fn cancelling_leaves_the_drive_alone() {
+        let (_d, drive, mut v) = backup_app();
+        prompt_for(&mut v, drive.path());
+        v.cancel_backup();
+        assert!(v.backup_prompt.is_none());
+        assert_eq!(std::fs::read_dir(drive.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn confirming_with_no_prompt_open_does_nothing() {
+        let (_d, _drive, mut v) = backup_app();
+        assert_eq!(v.backup_confirm().unwrap(), 0);
+    }
+
+    #[test]
+    fn with_no_drive_found_there_is_nothing_to_accept() {
+        let (_d, _drive, mut v) = backup_app();
+        // detect_drives finds real mount points; on a machine with none mounted
+        // this must fail closed rather than open a prompt pointed at nowhere.
+        v.begin_backup();
+        if v.backup_prompt.is_none() {
+            assert!(v.status.contains("No external drive"));
+        }
+    }
+
+    #[test]
+    fn stepping_between_drives_re_costs_the_copy_for_each() {
+        let (_d, drive_a, mut v) = backup_app();
+        let drive_b = tempfile::tempdir().unwrap();
+        let plan = backup::plan(&v.void_dir, drive_a.path(), "25-01-01");
+        v.backup_prompt = Some(BackupPrompt {
+            drives: vec![drive_a.path().to_path_buf(), drive_b.path().to_path_buf()],
+            idx: 0,
+            plan,
+        });
+        v.backup_cycle_drive(1);
+        let p = v.backup_prompt.as_ref().unwrap();
+        assert_eq!(p.idx, 1);
+        assert_eq!(p.plan.dest_root, drive_b.path()); // re-planned for the new drive
     }
 
     // ── F9: the prose editor ─────────────────────────────────────────────────────

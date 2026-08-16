@@ -7,6 +7,7 @@
 //! just "what do I draw this frame?".
 
 mod app;
+mod backup;
 mod config;
 mod f5;
 mod fonts;
@@ -171,6 +172,20 @@ impl VoiderApp {
                         self.voider.help_open = false;
                         continue;
                     }
+                    // A backup waiting to be accepted owns the keyboard: it is
+                    // about to write to a drive, so nothing else may fire while
+                    // the question is open.
+                    if self.voider.backup_prompt.is_some() {
+                        match key {
+                            egui::Key::Enter => {
+                                let _ = self.voider.backup_confirm();
+                            }
+                            egui::Key::ArrowUp => self.voider.backup_cycle_drive(-1),
+                            egui::Key::ArrowDown => self.voider.backup_cycle_drive(1),
+                            _ => self.voider.cancel_backup(),
+                        }
+                        continue;
+                    }
                     // There is no text selection to fall back to here, so
                     // Ctrl+C always means the contextual copy — unless a search
                     // bar has focus (a 'c' belongs in the query) or we're in F9,
@@ -228,6 +243,9 @@ impl VoiderApp {
                 self.voider.show_title = !self.voider.show_title;
             }
             Key::G if m.ctrl && m.shift => self.voider.commit_void(),
+            // Ctrl+B only ASKS: it works out the copy and shows it, and the
+            // drive is not touched until that is accepted with Enter.
+            Key::B if m.ctrl => self.voider.begin_backup(),
             // Undo / redo of text content, from any view.
             Key::Z if m.ctrl && m.shift => {
                 let _ = self.voider.redo();
@@ -956,6 +974,74 @@ impl VoiderApp {
         self.voider.set_prose(&buffer);
     }
 
+    /// The question Ctrl+B asks before writing anything: which drive, how much,
+    /// and what it will not follow. Deliberately plain — this is the last look
+    /// before the void leaves the machine.
+    fn draw_backup_prompt(&self, painter: &egui::Painter, rect: egui::Rect) {
+        let Some(prompt) = &self.voider.backup_prompt else {
+            return;
+        };
+        painter.rect_filled(rect, 0.0, egui::Color32::from_black_alpha(242));
+        let centre = rect.center();
+        let plan = &prompt.plan;
+
+        painter.text(
+            egui::pos2(centre.x, centre.y - 70.0),
+            egui::Align2::CENTER_CENTER,
+            "BACKUP",
+            egui::FontId::proportional(self.font_size() * 0.9),
+            egui::Color32::from_gray(235),
+        );
+        painter.text(
+            egui::pos2(centre.x, centre.y - 24.0),
+            egui::Align2::CENTER_CENTER,
+            plan.dest().display().to_string(),
+            egui::FontId::monospace(13.0),
+            egui::Color32::WHITE,
+        );
+        painter.text(
+            egui::pos2(centre.x, centre.y + 6.0),
+            egui::Align2::CENTER_CENTER,
+            format!(
+                "{} archivos · {}",
+                plan.files.len(),
+                backup::human_bytes(plan.total_bytes())
+            ),
+            egui::FontId::proportional(14.0),
+            egui::Color32::from_gray(170),
+        );
+        if !plan.skipped_links.is_empty() {
+            let names: Vec<String> = plan
+                .skipped_links
+                .iter()
+                .map(|p| p.to_string_lossy().to_string())
+                .collect();
+            painter.text(
+                egui::pos2(centre.x, centre.y + 32.0),
+                egui::Align2::CENTER_CENTER,
+                format!("sin seguir: {}", names.join(", ")),
+                egui::FontId::proportional(12.0),
+                egui::Color32::from_gray(110),
+            );
+        }
+        let hint = if prompt.drives.len() > 1 {
+            format!(
+                "⏎ copiar   ↑↓ otro destino ({}/{})   cualquier otra tecla cancela",
+                prompt.idx + 1,
+                prompt.drives.len()
+            )
+        } else {
+            "⏎ copiar   ·   cualquier otra tecla cancela".to_string()
+        };
+        painter.text(
+            egui::pos2(centre.x, centre.y + 74.0),
+            egui::Align2::CENTER_CENTER,
+            hint,
+            egui::FontId::proportional(12.0),
+            egui::Color32::from_gray(95),
+        );
+    }
+
     /// F11: the shortcut reference in two columns over a near-opaque ground.
     fn draw_help(&self, painter: &egui::Painter, rect: egui::Rect) {
         painter.rect_filled(rect, 0.0, egui::Color32::from_black_alpha(238));
@@ -1070,6 +1156,9 @@ impl eframe::App for VoiderApp {
                     View::F10 => self.draw_f10(&painter, rect),
                 }
                 self.draw_title(&painter, rect);
+                if self.voider.backup_prompt.is_some() {
+                    self.draw_backup_prompt(&painter, rect);
+                }
                 if self.voider.help_open {
                     self.draw_help(&painter, rect);
                 }
