@@ -36,6 +36,9 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1000.0, 700.0])
+            // Ctrl+± thins the ground out; without a transparent surface to
+            // begin with there is nothing for it to thin towards.
+            .with_transparent(true)
             .with_title("Voider"),
         ..Default::default()
     };
@@ -229,9 +232,13 @@ impl VoiderApp {
             Key::F9 => self.voider.switch_to(View::F9),
             Key::F10 => self.voider.switch_to(View::F10),
             Key::F11 => self.voider.help_open = true,
-            // Size from anywhere, as the Python has it.
-            Key::Plus | Key::Equals if m.ctrl => self.voider.settings_step_size(1),
-            Key::Minus if m.ctrl => self.voider.settings_step_size(-1),
+            // Ctrl+± thins the ground out and fills it back in — the Python's
+            // opacity_up/opacity_down. (Type size lives in F10, on ←/→.)
+            Key::Plus | Key::Equals if m.ctrl => self.voider.step_opacity(0.1),
+            Key::Minus if m.ctrl => self.voider.step_opacity(-0.1),
+            Key::F12 => {
+                self.voider.take_screenshot();
+            }
             Key::W if m.ctrl && m.shift => {
                 self.voider.typewriter = !self.voider.typewriter;
                 self.voider.status = format!(
@@ -258,10 +265,6 @@ impl VoiderApp {
             // Paragraph jumps, everywhere the document is on screen.
             Key::PageDown => self.voider.goto_dot(1),
             Key::PageUp => self.voider.goto_dot(-1),
-            // Ctrl+0: make the current line the file's first.
-            Key::Num0 if m.ctrl => {
-                let _ = self.voider.rebase_to_current();
-            }
             _ => return false,
         }
         true
@@ -284,6 +287,11 @@ impl VoiderApp {
             Key::Home => self.voider.entry.home(),
             // Tab: recirculate a line from elsewhere in the book (loop writing).
             Key::Tab => self.voider.recycle_line(),
+            // The same cut-up by another route: Ctrl+0 pulls from anywhere in
+            // the void, Ctrl+. from this file. (In F2, Ctrl+0 rebases instead —
+            // view-scoped, as in the Python.)
+            Key::Num0 if m.ctrl => self.voider.random_line_from_void(),
+            Key::Period if m.ctrl => self.voider.random_line_from_here(),
             // Alt walks the library without going through F3.
             Key::ArrowUp if m.alt => self.voider.step_file(-1),
             Key::ArrowDown if m.alt => self.voider.step_file(1),
@@ -317,6 +325,10 @@ impl VoiderApp {
         match key {
             // Ctrl+F: search the document's lines.
             Key::F if m.ctrl && !m.shift => self.voider.open_f2_search(),
+            // Ctrl+0: make the current line the file's first.
+            Key::Num0 if m.ctrl => {
+                let _ = self.voider.rebase_to_current();
+            }
             // At the start of the line, Enter is a command (enter/exit focus, or
             // drop into F1 on a blank line); anywhere else it splits the line.
             Key::Enter if self.voider.entry.caret() == 0 => {
@@ -1139,7 +1151,12 @@ impl eframe::App for VoiderApp {
             }
         }
         egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(egui::Color32::BLACK))
+            // Only the ground thins out; the writing on it stays solid. The
+            // Python's setWindowOpacity fades the text too, which is exactly
+            // what you don't want when the point is to keep reading through it.
+            .frame(egui::Frame::none().fill(egui::Color32::from_black_alpha(
+                (self.voider.config.opacity.clamp(config::OPACITY_MIN, 1.0) * 255.0) as u8,
+            )))
             .show(ctx, |ui| {
                 let rect = ui.max_rect();
                 let painter = ui.painter().clone();

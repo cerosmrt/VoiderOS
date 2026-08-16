@@ -99,7 +99,12 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
       standing in for the text-selection Python gets for free from `QLineEdit`.
 - [ ] **Alt+Tab in F2**: insert from the working set (`_doc_insert_ws_line`).
       Deferred — needs F7's working set, not built yet.
-- [ ] **Ctrl+0 / Ctrl+.**: a random line from a random file / from this file.
+- [x] **Ctrl+0 / Ctrl+.** in F1: a random line from anywhere in the void
+      (scratch excluded — it's where lines LAND) / from this file, skipping
+      whatever the entry already holds. Both only ever copy.
+      *Note*: `Ctrl+0` is view-scoped in the Python and now here too — the
+      random pull in F1, rebase-the-ring in F2. It had been global (rebase
+      everywhere) by mistake.
 - [x] **Smart copy** (`Ctrl+C` with no selection: line → paragraph → chapter) —
       `test_smart_copy` (5). There is no selection to fall back to yet (no
       selection model in `TextLine`), so every Ctrl+C is the contextual copy.
@@ -148,7 +153,17 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
       `test_integrity_sync` (5).
 - [x] **Mouse cursor**: the white ring, auto-hidden while typing —
       `test_cursor_autohide` (12). Trivial here; just not wired.
-- [ ] **Screenshots** (`F12`), **opacity** (`Ctrl+±`), **TTS** (`Ctrl+T`).
+- [x] **Screenshots** (`F12`) — via `grim`, already on this machine and already
+      in the Hyprland config. Qt's own grab can't work here: Wayland doesn't let
+      a window photograph the compositor.
+- [x] **Opacity** (`Ctrl+±`), persisted, floored at 30% — a window you can't see
+      is a window you can't get back. Only the ground thins; the writing stays
+      solid, unlike Qt's `setWindowOpacity`, which fades the text along with it.
+      *This corrected a real mistake*: `Ctrl+±` had been bound to type size here
+      with a comment claiming the Python did the same. It doesn't — it binds
+      `opacity_up`/`opacity_down`, and size lives on F10's `←/→`.
+- [ ] **TTS** (`Ctrl+T`) — needs a speech engine decision (the Python shells out
+      to its own); not started.
 - [ ] **Pickers**: active file, book folder, void folder.
 - [ ] **Be the desktop**: wlr-layer-shell. `pkgs/voider-shell/` is already a Rust
       layer-shell host, so this is closer than it looks.

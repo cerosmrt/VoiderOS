@@ -417,6 +417,107 @@ impl Voider {
         self.save_last_view();
     }
 
+    /// F12: a picture of the screen into `void/screenshots/`.
+    ///
+    /// The Python grabs the screen through Qt. Wayland does not let a client do
+    /// that — a window cannot see the compositor — so this shells out to `grim`,
+    /// which is already on this machine and already bound in the Hyprland config.
+    /// Returns where it landed.
+    pub fn take_screenshot(&mut self) -> Option<PathBuf> {
+        let dir = self.void_dir.join("screenshots");
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            self.status = format!("Screenshot failed: {e}");
+            return None;
+        }
+        let path = dir.join(format!(
+            "snap_{}.png",
+            chrono::Local::now().format("%Y%m%d_%H%M%S")
+        ));
+        match std::process::Command::new("grim").arg(&path).output() {
+            Ok(out) if out.status.success() => {
+                self.status = format!("Screenshot → {}", path.display());
+                Some(path)
+            }
+            Ok(out) => {
+                let err = String::from_utf8_lossy(&out.stderr);
+                self.status = format!("Screenshot failed: {}", err.trim());
+                None
+            }
+            Err(e) => {
+                self.status = format!("Screenshot failed (is grim installed?): {e}");
+                None
+            }
+        }
+    }
+
+    /// Ctrl+± : how solid the ground is, remembered across runs.
+    pub fn step_opacity(&mut self, delta: f32) {
+        self.config.step_opacity(delta);
+        let _ = self.config.save(&self.void_dir);
+        self.status = format!("Opacity {:.0}%", self.config.opacity * 100.0);
+    }
+
+    /// Ctrl+0 in F1: copy a random line from a random file in the void into the
+    /// entry, the scratch excluded — the scratch is where lines LAND, so pulling
+    /// from it would just recirculate what you were already looking at.
+    /// A port of `show_random_line_from_random_file`. Only ever copies.
+    pub fn random_line_from_void(&mut self) {
+        let mut files: Vec<PathBuf> = Vec::new();
+        collect_txt_files(&self.void_dir, &mut files);
+        files.retain(|f| {
+            f.file_name()
+                .map(|n| !library::is_portal(&n.to_string_lossy()))
+                .unwrap_or(false)
+        });
+        if files.is_empty() {
+            self.status = "Nothing in the void to pull from".into();
+            return;
+        }
+        library::shuffle(&mut files);
+        for path in files {
+            let mut lines: Vec<String> = void::load_doc(&path)
+                .lines
+                .into_iter()
+                .filter(|l| !l.trim().is_empty() && l.trim() != ".")
+                .collect();
+            if lines.is_empty() {
+                continue;
+            }
+            library::shuffle(&mut lines);
+            self.entry.set_text(&lines[0]);
+            self.entry.home();
+            return;
+        }
+        self.status = "Nothing in the void to pull from".into();
+    }
+
+    /// Ctrl+. in F1: a random line from THIS file, skipping whatever the entry
+    /// already holds so the same line isn't handed back. A port of
+    /// `show_random_line_from_current_file`.
+    pub fn random_line_from_here(&mut self) {
+        let all: Vec<String> = void::load_doc(&self.current_file)
+            .lines
+            .into_iter()
+            .filter(|l| !l.trim().is_empty() && l.trim() != ".")
+            .collect();
+        if all.is_empty() {
+            self.status = "This file has nothing to pull from".into();
+            return;
+        }
+        let current = self.entry.text().trim().to_string();
+        let mut pool: Vec<String> = if !current.is_empty() && all.len() > 1 {
+            all.iter().filter(|l| l.trim() != current).cloned().collect()
+        } else {
+            all.clone()
+        };
+        if pool.is_empty() {
+            pool = all;
+        }
+        library::shuffle(&mut pool);
+        self.entry.set_text(&pool[0]);
+        self.entry.home();
+    }
+
     // ── Ctrl+B: the copy that leaves the machine ───────────────────────────────
 
     /// Today, as the backup folder names it.
@@ -3360,6 +3461,78 @@ mod tests {
         std::fs::write(&other, "x\n").unwrap();
         v.set_active_file(other);
         assert_eq!(Config::load(&v.void_dir).active_file.as_deref(), Some("other.txt"));
+    }
+
+    // ── Random lines into the entry (Ctrl+0 / Ctrl+. in F1) ─────────────────────
+
+    #[test]
+    fn ctrl_zero_pulls_a_line_from_somewhere_in_the_void() {
+        let (_d, mut v) = app(&["."]);
+        let i = v.void_dir.join("I");
+        std::fs::create_dir_all(&i).unwrap();
+        std::fs::write(i.join("otro.txt"), ".\nlinea prestada\n").unwrap();
+        v.random_line_from_void();
+        assert_eq!(v.entry.text(), "linea prestada");
+        assert_eq!(v.entry.caret(), 0);
+    }
+
+    #[test]
+    fn ctrl_zero_never_pulls_from_the_scratch() {
+        let (_d, mut v) = app(&["."]);
+        let i = v.void_dir.join("I");
+        std::fs::create_dir_all(&i).unwrap();
+        // The scratch is where lines land; pulling from it recirculates nothing.
+        std::fs::write(i.join("0.txt"), ".\ndel scratch\n").unwrap();
+        std::fs::write(i.join("libro.txt"), ".\ndel libro\n").unwrap();
+        for _ in 0..12 {
+            v.random_line_from_void();
+            assert_eq!(v.entry.text(), "del libro");
+        }
+    }
+
+    #[test]
+    fn ctrl_zero_with_an_empty_void_says_so_and_leaves_the_entry_alone() {
+        let (_d, mut v) = app(&["."]);
+        v.entry.set_text("lo que escribia");
+        v.random_line_from_void();
+        assert_eq!(v.entry.text(), "lo que escribia");
+        assert!(v.status.contains("Nothing in the void"));
+    }
+
+    #[test]
+    fn ctrl_period_pulls_a_line_from_this_file() {
+        let (_d, mut v) = app(&[".", "unica linea"]);
+        v.random_line_from_here();
+        assert_eq!(v.entry.text(), "unica linea");
+        assert_eq!(v.entry.caret(), 0);
+    }
+
+    #[test]
+    fn ctrl_period_does_not_hand_back_the_line_already_in_the_entry() {
+        let (_d, mut v) = app(&[".", "una", "otra"]);
+        v.entry.set_text("una");
+        for _ in 0..12 {
+            v.random_line_from_here();
+            assert_eq!(v.entry.text(), "otra"); // the only one left
+            v.entry.set_text("una");
+        }
+    }
+
+    #[test]
+    fn ctrl_period_falls_back_when_the_entry_holds_the_only_line() {
+        let (_d, mut v) = app(&[".", "sola"]);
+        v.entry.set_text("sola");
+        v.random_line_from_here();
+        assert_eq!(v.entry.text(), "sola"); // better that than nothing
+    }
+
+    #[test]
+    fn ctrl_period_on_a_file_of_only_separators_says_so() {
+        let (_d, mut v) = app(&["."]);
+        v.entry.set_text("intacto");
+        v.random_line_from_here();
+        assert_eq!(v.entry.text(), "intacto");
+        assert!(v.status.contains("nothing to pull"));
     }
 
     // ── Ctrl+B: the backup, and the question it asks first ───────────────────────
