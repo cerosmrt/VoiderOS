@@ -328,6 +328,10 @@ impl VoiderApp {
                 let _ = self.voider.settle_pending();
                 self.voider.library.move_by(1);
             }
+            // On a separator: shuffle that book. On a title: jump to a random one.
+            Key::Tab => {
+                let _ = self.voider.book_tab();
+            }
             _ => {}
         }
     }

@@ -527,6 +527,38 @@ impl Voider {
         Ok(Some(path))
     }
 
+    /// Tab in F3: on a separator dot, shuffle that book's files (numbered titles
+    /// keep their order, the rest scatter); on a title, jump to a random one.
+    pub fn book_tab(&mut self) -> io::Result<()> {
+        self.settle_pending()?;
+        if library::is_separator(self.library.current()) {
+            if library::shuffle_group(&mut self.library.entries, self.library.index) {
+                self.library.save(&self.void_dir)?;
+                self.status = "Shuffled".into();
+            }
+        } else {
+            self.book_random();
+        }
+        Ok(())
+    }
+
+    /// Jump to a random real chapter — never a separator, never the portal.
+    pub fn book_random(&mut self) {
+        let mut candidates: Vec<usize> = self
+            .library
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| !library::is_separator(e) && !library::is_portal(e))
+            .map(|(i, _)| i)
+            .collect();
+        if candidates.is_empty() {
+            return;
+        }
+        library::shuffle(&mut candidates);
+        self.library.index = candidates[0];
+    }
+
     /// F2 saves on every keystroke. Blank text is never written over a line and
     /// a `.` separator is never overwritten — they're structure, not content.
     pub fn doc_live_save(&mut self) -> io::Result<()> {
@@ -645,7 +677,7 @@ impl Voider {
         if lines.is_empty() {
             return None;
         }
-        shuffle(&mut lines);
+        library::shuffle(&mut lines);
         lines.into_iter().next()
     }
 
@@ -686,7 +718,7 @@ impl Voider {
             self.status = "Nothing to shuffle".into();
             return Ok(());
         }
-        shuffle(&mut content);
+        library::shuffle(&mut content);
         let mut after = vec![".".to_string()];
         after.extend(content);
         void::atomic_write(&self.current_file, &after, true)?;
@@ -1011,22 +1043,6 @@ impl Voider {
             return false;
         }
         self.entry.backspace()
-    }
-}
-
-/// Shuffle in place. A small xorshift seeded from the clock — no dependency
-/// needed to make the scratch formless again.
-fn shuffle<T>(items: &mut [T]) {
-    let mut state = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0x2545F491)
-        | 1;
-    for i in (1..items.len()).rev() {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        items.swap(i, (state % (i as u64 + 1)) as usize);
     }
 }
 
@@ -1373,6 +1389,51 @@ mod tests {
         assert!(v.new_chapter("Dos").unwrap().is_none());
         let doc = void::load_doc(&library::chapter_path(&v.void_dir, "Dos.txt"));
         assert!(doc.lines.contains(&"de dos".to_string())); // untouched
+    }
+
+    // ── F3 Tab: shuffle a book / jump to a random chapter ────────────────────
+
+    #[test]
+    fn tab_on_a_dot_shuffles_the_book_and_persists() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.entries = vec![".".into(), "A.txt".into(), "B.txt".into(), "C.txt".into()];
+        v.library.index = 0; // on the separator
+        v.book_tab().unwrap();
+        let mut got = v.library.entries[1..4].to_vec();
+        got.sort();
+        assert_eq!(got, vec!["A.txt", "B.txt", "C.txt"]); // same files
+        assert_eq!(Library::load(&v.void_dir).entries.len(), v.library.entries.len());
+    }
+
+    #[test]
+    fn tab_on_a_title_jumps_to_a_random_real_chapter() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.entries = vec!["Uno.txt".into(), "Dos.txt".into()];
+        v.library.index = 0;
+        v.book_tab().unwrap();
+        assert!(!library::is_separator(v.library.current()));
+        assert!(!library::is_portal(v.library.current()));
+    }
+
+    #[test]
+    fn book_random_never_lands_on_a_separator_or_the_portal() {
+        let (_d, mut v) = book();
+        v.library.entries = vec!["0.txt".into(), ".".into(), "A.txt".into()];
+        for _ in 0..15 {
+            v.book_random();
+            assert_eq!(v.library.current(), "A.txt"); // the only eligible one
+        }
+    }
+
+    #[test]
+    fn book_random_with_nothing_eligible_does_not_move() {
+        let (_d, mut v) = book();
+        v.library.entries = vec!["0.txt".into(), ".".into()];
+        v.library.index = 0;
+        v.book_random();
+        assert_eq!(v.library.index, 0);
     }
 
     #[test]
