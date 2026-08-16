@@ -264,6 +264,15 @@ impl VoiderApp {
             Key::Enter => {
                 let _ = self.voider.doc_split_line();
             }
+            // Ctrl+Delete at the start, or Ctrl+Backspace at the end: send the
+            // whole line down the trash cascade (other file → 0.txt → trash →
+            // gone). At any other caret position they edit normally, below.
+            Key::Delete if m.ctrl && self.voider.entry.caret() == 0 => {
+                let _ = self.voider.delete_line_to_zero();
+            }
+            Key::Backspace if m.ctrl && self.voider.entry.caret() == self.voider.entry.len() => {
+                let _ = self.voider.delete_line_to_zero();
+            }
             Key::Backspace => {
                 if caps {
                     // scriptio continua: type and send, no editing
