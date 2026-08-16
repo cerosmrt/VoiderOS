@@ -19,6 +19,7 @@ pub const ROWS: &[Row] = &[
     ("F1", Some("Write — one line at a time into the active file")),
     ("F2", Some("The document as a ring — edit and reorder its lines")),
     ("F3", Some("The library — the book's chapters in reading order")),
+    ("F4", Some("Read — the book set in a column, page by page")),
     ("F5", Some("Paragraphs — move them, send one to a chapter")),
     ("F9", Some("Prose — the active file as one editable block")),
     ("F10", Some("Settings — the writing font and its size (←→)")),
@@ -69,6 +70,10 @@ pub const ROWS: &[Row] = &[
     ("Ctrl+Shift+T", Some("Show or hide the pinned title")),
     ("Caps Lock", Some("Scriptio continua: no capitals, no backspace, space commits")),
     ("F12", Some("Screenshot")),
+    ("", None),
+    ("READING  (F4)", None),
+    ("→ / ← , PageDn / PageUp", Some("Turn the page")),
+    ("Home / End", Some("First / last page")),
 ];
 
 /// The rows split into two balanced columns, breaking only between sections so

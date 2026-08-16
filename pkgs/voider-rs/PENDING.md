@@ -111,9 +111,22 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
 
 ## 5. The other views
 
-- [ ] **F4 — reading & print**: paginated book view, justified, hyphenated;
-      `Ctrl+P` print, `Ctrl+S` export PDF — `test_reading_page`, `_sections`,
-      `test_print` (29).
+- [~] **F4 — reading**: the book set in a column and turned page by page. The
+      layout idea is the Python's and worth keeping — the whole text is laid out
+      ONCE as one tall column and a page is a window onto it, so "never cut a
+      line across a page break" is a property of how the offsets are chosen
+      rather than something the renderer worries about. Follows the F3 highlight
+      (on a separator: the whole book, one section per chapter, portals skipped;
+      on a chapter: that one), and opens on the paragraph you were editing when
+      it's that file being shown. `_para_ordinal_at` is ported with the Python's
+      own `test_open_position` cases — which is where that test finally landed.
+      Still missing from this view:
+      - **Justification and hyphenation.** egui has no justified layout and
+        there's no Spanish hyphenation dictionary here; both are real work and
+        purely typographic, so the column is ragged-right for now.
+      - **`Ctrl+P` print / `Ctrl+S` export PDF** (`test_print`). Needs a PDF
+        crate (`printpdf` or similar) plus `lp`; deliberately not started rather
+        than half-started.
 - [ ] **F6 — the `O/` reader**: read a corpus book, remember the position.
 - [ ] **F7 — the `O/` browser** and the working set — `test_working_set`,
       `test_tab_ws` (26).

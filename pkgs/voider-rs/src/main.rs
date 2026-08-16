@@ -17,6 +17,7 @@ mod library;
 mod paragraphs;
 mod line_ring;
 mod position;
+mod reading;
 mod reformat;
 mod split;
 mod text_line;
@@ -74,12 +75,15 @@ fn install_font(ctx: &egui::Context, family: &str) {
 struct VoiderApp {
     /// The mouse pointer is out of the way while you write.
     pointer_hidden: bool,
+    /// How many pages F4 laid out last frame — measuring needs the fonts, so
+    /// it is known at draw time and remembered for the keys that turn pages.
+    reading_pages: usize,
     voider: Voider,
 }
 
 impl VoiderApp {
     fn new() -> Self {
-        Self { voider: app::open_sandbox(), pointer_hidden: true }
+        Self { voider: app::open_sandbox(), pointer_hidden: true, reading_pages: 1 }
     }
 
     /// The size the writer chose, used by every view.
@@ -167,7 +171,7 @@ impl VoiderApp {
                     // F9's text goes into egui's own multiline widget, which
                     // reads the same events itself — typing it again here would
                     // double every character.
-                    View::F5 | View::F9 | View::F10 => {}
+                    View::F4 | View::F5 | View::F9 | View::F10 => {}
                 },
                 egui::Event::Key { key, pressed: true, modifiers, .. } => {
                     // The help is a reference, not a mode: any key at all puts
@@ -212,6 +216,7 @@ impl VoiderApp {
                         View::F1 => self.handle_f1_key(key, caps, modifiers),
                         View::F2 => self.handle_f2_key(key, caps, modifiers),
                         View::F3 => self.handle_f3_key(key, modifiers),
+                        View::F4 => self.handle_f4_key(key),
                         View::F5 => self.handle_f5_key(key, modifiers),
                         View::F9 => self.handle_f9_key(key, modifiers),
                         View::F10 => self.handle_f10_key(key),
@@ -229,6 +234,7 @@ impl VoiderApp {
             Key::F1 => self.voider.switch_to(View::F1),
             Key::F2 => self.voider.switch_to(View::F2),
             Key::F3 => self.voider.switch_to(View::F3),
+            Key::F4 => self.voider.switch_to(View::F4),
             Key::F5 => self.voider.switch_to(View::F5),
             Key::F9 => self.voider.switch_to(View::F9),
             Key::F10 => self.voider.switch_to(View::F10),
@@ -521,6 +527,22 @@ impl VoiderApp {
             Key::ArrowLeft => self.voider.settings_step_size(-1),
             Key::ArrowRight => self.voider.settings_step_size(1),
             Key::Escape | Key::Enter => self.voider.switch_to(View::F1),
+            _ => {}
+        }
+    }
+
+    /// F4 is for reading: turn pages, or leave.
+    fn handle_f4_key(&mut self, key: egui::Key) {
+        use egui::Key;
+        let pages = self.reading_pages.max(1);
+        match key {
+            Key::ArrowRight | Key::ArrowDown | Key::PageDown | Key::Space => {
+                self.voider.turn_page(1, pages)
+            }
+            Key::ArrowLeft | Key::ArrowUp | Key::PageUp => self.voider.turn_page(-1, pages),
+            Key::Home => self.voider.page = 0,
+            Key::End => self.voider.page = pages - 1,
+            Key::Escape => self.voider.switch_to(View::F2),
             _ => {}
         }
     }
@@ -1055,6 +1077,102 @@ impl VoiderApp {
         );
     }
 
+    /// F4: the text set in a column and shown a page at a time.
+    ///
+    /// The whole thing is laid out once as one tall column; a page is a window
+    /// onto it, chosen so no line is ever cut across the break. Titles bind to
+    /// what follows them, which is why they are measured into the same column
+    /// rather than drawn separately.
+    fn draw_f4(&mut self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
+        let margin = (rect.width() * 0.24).max(70.0);
+        let col_w = rect.width() - margin * 2.0;
+        let top_pad = 60.0;
+        let page_h = rect.height() - top_pad * 2.0;
+        let size = self.font_size();
+        let body = egui::FontId::proportional(size);
+        let head = egui::FontId::proportional(size * 1.05);
+        let para_gap = size * 0.85;
+        let title_gap = size * 1.9;
+
+        // Lay the column out once: every paragraph becomes a galley, and the
+        // lines within it become the units pagination is allowed to break on.
+        let mut blocks: Vec<(f32, std::sync::Arc<egui::Galley>, bool)> = Vec::new();
+        let mut lines: Vec<reading::Line> = Vec::new();
+        let mut y = 0.0_f32;
+        // Where each paragraph starts, so we can open on the one you were editing.
+        let mut para_tops: Vec<f32> = Vec::new();
+
+        for (s, section) in self.voider.reading.iter().enumerate() {
+            if s > 0 {
+                y += title_gap;
+            }
+            let galley = ctx.fonts(|f| {
+                f.layout(section.title.clone(), head.clone(), egui::Color32::PLACEHOLDER, col_w)
+            });
+            for row in &galley.rows {
+                lines.push(reading::Line { top: y + row.min_y(), height: row.height() });
+            }
+            blocks.push((y, galley.clone(), true));
+            y += galley.size().y + para_gap;
+
+            for para in &section.paragraphs {
+                let galley = ctx.fonts(|f| {
+                    f.layout(para.clone(), body.clone(), egui::Color32::PLACEHOLDER, col_w)
+                });
+                para_tops.push(y);
+                for row in &galley.rows {
+                    lines.push(reading::Line { top: y + row.min_y(), height: row.height() });
+                }
+                blocks.push((y, galley.clone(), false));
+                y += galley.size().y + para_gap;
+            }
+        }
+
+        let offsets = reading::page_offsets(&lines, page_h);
+        self.reading_pages = offsets.len();
+
+        // Opening on the paragraph you were editing: only on the frame we
+        // arrive, so turning pages afterwards isn't undone.
+        if self.voider.page == 0 && self.voider.open_at_para > 0 {
+            if let Some(top) = para_tops.get(self.voider.open_at_para) {
+                self.voider.page = reading::page_of(&offsets, *top);
+            }
+            self.voider.open_at_para = 0;
+        }
+        let page = self.voider.page.min(offsets.len().saturating_sub(1));
+        let scroll = offsets.get(page).copied().unwrap_or(0.0);
+
+        // Only what belongs on this page: clipped, so a line half over the edge
+        // is never drawn as a sliver.
+        let page_rect = egui::Rect::from_min_max(
+            egui::pos2(rect.left() + margin, rect.top() + top_pad),
+            egui::pos2(rect.right() - margin, rect.top() + top_pad + page_h),
+        );
+        let clipped = painter.with_clip_rect(page_rect);
+        for (top, galley, is_title) in &blocks {
+            let draw_y = page_rect.top() + top - scroll;
+            if draw_y + galley.size().y < page_rect.top() - 1.0 || draw_y > page_rect.bottom() {
+                continue; // off this page
+            }
+            let colour = if *is_title {
+                egui::Color32::from_gray(235)
+            } else {
+                egui::Color32::from_gray(205)
+            };
+            clipped.galley(egui::pos2(page_rect.left(), draw_y), galley.clone(), colour);
+        }
+
+        if offsets.len() > 1 {
+            painter.text(
+                egui::pos2(rect.center().x, rect.bottom() - 26.0),
+                egui::Align2::CENTER_CENTER,
+                format!("{} / {}", page + 1, offsets.len()),
+                egui::FontId::proportional(11.0),
+                egui::Color32::from_gray(80),
+            );
+        }
+    }
+
     /// F11: the shortcut reference in two columns over a near-opaque ground.
     fn draw_help(&self, painter: &egui::Painter, rect: egui::Rect) {
         painter.rect_filled(rect, 0.0, egui::Color32::from_black_alpha(238));
@@ -1171,6 +1289,7 @@ impl eframe::App for VoiderApp {
                     View::F1 => self.draw_f1(&painter, ctx, rect),
                     View::F2 => self.draw_f2(&painter, ctx, rect),
                     View::F3 => self.draw_f3(&painter, ctx, rect),
+                    View::F4 => self.draw_f4(&painter, ctx, rect),
                     View::F5 => self.draw_f5(&painter, ctx, rect),
                     // The only view built from a real widget rather than painted
                     // by hand: F9 wants ordinary prose editing (wrapping,

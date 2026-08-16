@@ -17,6 +17,7 @@ use crate::ipc;
 use crate::library::{self, Library};
 use crate::paragraphs;
 use crate::position;
+use crate::reading;
 use crate::reformat;
 use crate::split;
 use crate::line_ring::LineRing;
@@ -59,6 +60,8 @@ pub enum View {
     F2,
     /// The library: the book's chapters in reading order.
     F3,
+    /// The book as a book: set in a column, turned page by page.
+    F4,
     /// The active file as paragraphs, in order, to be moved or sent away.
     F5,
     /// The active file as flowing prose in one box, saved on leaving.
@@ -68,13 +71,14 @@ pub enum View {
 }
 
 impl View {
-    /// Restorable across a restart: F1, F2, F3 — matches Python's `(0, 1, 2, 3)`
-    /// minus F4, which doesn't exist here yet.
+    /// Restorable across a restart: F1, F2, F3, F4 — the Python's own `(0, 1,
+    /// 2, 3)`. The rest edit or configure one thing and are not places to be.
     fn key(self) -> Option<&'static str> {
         match self {
             View::F1 => Some("F1"),
             View::F2 => Some("F2"),
             View::F3 => Some("F3"),
+            View::F4 => Some("F4"),
             View::F5 | View::F9 | View::F10 => None,
         }
     }
@@ -84,6 +88,7 @@ impl View {
             "F1" => Some(View::F1),
             "F2" => Some(View::F2),
             "F3" => Some(View::F3),
+            "F4" => Some(View::F4),
             _ => None,
         }
     }
@@ -143,6 +148,12 @@ pub struct Voider {
     /// Ctrl+B: a backup worked out and waiting to be accepted. Nothing is
     /// written to the drive until it is.
     pub backup_prompt: Option<BackupPrompt>,
+    /// F4: what is being read, as titled sections of prose.
+    pub reading: Vec<reading::Section>,
+    /// F4: which page is on screen.
+    pub page: usize,
+    /// F4: the paragraph to open on — where you were in F2.
+    pub open_at_para: usize,
     /// F9: the active file as one editable block of prose.
     pub prose: String,
     /// Whether that prose was actually edited — viewing it saves nothing.
@@ -215,6 +226,9 @@ impl Voider {
             load_failed: doc.read_failed,
             status: String::new(),
             ipc: None,
+            reading: Vec::new(),
+            page: 0,
+            open_at_para: 0,
             help_open: false,
             backup_prompt: None,
             prose: String::new(),
@@ -369,6 +383,9 @@ impl Voider {
     /// Switch views, carrying the edit with you: leaving F2 persists the line,
     /// and each view mirrors the ring line the way it shows it.
     pub fn switch_to(&mut self, view: View) {
+        // Where we came FROM matters to F4, which follows the F3 highlight —
+        // and self.view is about to stop being it.
+        let from = self.view;
         if self.view == View::F2 {
             let _ = self.doc_live_save();
             self.save_last_line();
@@ -419,8 +436,88 @@ impl Voider {
                 self.library = Library::load(&self.void_dir);
             }
             View::F9 => self.enter_prose_editor(),
+            View::F4 => self.enter_reading(from),
         }
         self.save_last_view();
+    }
+
+    // ── F4: the book as a book ─────────────────────────────────────────────────
+
+    /// Gather what F4 should show and where in it to open.
+    ///
+    /// Follows the F3 highlight, as the Python does: sitting on a separator
+    /// means the whole book below it, one section per chapter with the scratch
+    /// portals skipped; sitting on a chapter (or coming from anywhere else)
+    /// means the active file alone. Opening on the paragraph you were just
+    /// editing only makes sense when it IS the file being shown.
+    pub fn enter_reading(&mut self, from: View) {
+        self.page = 0;
+        let from_book = from == View::F3
+            || (!self.library.entries.is_empty()
+                && library::is_separator(self.library.current()));
+
+        if from_book && library::is_separator(self.library.current()) {
+            self.reading = self.book_below_cursor();
+            self.open_at_para = 0;
+            if !self.reading.is_empty() {
+                return;
+            }
+        }
+        // One file: whichever chapter F3 is on, else the active one.
+        let path = if from_book && !library::is_separator(self.library.current()) {
+            library::chapter_path(&self.void_dir, self.library.current())
+        } else {
+            self.current_file.clone()
+        };
+        let lines = void::load_doc(&path).lines;
+        self.open_at_para = if same_file(&path, &self.current_file) {
+            reading::para_ordinal_at(&self.ring.lines, self.ring.index)
+        } else {
+            0
+        };
+        self.reading = vec![reading::Section {
+            title: file_title(&path).to_uppercase(),
+            paragraphs: reformat::lines_to_paragraphs(&lines),
+        }];
+    }
+
+    /// Every chapter from the separator down to the next one, in reading order.
+    fn book_below_cursor(&self) -> Vec<reading::Section> {
+        let entries = &self.library.entries;
+        let n = entries.len();
+        let mut out = Vec::new();
+        if n == 0 {
+            return out;
+        }
+        let mut i = (self.library.index + 1) % n;
+        for _ in 0..n.saturating_sub(1) {
+            let name = &entries[i];
+            if library::is_separator(name) {
+                break;
+            }
+            if !library::is_portal(name) {
+                let path = library::chapter_path(&self.void_dir, name);
+                if path.is_file() {
+                    let paragraphs = reformat::lines_to_paragraphs(&void::load_doc(&path).lines);
+                    if !paragraphs.is_empty() {
+                        out.push(reading::Section {
+                            title: library::display_name(name).to_uppercase(),
+                            paragraphs,
+                        });
+                    }
+                }
+            }
+            i = (i + 1) % n;
+        }
+        out
+    }
+
+    /// Turn pages, clamped — a book has a first and a last page.
+    pub fn turn_page(&mut self, delta: isize, total: usize) {
+        if total == 0 {
+            return;
+        }
+        self.page = (self.page as isize + delta).clamp(0, total as isize - 1) as usize;
     }
 
     /// F12: a picture of the screen into `void/screenshots/`.
@@ -3548,6 +3645,95 @@ mod tests {
         std::fs::write(&other, "x\n").unwrap();
         v.set_active_file(other);
         assert_eq!(Config::load(&v.void_dir).active_file.as_deref(), Some("other.txt"));
+    }
+
+    // ── F4: the book as a book ───────────────────────────────────────────────────
+
+    #[test]
+    fn f4_shows_the_active_file_as_prose() {
+        let (_d, mut v) = app(&[".", "Una frase.", "Otra frase.", ".", "Segundo."]);
+        v.switch_to(View::F4);
+        assert_eq!(v.reading.len(), 1);
+        assert_eq!(
+            v.reading[0].paragraphs,
+            vec!["Una frase. Otra frase.".to_string(), "Segundo.".to_string()]
+        );
+    }
+
+    #[test]
+    fn f4_opens_on_the_paragraph_you_were_editing() {
+        let (_d, mut v) = app(&[".", "uno", ".", "dos", ".", "tres"]);
+        v.ring.index = 5; // 'tres', the third paragraph
+        v.switch_to(View::F4);
+        assert_eq!(v.open_at_para, 2);
+    }
+
+    #[test]
+    fn f4_on_a_separator_in_f3_reads_the_whole_book_in_order() {
+        let (_d, mut v) = book();
+        v.library = Library {
+            entries: vec![".".into(), "Uno.txt".into(), "Dos.txt".into()],
+            index: 0, // on the separator
+        };
+        v.save_library().unwrap();
+        v.view = View::F3;
+        v.switch_to(View::F4);
+        let titles: Vec<&str> = v.reading.iter().map(|s| s.title.as_str()).collect();
+        assert_eq!(titles, vec!["UNO", "DOS"]);
+    }
+
+    #[test]
+    fn reading_a_book_skips_the_scratch_portal() {
+        let (_d, mut v) = book();
+        let i = v.void_dir.join("I");
+        void::atomic_write(&i.join("0.txt"), &[".".into(), "borrador".into()], false).unwrap();
+        v.library = Library {
+            entries: vec![".".into(), "0.txt".into(), "Uno.txt".into()],
+            index: 0,
+        };
+        v.save_library().unwrap();
+        v.view = View::F3;
+        v.switch_to(View::F4);
+        let titles: Vec<&str> = v.reading.iter().map(|s| s.title.as_str()).collect();
+        assert_eq!(titles, vec!["UNO"]); // the scratch is not a chapter
+    }
+
+    #[test]
+    fn f4_on_a_chapter_in_f3_reads_that_one_and_starts_at_its_beginning() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.index = v.library.position("Dos.txt").unwrap();
+        v.ring.index = 1; // where F2 happened to be, in a DIFFERENT file
+        v.switch_to(View::F4);
+        assert_eq!(v.reading.len(), 1);
+        assert_eq!(v.reading[0].title, "DOS");
+        // 'open where I was' only makes sense when it's the file being shown.
+        assert_eq!(v.open_at_para, 0);
+    }
+
+    #[test]
+    fn turning_pages_stops_at_both_ends() {
+        let (_d, mut v) = app(&[".", "a"]);
+        v.turn_page(-1, 3);
+        assert_eq!(v.page, 0);
+        v.turn_page(5, 3);
+        assert_eq!(v.page, 2);
+        v.turn_page(1, 3);
+        assert_eq!(v.page, 2); // a book has a last page
+    }
+
+    #[test]
+    fn turning_pages_in_an_empty_book_does_nothing() {
+        let (_d, mut v) = app(&["."]);
+        v.turn_page(1, 0);
+        assert_eq!(v.page, 0);
+    }
+
+    #[test]
+    fn f4_is_a_view_a_restart_resumes_into() {
+        let (_d, mut v) = app(&[".", "a"]);
+        v.switch_to(View::F4);
+        assert_eq!(Config::load(&v.void_dir).last_view.as_deref(), Some("F4"));
     }
 
     // ── Another instance saved (the IPC handlers) ───────────────────────────────
