@@ -15,6 +15,7 @@ use crate::fonts;
 use crate::library::{self, Library};
 use crate::paragraphs;
 use crate::reformat;
+use crate::split;
 use crate::line_ring::LineRing;
 use crate::text_line::{self, TextLine};
 use crate::undo::{self, UndoManager};
@@ -636,6 +637,97 @@ impl Voider {
         self.undo.record(self.current_file.clone(), before, after, None);
         self.status = "Shuffled".into();
         Ok(())
+    }
+
+    /// Ctrl+Shift+S: seal the active file at its `/name` markers into chapters.
+    ///
+    /// Each sealed chapter is written and listed in reading order at the
+    /// container's slot; a name that already exists is APPENDED to, never
+    /// overwritten. What follows the last marker stays in the file, and if that
+    /// remainder is empty the emptied container is removed from the library.
+    /// One git snapshot up front, one undo step for the whole thing.
+    pub fn split_at_markers(&mut self) -> io::Result<usize> {
+        let Some(plan) = split::plan(&self.ring.lines) else {
+            self.status = "No '/name' markers to split".into();
+            return Ok(0);
+        };
+        void::git_commit(&self.void_dir, "I/", &format!("split {}", void::timestamp()));
+        self.library = Library::load(&self.void_dir);
+
+        let source_name = self
+            .current_file
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let mut changes: Vec<undo::FileChange> = Vec::new();
+        // Insert the new chapters at the container's slot, keeping reading order.
+        let mut at = self.library.position(&source_name).unwrap_or(0);
+
+        // The container is trimmed FIRST. A marker may name the container itself;
+        // sealing afterwards then appends onto the trimmed file instead of the
+        // container write landing on top and swallowing the sealed text.
+        let source_before = self.ring.lines.clone();
+        let remainder_has_text = plan
+            .remainder
+            .iter()
+            .any(|l| l.trim() != "." && !l.trim().is_empty());
+        let source_after = if remainder_has_text {
+            let mut r = vec![".".to_string()];
+            r.extend(plan.remainder.iter().cloned());
+            r
+        } else {
+            vec![".".to_string()]
+        };
+        void::atomic_write(&self.current_file, &source_after, false)?;
+        changes.push(undo::FileChange {
+            path: self.current_file.clone(),
+            before: source_before,
+            after: source_after,
+        });
+
+        for chapter in &plan.sealed {
+            let file = format!("{}.txt", chapter.name);
+            let path = library::chapter_path(&self.void_dir, &file);
+            let before = if path.exists() {
+                void::load_doc(&path).lines
+            } else {
+                Vec::new()
+            };
+            // An existing chapter is appended to: a text already there survives.
+            let mut body: Vec<String> = Vec::new();
+            let existing_has_text = before.iter().any(|l| l != ".");
+            if existing_has_text {
+                body.extend(before.iter().cloned());
+                body.push(".".to_string());
+            }
+            body.extend(chapter.lines.iter().cloned());
+            let after = if body.is_empty() { vec![".".to_string()] } else { body };
+            void::atomic_write(&path, &after, false)?;
+            changes.push(undo::FileChange { path, before, after });
+
+            if self.library.position(&file).is_none() {
+                self.library.insert_below(at, file);
+            }
+            at += 1;
+        }
+
+        // An emptied container is no longer a chapter of the book — unless a
+        // marker named it, in which case it now holds that sealed text.
+        let sealed_into_container = plan
+            .sealed
+            .iter()
+            .any(|c| format!("{}.txt", c.name) == source_name);
+        if !remainder_has_text && !sealed_into_container && source_name != library::PORTAL {
+            self.library.entries.retain(|e| *e != source_name);
+        }
+        self.library.save(&self.void_dir)?;
+
+        self.ring = LineRing::new(void::load_doc(&self.current_file).lines);
+        self.sync_entry();
+        self.undo.record_transaction(changes, Some("split".into()));
+        let n = plan.sealed.len();
+        self.status = format!("Split into {n} chapter(s)");
+        Ok(n)
     }
 
     // ── Navigation ────────────────────────────────────────────────────────────
@@ -1320,6 +1412,80 @@ mod tests {
         assert_eq!(got, vec!["a", "b", "c"]); // nothing lost, nothing invented
         assert_eq!(v.ring.lines[0], "."); // and still well-formed
         assert!(v.undo.can_undo()); // undoable
+    }
+
+    #[test]
+    fn splitting_seals_chapters_and_lists_them() {
+        let (_d, mut v) = book();
+        v.ring.lines = vec![
+            ".".into(), "texto uno".into(),
+            "/Nuevo".into(),
+            "texto dos".into(),
+        ];
+        assert_eq!(v.split_at_markers().unwrap(), 1);
+
+        let sealed = void::load_doc(&library::chapter_path(&v.void_dir, "Nuevo.txt"));
+        assert!(sealed.lines.contains(&"texto uno".to_string()));
+        // what followed the marker stayed in the container
+        assert!(v.ring.lines.contains(&"texto dos".to_string()));
+        assert!(Library::load(&v.void_dir).entries.contains(&"Nuevo.txt".to_string()));
+    }
+
+    #[test]
+    fn splitting_into_an_existing_name_appends_and_never_overwrites() {
+        let (_d, mut v) = book(); // Dos.txt already holds 'de dos'
+        v.ring.lines = vec![".".into(), "agregado".into(), "/Dos".into()];
+        v.split_at_markers().unwrap();
+
+        let dest = void::load_doc(&library::chapter_path(&v.void_dir, "Dos.txt"));
+        assert!(dest.lines.contains(&"de dos".to_string())); // the old text survived
+        assert!(dest.lines.contains(&"agregado".to_string())); // and the new arrived
+    }
+
+    #[test]
+    fn an_emptied_container_leaves_the_library() {
+        let (_d, mut v) = book(); // active is Uno.txt
+        v.ring.lines = vec![".".into(), "todo".into(), "/Sellado".into()];
+        v.split_at_markers().unwrap();
+        let lib = Library::load(&v.void_dir);
+        assert!(lib.entries.contains(&"Sellado.txt".to_string()));
+        assert!(!lib.entries.contains(&"Uno.txt".to_string())); // emptied, so delisted
+    }
+
+    #[test]
+    fn several_markers_seal_back_to_the_previous_one() {
+        let (_d, mut v) = book();
+        v.ring.lines = vec![
+            "a".into(), "/Uno".into(), "b".into(), "/Dos".into(), "c".into(),
+        ];
+        assert_eq!(v.split_at_markers().unwrap(), 2);
+        let uno = void::load_doc(&library::chapter_path(&v.void_dir, "Uno.txt"));
+        let dos = void::load_doc(&library::chapter_path(&v.void_dir, "Dos.txt"));
+        assert!(uno.lines.contains(&"a".to_string()));
+        assert!(dos.lines.contains(&"b".to_string()));
+        assert!(!dos.lines.contains(&"a".to_string())); // not everything from the top
+    }
+
+    #[test]
+    fn a_split_is_one_undo_step() {
+        let (_d, mut v) = book();
+        // the state the split starts from, markers and all
+        let before = vec![".".to_string(), "texto".into(), "/Nuevo".into(), "resto".into()];
+        v.ring.lines = before.clone();
+        v.split_at_markers().unwrap();
+        assert!(library::chapter_path(&v.void_dir, "Nuevo.txt").exists());
+
+        v.undo().unwrap();
+        // the container came back whole, markers included
+        assert_eq!(void::load_doc(&v.current_file).lines, before);
+    }
+
+    #[test]
+    fn a_file_without_markers_is_left_alone() {
+        let (_d, mut v) = book();
+        let before = v.ring.lines.clone();
+        assert_eq!(v.split_at_markers().unwrap(), 0);
+        assert_eq!(v.ring.lines, before);
     }
 
     // ── navigation ────────────────────────────────────────────────────────────

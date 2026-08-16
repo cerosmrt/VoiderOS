@@ -14,6 +14,7 @@ mod library;
 mod paragraphs;
 mod line_ring;
 mod reformat;
+mod split;
 mod text_line;
 mod undo;
 mod void;
@@ -157,6 +158,9 @@ impl VoiderApp {
             // Shaping: one sentence per line, and the formless scratch.
             Key::F if m.ctrl && m.shift => {
                 let _ = self.voider.reformat_file();
+            }
+            Key::S if m.ctrl && m.shift => {
+                let _ = self.voider.split_at_markers();
             }
             Key::R if m.ctrl && m.shift => {
                 let _ = self.voider.shuffle_scratch();
