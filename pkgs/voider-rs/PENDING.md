@@ -46,17 +46,24 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
 - [x] **Split a file at `/name` markers** into chapters (`Ctrl+Shift+S` →
       `_split_chapter_at_slash`): a marker seals everything above it; a name
       clash appends into the existing chapter — `test_split_chapter` (9).
-- [ ] **Split the scratch into documents** (`_split_zero_to_docs`).
+- [x] **Split the scratch into documents** (`_split_zero_to_docs`).
 - [ ] **Merge books** (`Ctrl+Shift+M` → `_book_merge_prompt` / `_book_do_merge`)
       — `test_merge`.
 - [ ] **Dispatch paragraphs** (`Ctrl+Shift+D`) — `test_dispatch`.
-- [~] **Shuffle the scratch** DONE (`Ctrl+Shift+R`); still to do: **shuffle a
-      book** (Tab on a dot in F3, numbered titles keeping their order) —
-      `test_shuffle`, `test_book_shuffle` (9).
-- [ ] **Paragraph focus** (Enter on a `.` in F2): isolate one paragraph and
-      navigate only inside it — `test_focus` (8).
-- [ ] **Delete line to zero** (`Ctrl+Delete` in F2): the line goes to `0.txt`.
-- [ ] **Trash cascade** — `test_trash_cascade` (5).
+- [x] **Shuffle the scratch** (`Ctrl+Shift+R`) and **shuffle a book** (Tab on a
+      dot in F3, numbered titles keeping their order) — `test_shuffle`,
+      `test_book_shuffle`.
+- [x] **Paragraph focus** (Enter on a `.` in F2): isolate one paragraph;
+      navigation, Alt+Up/Down and Enter-again stay within it — `test_focus`.
+- [x] **Delete line to zero / trash cascade** (`Ctrl+Delete` / `Ctrl+Backspace`
+      in F2) — same feature, PENDING listed it twice — `test_trash_cascade`.
+- [ ] **Merge stray `0.txt` files** (`_merge_zero_files`, Ctrl+Shift+F in F3):
+      absorbs subdirectory scratches into the root one. Doesn't map cleanly onto
+      the flat `I/` model here (no nested folders); deferred, low value.
+- [ ] **`_book_split_current`** (Ctrl+Shift+S in F3): split the file the F3
+      cursor is highlighting, without opening it. `split_at_markers` already
+      does the real work on the ACTIVE file from F2 — this would just be a
+      thin F3 entry point onto the same logic.
 
 ## 4. The cut-up (loop writing)
 
