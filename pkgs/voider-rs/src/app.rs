@@ -1228,6 +1228,114 @@ impl Voider {
         Ok(n)
     }
 
+    /// Ctrl+Shift+D in F2: dispatch paragraphs tagged with a `/name` marker.
+    ///
+    /// A `/name` line sends the paragraph directly above it (everything back to
+    /// the preceding `.`, or the start of the file) to `I/name.txt`, appending
+    /// with a `.` separator if the file already has text. `/` alone is
+    /// timestamped. The paragraph and its marker leave the ring; consecutive
+    /// separators left behind collapse to one. Untagged paragraphs never move —
+    /// this is the surgical sibling of `split_at_markers`, which seals
+    /// EVERYTHING above a marker into a new chapter.
+    pub fn dispatch_paragraphs(&mut self) -> io::Result<usize> {
+        let lines = self.ring.lines.clone();
+        let i_dir = self.void_dir.join("I");
+
+        let mut dispatched: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        let mut targets: Vec<(PathBuf, Vec<String>, Vec<String>)> = Vec::new();
+
+        for (idx, line) in lines.iter().enumerate() {
+            if !line.starts_with('/') {
+                continue;
+            }
+            let mut name = line.trim_start_matches('/').trim().to_string();
+            if name.is_empty() {
+                name = chrono::Local::now().format("%Y-%m-%d_%H%M%S").to_string();
+            }
+            let dest = i_dir.join(format!("{name}.txt"));
+
+            let mut para_indices: Vec<usize> = Vec::new();
+            let mut j = idx as isize - 1;
+            while j >= 0 && lines[j as usize] != "." {
+                para_indices.push(j as usize);
+                j -= 1;
+            }
+            para_indices.reverse();
+            dispatched.insert(idx);
+            if para_indices.is_empty() {
+                continue;
+            }
+            let para: Vec<String> = para_indices.iter().map(|&k| lines[k].clone()).collect();
+            dispatched.extend(para_indices.iter().copied());
+
+            let slot = targets.iter().position(|(p, _, _)| *p == dest).unwrap_or_else(|| {
+                let before = if dest.exists() {
+                    std::fs::read_to_string(&dest)
+                        .map(|t| t.lines().map(|l| l.trim_end().to_string()).collect())
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+                targets.push((dest.clone(), before.clone(), before));
+                targets.len() - 1
+            });
+            let after = &mut targets[slot].2;
+            if !after.is_empty() {
+                after.push(".".to_string());
+            }
+            after.extend(para);
+        }
+
+        if dispatched.is_empty() {
+            return Ok(0);
+        }
+
+        void::git_commit(&self.void_dir, "I/", &format!("dispatch {}", void::timestamp()));
+
+        let mut changes: Vec<undo::FileChange> = Vec::new();
+        for (path, before, after) in &targets {
+            void::atomic_write(path, after, false)?;
+            changes.push(undo::FileChange {
+                path: path.clone(),
+                before: before.clone(),
+                after: after.clone(),
+            });
+        }
+
+        let source_before = lines.clone();
+        let kept: Vec<String> = lines
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !dispatched.contains(i))
+            .map(|(_, l)| l.clone())
+            .collect();
+        let mut cleaned: Vec<String> = Vec::new();
+        for l in kept {
+            if l == "." && cleaned.last().is_some_and(|c: &String| c == ".") {
+                continue;
+            }
+            cleaned.push(l);
+        }
+        if cleaned.is_empty() || cleaned == ["."] {
+            cleaned = vec![".".to_string()];
+        }
+        void::atomic_write(&self.current_file, &cleaned, false)?;
+        changes.push(undo::FileChange {
+            path: self.current_file.clone(),
+            before: source_before,
+            after: cleaned.clone(),
+        });
+
+        self.ring.lines = cleaned;
+        self.ring.index = self.ring.index.min(self.ring.lines.len() - 1);
+        self.sync_entry();
+
+        let n = targets.len();
+        self.undo.record_transaction(changes, Some("dispatch".into()));
+        self.status = format!("Dispatched to {n} file(s)");
+        Ok(n)
+    }
+
     // ── Navigation ────────────────────────────────────────────────────────────
 
     /// PageDown/PageUp: jump to the next/previous `.` — paragraph by paragraph.
@@ -2317,6 +2425,69 @@ mod tests {
         let before = v.ring.lines.clone();
         assert_eq!(v.split_at_markers().unwrap(), 0);
         assert_eq!(v.ring.lines, before);
+    }
+
+    // ── dispatching paragraphs (Ctrl+Shift+D in F2) ─────────────────────────────
+
+    #[test]
+    fn a_named_paragraph_is_sent_to_its_chapter() {
+        let (_d, mut v) = app(&[".", "Line one.", "Line two.", "/chapter", ".", "Stays here."]);
+        assert_eq!(v.dispatch_paragraphs().unwrap(), 1);
+        let chapter = void::load_doc(&library::chapter_path(&v.void_dir, "chapter.txt"));
+        assert_eq!(chapter.lines, vec![".".to_string(), "Line one.".into(), "Line two.".into()]);
+        assert_eq!(v.ring.lines, vec![".".to_string(), "Stays here.".into()]);
+    }
+
+    #[test]
+    fn a_bare_slash_creates_a_timestamped_file() {
+        let (_d, mut v) = app(&[".", "Sin nombre.", "/"]);
+        assert_eq!(v.dispatch_paragraphs().unwrap(), 1);
+        let i_dir = v.void_dir.join("I");
+        let created: Vec<_> = std::fs::read_dir(&i_dir).unwrap().filter_map(|e| e.ok()).collect();
+        assert_eq!(created.len(), 1);
+        assert_eq!(v.ring.lines, vec![".".to_string()]);
+    }
+
+    #[test]
+    fn dispatching_to_an_existing_file_appends_never_overwrites() {
+        let (_d, mut v) = app(&[".", "Line one.", "/chapter"]);
+        v.dispatch_paragraphs().unwrap();
+        v.ring.lines = vec![".".to_string(), "Line two.".into(), "/chapter".into()];
+        v.dispatch_paragraphs().unwrap();
+        let chapter = void::load_doc(&library::chapter_path(&v.void_dir, "chapter.txt"));
+        assert_eq!(
+            chapter.lines,
+            vec![".".to_string(), "Line one.".into(), ".".into(), "Line two.".into()]
+        );
+    }
+
+    #[test]
+    fn no_markers_is_a_noop() {
+        let (_d, mut v) = app(&[".", "Nothing to dispatch here."]);
+        let before = v.ring.lines.clone();
+        assert_eq!(v.dispatch_paragraphs().unwrap(), 0);
+        assert_eq!(v.ring.lines, before);
+    }
+
+    #[test]
+    fn multiple_marked_paragraphs_go_to_their_own_files() {
+        let (_d, mut v) = app(&[".", "Para A.", "/alpha", ".", "Para B.", "/beta", ".", "Stay."]);
+        assert_eq!(v.dispatch_paragraphs().unwrap(), 2);
+        let alpha = void::load_doc(&library::chapter_path(&v.void_dir, "alpha.txt"));
+        let beta = void::load_doc(&library::chapter_path(&v.void_dir, "beta.txt"));
+        assert_eq!(alpha.lines, vec![".".to_string(), "Para A.".into()]);
+        assert_eq!(beta.lines, vec![".".to_string(), "Para B.".into()]);
+        assert_eq!(v.ring.lines, vec![".".to_string(), "Stay.".into()]);
+    }
+
+    #[test]
+    fn dispatch_is_one_undo_step_across_source_and_target() {
+        let (_d, mut v) = app(&[".", "Line one.", "/chapter", ".", "Stays here."]);
+        let before = v.ring.lines.clone();
+        v.dispatch_paragraphs().unwrap();
+        assert!(library::chapter_path(&v.void_dir, "chapter.txt").exists());
+        v.undo().unwrap();
+        assert_eq!(void::load_doc(&v.current_file).lines, before);
     }
 
     // ── merging a book (Ctrl+Shift+M on a dot in F3) ───────────────────────────

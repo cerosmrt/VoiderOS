@@ -316,6 +316,11 @@ impl VoiderApp {
             Key::R if m.ctrl && m.shift => {
                 let _ = self.voider.shuffle_scratch();
             }
+            // Send each '/name'-marked paragraph straight to its chapter,
+            // leaving the rest of the file untouched.
+            Key::D if m.ctrl && m.shift => {
+                let _ = self.voider.dispatch_paragraphs();
+            }
             Key::Escape if self.voider.para_focus => self.voider.exit_para_focus(),
             Key::Escape => self.voider.switch_to(View::F1),
             _ => {}

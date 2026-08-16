@@ -49,7 +49,7 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
 - [x] **Split the scratch into documents** (`_split_zero_to_docs`).
 - [x] **Merge books** (`Ctrl+Shift+M` → `_book_merge_prompt` / `_book_do_merge`)
       — `test_merge`.
-- [ ] **Dispatch paragraphs** (`Ctrl+Shift+D`) — `test_dispatch`.
+- [x] **Dispatch paragraphs** (`Ctrl+Shift+D`) — `test_dispatch`.
 - [x] **Shuffle the scratch** (`Ctrl+Shift+R`) and **shuffle a book** (Tab on a
       dot in F3, numbered titles keeping their order) — `test_shuffle`,
       `test_book_shuffle`.
