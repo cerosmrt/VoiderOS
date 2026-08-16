@@ -145,6 +145,12 @@ impl Voider {
         }
         let before = self.on_disk(&self.current_file.clone());
         let after = self.ring.lines.clone();
+        // Safety net: if this save would gut the file, keep a .rescue copy of
+        // what's on disk first. Never blocks the save — ordinary deleting is
+        // normal work — it just makes a catastrophic silent shrink recoverable.
+        if void::rescue_on_large_shrink(&self.current_file, &after) {
+            self.status = "Large shrink — kept a .rescue copy".into();
+        }
         void::atomic_write(&self.current_file, &after, false)?;
         if !self.undo_applying {
             let path = self.current_file.clone();
@@ -156,6 +162,14 @@ impl Voider {
     /// What the file holds right now, as the ring would see it.
     fn on_disk(&self, path: &Path) -> Vec<String> {
         void::load_doc(path).lines
+    }
+
+    /// A git snapshot of the whole void, taken once as the session opens, so it
+    /// can always be walked back to no matter what happens after. Best effort —
+    /// never blocks startup.
+    pub fn snapshot_on_entry(&self) {
+        let msg = format!("voider-rs session {}", void::timestamp());
+        void::git_commit(&self.void_dir, ".", &msg);
     }
 
     // ── Undo / redo ───────────────────────────────────────────────────────────
@@ -1026,6 +1040,7 @@ pub fn open_sandbox() -> Voider {
         let _ = void::atomic_write(&scratch, &[".".to_string()], false);
     }
     let mut v = Voider::open(&dir, &scratch);
+    v.snapshot_on_entry();
     v.goto_end();
     v
 }
@@ -1450,6 +1465,57 @@ mod tests {
         v.library.entries = vec![];
         v.recycle_line();
         assert_eq!(v.status, "Nothing to recycle yet");
+    }
+
+    // ── safety: shrink guard + entry snapshot ───────────────────────────────────
+
+    #[test]
+    fn a_gutting_save_leaves_a_rescue_copy_and_says_so() {
+        let lines: Vec<&str> = std::iter::once(".").chain(std::iter::repeat("linea").take(15)).collect();
+        let (_d, mut v) = app(&lines);
+        v.ring.lines.truncate(2); // drop most of the content
+        v.save().unwrap();
+        assert!(void::rescue_path(&v.current_file).exists());
+        assert!(v.status.contains("rescue"));
+    }
+
+    #[test]
+    fn an_ordinary_save_leaves_no_rescue_copy() {
+        let (_d, mut v) = app(&[".", "a", "b", "c"]);
+        v.ring.lines.push("d".into());
+        v.save().unwrap();
+        assert!(!void::rescue_path(&v.current_file).exists());
+    }
+
+    #[test]
+    fn the_entry_snapshot_commits_the_whole_void() {
+        let dir = tempfile::tempdir().unwrap();
+        for args in [
+            vec!["init", "-q"],
+            vec!["config", "user.email", "t@t"],
+            vec!["config", "user.name", "t"],
+        ] {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(&args)
+                .output()
+                .unwrap();
+        }
+        std::fs::create_dir_all(dir.path().join("I")).unwrap();
+        std::fs::write(dir.path().join("I/a.txt"), "hola\n").unwrap();
+
+        let v = Voider::open(dir.path(), dir.path().join("I/a.txt"));
+        v.snapshot_on_entry();
+
+        let log = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir.path())
+            .args(["log", "--oneline"])
+            .output()
+            .unwrap();
+        let out = String::from_utf8_lossy(&log.stdout);
+        assert!(out.contains("voider-rs session"));
     }
 
     // ── shaping ───────────────────────────────────────────────────────────────

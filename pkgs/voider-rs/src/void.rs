@@ -94,6 +94,45 @@ pub fn backup_path(path: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
+/// `foo.txt` → `foo.txt.rescue`
+pub fn rescue_path(path: &Path) -> PathBuf {
+    let mut s = path.as_os_str().to_os_string();
+    s.push(".rescue");
+    PathBuf::from(s)
+}
+
+/// Lines that actually carry writing — separators and blanks don't count.
+fn content_count(lines: &[String]) -> usize {
+    lines
+        .iter()
+        .filter(|l| !l.trim().is_empty() && l.trim() != ".")
+        .count()
+}
+
+/// Would writing `new_lines` over `path` lose half of a substantial file?
+///
+/// The guard only fires on files with real content (10+ lines) losing at least
+/// half — ordinary deleting is normal work and must not be flagged.
+pub fn is_large_shrink(old: &[String], new_lines: &[String]) -> bool {
+    let (old_n, new_n) = (content_count(old), content_count(new_lines));
+    old_n >= 10 && new_n < old_n && (old_n - new_n) >= old_n / 2
+}
+
+/// Before a write that would gut a file, keep the current version as
+/// `path.rescue` so a catastrophic drop is recoverable. Best effort: it never
+/// blocks the write, it just makes the loss undoable by hand.
+pub fn rescue_on_large_shrink(path: &Path, new_lines: &[String]) -> bool {
+    let Ok(text) = fs::read_to_string(path) else {
+        return false;
+    };
+    let old: Vec<String> = text.lines().map(str::to_string).collect();
+    if !is_large_shrink(&old, new_lines) {
+        return false;
+    }
+    let _ = fs::copy(path, rescue_path(path));
+    true
+}
+
 /// `git add -A <scope> && git commit` inside `void_dir`. `scope` is a path like
 /// `I/` (the snapshot before a destructive write) or `.` (the whole void).
 pub fn git_commit(void_dir: &Path, scope: &str, message: &str) -> CommitOutcome {
@@ -242,6 +281,70 @@ mod tests {
         let p = d.path().join("new.txt");
         atomic_write(&p, &["a".to_string()], true).unwrap(); // backup on a missing file is fine
         assert!(p.exists());
+    }
+
+    // ── the shrink guard ──────────────────────────────────────────────────────
+
+    fn many(n: usize) -> Vec<String> {
+        (0..n).map(|i| format!("linea {i}")).collect()
+    }
+
+    #[test]
+    fn losing_half_of_a_substantial_file_is_a_large_shrink() {
+        assert!(is_large_shrink(&many(20), &many(10)));
+        assert!(is_large_shrink(&many(20), &many(3)));
+    }
+
+    #[test]
+    fn ordinary_deleting_is_not_flagged() {
+        assert!(!is_large_shrink(&many(20), &many(19))); // a line gone
+        assert!(!is_large_shrink(&many(20), &many(11))); // not yet half
+    }
+
+    #[test]
+    fn a_short_file_is_never_flagged() {
+        // Emptying a 5-line note is normal work, not a catastrophe.
+        assert!(!is_large_shrink(&many(5), &[]));
+        assert!(!is_large_shrink(&many(9), &many(1)));
+    }
+
+    #[test]
+    fn growing_is_never_a_shrink() {
+        assert!(!is_large_shrink(&many(20), &many(40)));
+        assert!(!is_large_shrink(&many(20), &many(20)));
+    }
+
+    #[test]
+    fn separators_do_not_count_as_content() {
+        let mut padded = many(12);
+        padded.extend(vec![".".to_string(); 30]); // dots don't save it
+        assert!(is_large_shrink(&padded, &many(4)));
+    }
+
+    #[test]
+    fn a_gutting_write_leaves_a_rescue_copy() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("libro.txt");
+        atomic_write(&p, &many(20), false).unwrap();
+
+        assert!(rescue_on_large_shrink(&p, &many(2)));
+        let rescued = fs::read_to_string(rescue_path(&p)).unwrap();
+        assert!(rescued.contains("linea 19")); // the full version is kept
+    }
+
+    #[test]
+    fn a_normal_write_leaves_no_rescue_copy() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("libro.txt");
+        atomic_write(&p, &many(20), false).unwrap();
+        assert!(!rescue_on_large_shrink(&p, &many(19)));
+        assert!(!rescue_path(&p).exists());
+    }
+
+    #[test]
+    fn a_missing_file_cannot_shrink() {
+        let d = tempfile::tempdir().unwrap();
+        assert!(!rescue_on_large_shrink(&d.path().join("nope.txt"), &[]));
     }
 
     #[test]
