@@ -139,13 +139,19 @@ impl VoiderApp {
                         let _ = self.voider.type_text(&t, caps);
                     }
                     View::F2 => {
-                        self.voider.entry.insert(&text_line::neutralize_caps(&t, caps));
-                        let _ = self.voider.doc_live_save();
+                        if self.voider.f2_search.is_some() {
+                            self.voider.f2_search_type(&text_line::neutralize_caps(&t, caps));
+                        } else {
+                            self.voider.entry.insert(&text_line::neutralize_caps(&t, caps));
+                            let _ = self.voider.doc_live_save();
+                        }
                     }
-                    // In F3 typing only means something while naming a new entry
-                    // or a book being merged.
+                    // In F3 typing only means something while naming a new entry,
+                    // a book being merged, or searching.
                     View::F3 => {
-                        if self.voider.pending_new || self.voider.pending_merge {
+                        if self.voider.f3_search.is_some() {
+                            self.voider.f3_search_type(&text_line::neutralize_caps(&t, caps));
+                        } else if self.voider.pending_new || self.voider.pending_merge {
                             self.voider.entry.insert(&text_line::neutralize_caps(&t, caps));
                         }
                     }
@@ -153,8 +159,13 @@ impl VoiderApp {
                 },
                 egui::Event::Key { key, pressed: true, modifiers, .. } => {
                     // There is no text selection to fall back to here, so
-                    // Ctrl+C always means the contextual copy.
-                    if key == egui::Key::C && modifiers.ctrl {
+                    // Ctrl+C always means the contextual copy — unless a search
+                    // bar has focus, where a 'c' belongs in the query instead.
+                    if key == egui::Key::C
+                        && modifiers.ctrl
+                        && self.voider.f2_search.is_none()
+                        && self.voider.f3_search.is_none()
+                    {
                         if let Some(text) = self.voider.smart_copy() {
                             ctx.output_mut(|o| o.copied_text = text);
                         }
@@ -255,7 +266,21 @@ impl VoiderApp {
 
     fn handle_f2_key(&mut self, key: egui::Key, caps: bool, m: egui::Modifiers) {
         use egui::Key;
+        // A search bar takes exclusive focus: only its own keys mean anything.
+        if self.voider.f2_search.is_some() {
+            match key {
+                Key::ArrowUp => self.voider.f2_search_move(-1),
+                Key::ArrowDown => self.voider.f2_search_move(1),
+                Key::Enter => self.voider.f2_search_confirm(),
+                Key::Escape => self.voider.f2_search_cancel(),
+                Key::Backspace => self.voider.f2_search_backspace(),
+                _ => {}
+            }
+            return;
+        }
         match key {
+            // Ctrl+F: search the document's lines.
+            Key::F if m.ctrl && !m.shift => self.voider.open_f2_search(),
             // At the start of the line, Enter is a command (enter/exit focus, or
             // drop into F1 on a blank line); anywhere else it splits the line.
             Key::Enter if self.voider.entry.caret() == 0 => {
@@ -343,7 +368,21 @@ impl VoiderApp {
 
     fn handle_f3_key(&mut self, key: egui::Key, m: egui::Modifiers) {
         use egui::Key;
+        // A search bar takes exclusive focus: only its own keys mean anything.
+        if self.voider.f3_search.is_some() {
+            match key {
+                Key::ArrowUp => self.voider.f3_search_move(-1),
+                Key::ArrowDown => self.voider.f3_search_move(1),
+                Key::Enter => self.voider.f3_search_confirm(),
+                Key::Escape => self.voider.f3_search_cancel(),
+                Key::Backspace => self.voider.f3_search_backspace(),
+                _ => {}
+            }
+            return;
+        }
         match key {
+            // Ctrl+F: search the library's chapters.
+            Key::F if m.ctrl && !m.shift => self.voider.open_f3_search(),
             // Ctrl+Shift+M on a separator: name and merge that book into one file.
             Key::M if m.ctrl && m.shift => self.voider.book_merge_prompt(),
             // Split the highlighted (not necessarily open) chapter at its markers.
@@ -505,11 +544,70 @@ impl VoiderApp {
 
     /// The document as a ring: the current line centred and lit, the rest fading
     /// away above and below.
+    /// A small bar near the top: the query typed so far, or a placeholder.
+    fn draw_search_bar(&self, painter: &egui::Painter, rect: egui::Rect, query: &str, placeholder: &str) {
+        let shown = if query.is_empty() { placeholder } else { query };
+        let color = if query.is_empty() {
+            egui::Color32::from_gray(120)
+        } else {
+            egui::Color32::WHITE
+        };
+        painter.text(
+            egui::pos2(rect.center().x, rect.top() + self.font_size() * 2.0),
+            egui::Align2::CENTER_CENTER,
+            shown,
+            egui::FontId::proportional(self.font_size() * 0.55),
+            color,
+        );
+    }
+
     fn draw_f2(&self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
         let centre = rect.center();
         let line_h = self.font_size() * 1.7;
         let font = egui::FontId::proportional(self.font_size());
         let reach = (rect.height() / 2.0 / line_h).ceil() as isize;
+
+        if let Some(search) = &self.voider.f2_search {
+            let m = search.matches.len() as isize;
+            for offset in -reach..=reach {
+                if m == 0 {
+                    continue;
+                }
+                let idx = (search.highlight as isize + offset).rem_euclid(m) as usize;
+                let text = self.voider.ring.lines[search.matches[idx]].as_str();
+                if text.is_empty() {
+                    continue;
+                }
+                let dist = offset.unsigned_abs() as f32;
+                let alpha = if offset == 0 {
+                    255
+                } else {
+                    let fade = (1.0 - (dist / F2_FADE_LINES)).clamp(0.0, 1.0);
+                    (fade * fade * 200.0) as u8
+                };
+                if alpha == 0 {
+                    continue;
+                }
+                painter.text(
+                    egui::pos2(centre.x, centre.y + offset as f32 * line_h),
+                    egui::Align2::CENTER_CENTER,
+                    text,
+                    font.clone(),
+                    egui::Color32::from_white_alpha(alpha),
+                );
+            }
+            if m == 0 {
+                painter.text(
+                    centre,
+                    egui::Align2::CENTER_CENTER,
+                    "—",
+                    font.clone(),
+                    egui::Color32::from_gray(90),
+                );
+            }
+            self.draw_search_bar(painter, rect, &search.query.text(), "search lines…");
+            return;
+        }
 
         for offset in -reach..=reach {
             if offset == 0 {
@@ -546,6 +644,45 @@ impl VoiderApp {
         let lib = &self.voider.library;
         let reach = (rect.height() / 2.0 / line_h).ceil() as isize;
         let n = lib.entries.len() as isize;
+
+        if let Some(search) = &self.voider.f3_search {
+            let m = search.matches.len() as isize;
+            for offset in -reach..=reach {
+                if m == 0 {
+                    continue;
+                }
+                let idx = (search.highlight as isize + offset).rem_euclid(m) as usize;
+                let label = library::display_name(&lib.entries[search.matches[idx]]);
+                let dist = offset.unsigned_abs() as f32;
+                let alpha = if offset == 0 {
+                    255
+                } else {
+                    let fade = (1.0 - (dist / F2_FADE_LINES)).clamp(0.0, 1.0);
+                    (fade * fade * 200.0) as u8
+                };
+                if alpha == 0 {
+                    continue;
+                }
+                painter.text(
+                    egui::pos2(centre.x, centre.y + offset as f32 * line_h),
+                    egui::Align2::CENTER_CENTER,
+                    label,
+                    font.clone(),
+                    egui::Color32::from_white_alpha(alpha),
+                );
+            }
+            if m == 0 {
+                painter.text(
+                    centre,
+                    egui::Align2::CENTER_CENTER,
+                    "—",
+                    font.clone(),
+                    egui::Color32::from_gray(90),
+                );
+            }
+            self.draw_search_bar(painter, rect, &search.query.text(), "search files…");
+            return;
+        }
 
         if n > 0 {
             for offset in -reach..=reach {

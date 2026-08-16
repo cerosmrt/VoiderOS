@@ -131,6 +131,27 @@ pub struct Voider {
     /// blocked, or we would overwrite content we never saw.
     pub load_failed: bool,
     pub status: String,
+    /// Ctrl+F in F2: filtering the ring to matching lines.
+    pub f2_search: Option<SearchState>,
+    /// Ctrl+F in F3: filtering the library to matching chapters.
+    pub f3_search: Option<SearchState>,
+}
+
+/// A live filter over some indexed list (the ring's lines, or the library's
+/// entries), ported from `_f2_search_*`/`_f3_search_*` in f2_mixin.py /
+/// f3_mixin.py. Tracked by ORIGINAL index rather than by matched text, unlike
+/// the Python (which re-finds the confirmed line by text, ambiguous were two
+/// lines identical) — an index is unambiguous and needs no placeholder for
+/// "nothing matched", so an empty `matches` here just means nothing to show.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchState {
+    pub query: TextLine,
+    /// Original indices of the lines/entries that currently match, in order.
+    pub matches: Vec<usize>,
+    /// Which match is highlighted.
+    pub highlight: usize,
+    /// The real index to restore if the search is cancelled.
+    pub saved_index: usize,
 }
 
 impl Voider {
@@ -168,6 +189,8 @@ impl Voider {
             undo_applying: false,
             load_failed: doc.read_failed,
             status: String::new(),
+            f2_search: None,
+            f3_search: None,
         }
     }
 
@@ -319,6 +342,14 @@ impl Voider {
             let _ = self.doc_live_save();
             self.save_last_line();
         }
+        // Search bars belong to their own view; leaving it closes them, the
+        // cursor restored as if the search had been cancelled.
+        if view != View::F2 {
+            self.f2_search_cancel();
+        }
+        if view != View::F3 {
+            self.f3_search_cancel();
+        }
         self.view = view;
         match view {
             View::F1 => self.show_current(),
@@ -354,6 +385,174 @@ impl Voider {
             }
         }
         self.save_last_view();
+    }
+
+    // ── Search (Ctrl+F in F2 / F3) ───────────────────────────────────────────────
+
+    fn matching_doc_lines(&self, query: &str) -> Vec<usize> {
+        let q = query.trim().to_lowercase();
+        self.ring
+            .lines
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| l.as_str() != "." && (q.is_empty() || l.to_lowercase().contains(&q)))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    fn matching_library_entries(&self, query: &str) -> Vec<usize> {
+        let q = query.trim().to_lowercase();
+        self.library
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| {
+                !library::is_separator(e)
+                    && (q.is_empty() || library::display_name(e).to_lowercase().contains(&q))
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// Ctrl+F in F2: open the search bar, starting on every non-dot line.
+    pub fn open_f2_search(&mut self) {
+        if self.f2_search.is_some() {
+            return;
+        }
+        let saved_index = self.ring.index;
+        let matches = self.matching_doc_lines("");
+        let highlight = matches.iter().position(|&i| i == saved_index).unwrap_or(0);
+        self.f2_search = Some(SearchState {
+            query: TextLine::new(""),
+            matches,
+            highlight,
+            saved_index,
+        });
+    }
+
+    /// Type into the F2 search query, re-filtering as you go.
+    pub fn f2_search_type(&mut self, text: &str) {
+        let Some(search) = &mut self.f2_search else {
+            return;
+        };
+        search.query.insert(text);
+        let query = search.query.text();
+        let matches = self.matching_doc_lines(&query);
+        let search = self.f2_search.as_mut().unwrap();
+        search.matches = matches;
+        search.highlight = 0;
+    }
+
+    pub fn f2_search_backspace(&mut self) {
+        let Some(search) = &mut self.f2_search else {
+            return;
+        };
+        search.query.backspace();
+        let query = search.query.text();
+        let matches = self.matching_doc_lines(&query);
+        let search = self.f2_search.as_mut().unwrap();
+        search.matches = matches;
+        search.highlight = 0;
+    }
+
+    /// Up/Down while searching: move the highlight, clamped — search never wraps.
+    pub fn f2_search_move(&mut self, delta: isize) {
+        let Some(search) = &mut self.f2_search else {
+            return;
+        };
+        if search.matches.is_empty() {
+            return;
+        }
+        let n = search.matches.len() as isize;
+        search.highlight = (search.highlight as isize + delta).clamp(0, n - 1) as usize;
+    }
+
+    /// Enter: jump the ring to the highlighted match and close the search.
+    pub fn f2_search_confirm(&mut self) {
+        let Some(search) = self.f2_search.take() else {
+            return;
+        };
+        if let Some(&idx) = search.matches.get(search.highlight) {
+            self.ring.index = idx;
+        }
+        self.sync_entry();
+    }
+
+    /// Escape: close the search, the ring back where it was.
+    pub fn f2_search_cancel(&mut self) {
+        let Some(search) = self.f2_search.take() else {
+            return;
+        };
+        self.ring.index = search.saved_index;
+        self.sync_entry();
+    }
+
+    /// Ctrl+F in F3: open the search bar, starting on every chapter (no dots).
+    pub fn open_f3_search(&mut self) {
+        if self.f3_search.is_some() {
+            return;
+        }
+        let saved_index = self.library.index;
+        let matches = self.matching_library_entries("");
+        let highlight = matches.iter().position(|&i| i == saved_index).unwrap_or(0);
+        self.f3_search = Some(SearchState {
+            query: TextLine::new(""),
+            matches,
+            highlight,
+            saved_index,
+        });
+    }
+
+    pub fn f3_search_type(&mut self, text: &str) {
+        let Some(search) = &mut self.f3_search else {
+            return;
+        };
+        search.query.insert(text);
+        let query = search.query.text();
+        let matches = self.matching_library_entries(&query);
+        let search = self.f3_search.as_mut().unwrap();
+        search.matches = matches;
+        search.highlight = 0;
+    }
+
+    pub fn f3_search_backspace(&mut self) {
+        let Some(search) = &mut self.f3_search else {
+            return;
+        };
+        search.query.backspace();
+        let query = search.query.text();
+        let matches = self.matching_library_entries(&query);
+        let search = self.f3_search.as_mut().unwrap();
+        search.matches = matches;
+        search.highlight = 0;
+    }
+
+    pub fn f3_search_move(&mut self, delta: isize) {
+        let Some(search) = &mut self.f3_search else {
+            return;
+        };
+        if search.matches.is_empty() {
+            return;
+        }
+        let n = search.matches.len() as isize;
+        search.highlight = (search.highlight as isize + delta).clamp(0, n - 1) as usize;
+    }
+
+    /// Enter: highlight the matched chapter in the library and close the search.
+    pub fn f3_search_confirm(&mut self) {
+        let Some(search) = self.f3_search.take() else {
+            return;
+        };
+        if let Some(&idx) = search.matches.get(search.highlight) {
+            self.library.index = idx;
+        }
+    }
+
+    pub fn f3_search_cancel(&mut self) {
+        let Some(search) = self.f3_search.take() else {
+            return;
+        };
+        self.library.index = search.saved_index;
     }
 
     // ── F5: paragraphs ────────────────────────────────────────────────────────
@@ -2998,6 +3197,166 @@ mod tests {
         std::fs::write(&other, "x\n").unwrap();
         v.set_active_file(other);
         assert_eq!(Config::load(&v.void_dir).active_file.as_deref(), Some("other.txt"));
+    }
+
+    // ── Search in F2 ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn opening_f2_search_starts_on_every_non_dot_line() {
+        let (_d, mut v) = app(&[".", "manzana", "pera", ".", "uva"]);
+        v.open_f2_search();
+        let search = v.f2_search.as_ref().unwrap();
+        assert_eq!(search.matches, vec![1, 2, 4]); // dots excluded
+        assert_eq!(search.saved_index, 0);
+    }
+
+    #[test]
+    fn opening_f2_search_starts_highlighted_on_the_current_line() {
+        let (_d, mut v) = app(&[".", "manzana", "pera", "uva"]);
+        v.ring.index = 2; // 'pera'
+        v.open_f2_search();
+        let search = v.f2_search.as_ref().unwrap();
+        assert_eq!(search.matches[search.highlight], 2);
+    }
+
+    #[test]
+    fn typing_filters_to_matching_lines_case_insensitively() {
+        let (_d, mut v) = app(&[".", "Manzana", "pera", "uva"]);
+        v.open_f2_search();
+        v.f2_search_type("AN");
+        assert_eq!(v.f2_search.as_ref().unwrap().matches, vec![1]); // 'Manzana' only
+    }
+
+    #[test]
+    fn backspace_widens_the_filter_back_out() {
+        let (_d, mut v) = app(&[".", "manzana", "pera", "uva"]);
+        v.open_f2_search();
+        v.f2_search_type("z");
+        assert_eq!(v.f2_search.as_ref().unwrap().matches, vec![1]);
+        v.f2_search_backspace();
+        assert_eq!(v.f2_search.as_ref().unwrap().matches, vec![1, 2, 3]); // back to all
+    }
+
+    #[test]
+    fn search_move_clamps_instead_of_wrapping() {
+        let (_d, mut v) = app(&[".", "a", "b", "c"]);
+        v.open_f2_search();
+        v.f2_search_move(-5);
+        assert_eq!(v.f2_search.as_ref().unwrap().highlight, 0);
+        v.f2_search_move(5);
+        assert_eq!(v.f2_search.as_ref().unwrap().highlight, 2); // 'c', the last match
+        v.f2_search_move(1);
+        assert_eq!(v.f2_search.as_ref().unwrap().highlight, 2); // stays, no wrap
+    }
+
+    #[test]
+    fn confirming_jumps_the_ring_to_the_highlighted_match_and_closes_search() {
+        let (_d, mut v) = app(&[".", "manzana", "pera", "uva"]);
+        v.open_f2_search();
+        v.f2_search_move(2); // 'uva'
+        v.f2_search_confirm();
+        assert!(v.f2_search.is_none());
+        assert_eq!(v.ring.index, 3);
+    }
+
+    #[test]
+    fn cancelling_restores_the_line_the_search_started_from() {
+        let (_d, mut v) = app(&[".", "manzana", "pera", "uva"]);
+        v.ring.index = 1;
+        v.open_f2_search();
+        v.f2_search_move(2); // highlight moves onto 'uva'
+        v.f2_search_cancel();
+        assert!(v.f2_search.is_none());
+        assert_eq!(v.ring.index, 1); // back to where it was, not the highlight
+    }
+
+    #[test]
+    fn confirming_with_no_matches_closes_search_without_moving() {
+        let (_d, mut v) = app(&[".", "manzana", "pera"]);
+        v.ring.index = 1;
+        v.open_f2_search();
+        v.f2_search_type("xyz");
+        assert!(v.f2_search.as_ref().unwrap().matches.is_empty());
+        v.f2_search_confirm();
+        assert!(v.f2_search.is_none());
+        assert_eq!(v.ring.index, 1);
+    }
+
+    #[test]
+    fn leaving_f2_cancels_an_open_search() {
+        let (_d, mut v) = app(&[".", "manzana", "pera"]);
+        v.view = View::F2;
+        v.ring.index = 1;
+        v.open_f2_search();
+        v.f2_search_move(1);
+        v.switch_to(View::F1);
+        assert!(v.f2_search.is_none());
+        assert_eq!(v.ring.index, 1);
+    }
+
+    // ── Search in F3 ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn opening_f3_search_starts_on_every_chapter_dots_excluded() {
+        let (_d, mut v) = app(&["."]);
+        v.library = Library {
+            entries: vec![".".into(), "Alfa.txt".into(), "Beta.txt".into()],
+            index: 0,
+        };
+        v.open_f3_search();
+        assert_eq!(v.f3_search.as_ref().unwrap().matches, vec![1, 2]);
+    }
+
+    #[test]
+    fn f3_search_matches_the_display_name_not_the_extension() {
+        let (_d, mut v) = app(&["."]);
+        v.library = Library {
+            entries: vec!["Capitulo Uno.txt".into(), "Otro.txt".into()],
+            index: 0,
+        };
+        v.open_f3_search();
+        v.f3_search_type("uno");
+        assert_eq!(v.f3_search.as_ref().unwrap().matches, vec![0]);
+        v.f3_search_type("txt"); // now "unotxt" -- no entry contains that
+        assert!(v.f3_search.as_ref().unwrap().matches.is_empty());
+    }
+
+    #[test]
+    fn confirming_f3_search_highlights_the_match_and_closes() {
+        let (_d, mut v) = app(&["."]);
+        v.library = Library {
+            entries: vec!["Alfa.txt".into(), "Beta.txt".into()],
+            index: 0,
+        };
+        v.open_f3_search();
+        v.f3_search_type("beta");
+        v.f3_search_confirm();
+        assert!(v.f3_search.is_none());
+        assert_eq!(v.library.index, 1);
+    }
+
+    #[test]
+    fn cancelling_f3_search_restores_the_highlighted_entry() {
+        let (_d, mut v) = app(&["."]);
+        v.library = Library {
+            entries: vec!["Alfa.txt".into(), "Beta.txt".into()],
+            index: 0,
+        };
+        v.open_f3_search();
+        v.f3_search_move(1);
+        v.f3_search_cancel();
+        assert!(v.f3_search.is_none());
+        assert_eq!(v.library.index, 0);
+    }
+
+    #[test]
+    fn leaving_f3_cancels_an_open_search() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.open_f3_search();
+        v.f3_search_type("uno");
+        v.switch_to(View::F2);
+        assert!(v.f3_search.is_none());
     }
 
     // ── merging a book (Ctrl+Shift+M on a dot in F3) ───────────────────────────

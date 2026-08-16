@@ -43,7 +43,15 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
       slot. `test_open_position` turned out to be F4 reading-view anchors
       (paragraph ordinals for the HTML view), not position persistence — F4
       isn't built yet, so that one's still open, filed under F4 below.
-- [ ] **Search** (`Ctrl+F` in F2 and F3) with a centred search bar.
+- [x] **Search** (`Ctrl+F` in F2 and F3) with a centred search bar. No
+      `test_search.py` exists in the Python (checked — `test_open_position.py`
+      turned out to be F4 anchors, not this); ported straight from
+      `_f2_search_*`/`_f3_search_*`/the search half of `key_router_mixin.py`,
+      with Rust's own tests written from that reading. One deliberate
+      difference: matches are tracked by ORIGINAL INDEX, not by matched text —
+      the Python re-finds the confirmed line with `.index(text)`, ambiguous if
+      two lines read the same; an index has no such bug and needs no `['.']`
+      placeholder for "nothing matched" either.
 
 ## 3. Shaping text
 
