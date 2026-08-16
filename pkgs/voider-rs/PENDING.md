@@ -149,8 +149,18 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
 
 ## 6. The shell it lives in
 
-- [ ] **Multi-instance IPC**: when one instance saves, the others reload —
-      `test_integrity_sync` (5).
+- [x] **Multi-instance IPC**: when one instance saves, the others reload —
+      `test_integrity_sync`. A port of `ipc.py` onto `std::os::unix::net` (no
+      new dependency): first instance binds the socket and becomes the hub,
+      later ones connect as clients, every save sends `SAVED:<path>` and the
+      hub relays it to everyone else. Polled once a frame instead of
+      callback-driven, with a repaint timer so a sibling's save is noticed
+      without needing a keystroke first. A socket left by a crash is reclaimed.
+      The socket name is voider-rs's own and deliberately NOT shared with the
+      Python's: the two point at different voids, and a save here must never
+      make the real Voider reload something that isn't its own.
+      The line being typed is never touched by a reload — it isn't on disk yet,
+      and losing it to a sibling is the exact theft this prevents.
 - [x] **Mouse cursor**: the white ring, auto-hidden while typing —
       `test_cursor_autohide` (12). Trivial here; just not wired.
 - [x] **Screenshots** (`F12`) — via `grim`, already on this machine and already

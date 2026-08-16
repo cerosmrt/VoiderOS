@@ -13,6 +13,7 @@ use crate::backup;
 use crate::config::Config;
 use crate::f5;
 use crate::fonts;
+use crate::ipc;
 use crate::library::{self, Library};
 use crate::paragraphs;
 use crate::position;
@@ -134,6 +135,9 @@ pub struct Voider {
     /// blocked, or we would overwrite content we never saw.
     pub load_failed: bool,
     pub status: String,
+    /// Telling sibling instances what changed. `None` when running alone (and
+    /// in tests, which have no business opening sockets).
+    pub ipc: Option<ipc::Ipc>,
     /// F11: the shortcut reference, over whatever view is underneath.
     pub help_open: bool,
     /// Ctrl+B: a backup worked out and waiting to be accepted. Nothing is
@@ -210,6 +214,7 @@ impl Voider {
             undo_applying: false,
             load_failed: doc.read_failed,
             status: String::new(),
+            ipc: None,
             help_open: false,
             backup_prompt: None,
             prose: String::new(),
@@ -242,9 +247,10 @@ impl Voider {
             self.status = "Large shrink — kept a .rescue copy".into();
         }
         void::atomic_write(&self.current_file, &after, false)?;
+        let saved = self.current_file.clone();
+        self.notify_saved(&saved);
         if !self.undo_applying {
-            let path = self.current_file.clone();
-            self.undo.record(path, before, after, key);
+            self.undo.record(saved, before, after, key);
         }
         Ok(())
     }
@@ -988,6 +994,76 @@ impl Voider {
         self.save_active_file();
     }
 
+    /// Write the library index, telling the other instances it moved. Every
+    /// library write goes through here so none of them can forget to.
+    pub fn save_library(&mut self) -> io::Result<()> {
+        self.library.save(&self.void_dir)?;
+        let path = library::library_path(&self.void_dir);
+        self.notify_saved(&path);
+        Ok(())
+    }
+
+    fn notify_saved(&mut self, path: &Path) {
+        if let Some(ipc) = &mut self.ipc {
+            ipc.notify_saved(path);
+        }
+    }
+
+    /// Take in anything the sibling instances announced since the last frame.
+    pub fn poll_ipc(&mut self) {
+        let Some(ipc) = &mut self.ipc else {
+            return;
+        };
+        for path in ipc.poll() {
+            self.on_saved_by_other(&path);
+        }
+    }
+
+    /// Another instance wrote a file. If it's the one open here, or the library
+    /// index, take its version — it is newer than ours by definition.
+    pub fn on_saved_by_other(&mut self, path: &Path) {
+        if same_file(path, &self.current_file) {
+            self.reload_doc_from_other();
+        } else if same_file(path, &library::library_path(&self.void_dir)) {
+            self.reload_library_from_other();
+        }
+    }
+
+    /// Re-read the active file after someone else changed it, staying as close
+    /// to where the cursor was as the new length allows. The line being typed
+    /// is left alone: it is not on disk yet, and losing it to a sibling's save
+    /// is exactly the kind of theft this whole mechanism exists to prevent.
+    pub fn reload_doc_from_other(&mut self) {
+        let doc = void::load_doc(&self.current_file);
+        if doc.read_failed {
+            return;
+        }
+        let was = self.ring.index;
+        self.ring = LineRing::new(doc.lines);
+        self.ring.index = was.min(self.ring.lines.len().saturating_sub(1));
+        self.load_failed = false;
+        self.status = "Reloaded — another Voider saved this file".into();
+    }
+
+    /// Re-read the library after another instance reordered/renamed/deleted,
+    /// keeping the cursor on the same entry BY NAME rather than by position.
+    /// Deferred while this instance is naming something: an unfinished title is
+    /// intent that isn't on disk anywhere, and must not be stomped.
+    pub fn reload_library_from_other(&mut self) {
+        if self.pending_new || self.pending_merge {
+            return;
+        }
+        let selected = self.library.entries.get(self.library.index).cloned();
+        self.library = Library::load(&self.void_dir);
+        if let Some(name) = selected {
+            self.library.index = self
+                .library
+                .position(&name)
+                .unwrap_or_else(|| self.library.index.min(self.library.entries.len().saturating_sub(1)));
+        }
+        self.status = "Library reloaded — another Voider changed it".into();
+    }
+
     /// Persist the ring's current position for the active file, so a restart
     /// puts the cursor back where it was. A port of `_save_last_line`.
     pub fn save_last_line(&self) {
@@ -1067,7 +1143,7 @@ impl Voider {
         let at = self.library.index;
         self.library.insert_below(at, file);
         self.library.index = (at + 1).min(self.library.entries.len() - 1);
-        self.library.save(&self.void_dir)?;
+        self.save_library()?;
         Ok(Some(path))
     }
 
@@ -1077,7 +1153,7 @@ impl Voider {
         self.settle_pending()?;
         if library::is_separator(self.library.current()) {
             if library::shuffle_group(&mut self.library.entries, self.library.index) {
-                self.library.save(&self.void_dir)?;
+                self.save_library()?;
                 self.status = "Shuffled".into();
             }
         } else {
@@ -1220,7 +1296,7 @@ impl Voider {
         self.pending_merge = false;
         self.merge_dot_idx = None;
         self.library.index = ph;
-        self.library.save(&self.void_dir)?;
+        self.save_library()?;
         self.undo.record_transaction(changes, Some("merge".into()));
         self.entry.clear();
         let n_chapters = chapters.len();
@@ -1767,7 +1843,7 @@ impl Voider {
                 self.library.entries.insert(ins, fname.clone());
                 ins += 1;
             }
-            self.library.save(&self.void_dir)?;
+            self.save_library()?;
         }
 
         self.undo.record_transaction(changes, Some("split-zero".into()));
@@ -1895,7 +1971,7 @@ impl Voider {
                 c.after.clear(); // tells undo this file should not exist
             }
         }
-        self.library.save(&self.void_dir)?;
+        self.save_library()?;
 
         self.ring = if container_removed {
             LineRing::new([".".to_string()])
@@ -2291,6 +2367,16 @@ impl Voider {
     }
 }
 
+/// Whether two paths mean the same file. Compares canonically where possible
+/// (so `/void/I/a.txt` and a path through a symlink agree), falling back to a
+/// plain comparison for files that don't exist yet.
+fn same_file(a: &Path, b: &Path) -> bool {
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => a == b,
+    }
+}
+
 /// The saved ring index for `file`, clamped into `[0, total)`. `0` when
 /// nothing was saved — the ordinary case for a file opened for the first time.
 fn restored_index(void_dir: &Path, file: &Path, total: usize) -> usize {
@@ -2378,6 +2464,7 @@ pub fn open_sandbox() -> Voider {
         .unwrap_or_else(|| scratch.clone());
 
     let mut v = Voider::open(&dir, &target);
+    v.ipc = Some(ipc::Ipc::start(&ipc::default_socket_path()));
     v.snapshot_on_entry();
     match restore_view {
         Some(view @ (View::F2 | View::F3)) => v.switch_to(view),
@@ -3461,6 +3548,90 @@ mod tests {
         std::fs::write(&other, "x\n").unwrap();
         v.set_active_file(other);
         assert_eq!(Config::load(&v.void_dir).active_file.as_deref(), Some("other.txt"));
+    }
+
+    // ── Another instance saved (the IPC handlers) ───────────────────────────────
+
+    #[test]
+    fn a_sibling_saving_this_file_brings_in_its_version() {
+        let (_d, mut v) = app(&[".", "vieja"]);
+        // Another Voider rewrites the same file behind our back.
+        void::atomic_write(&v.current_file, &[".".into(), "nueva".into()], false).unwrap();
+        let path = v.current_file.clone();
+        v.on_saved_by_other(&path);
+        assert_eq!(v.ring.lines, vec![".".to_string(), "nueva".into()]);
+        assert!(v.status.contains("another Voider"));
+    }
+
+    #[test]
+    fn the_cursor_survives_a_sibling_save_and_clamps_if_it_has_to() {
+        let (_d, mut v) = app(&[".", "a", "b", "c"]);
+        v.ring.index = 3;
+        void::atomic_write(&v.current_file, &[".".into(), "a".into()], false).unwrap();
+        let path = v.current_file.clone();
+        v.on_saved_by_other(&path);
+        assert_eq!(v.ring.index, 1); // clamped into the shorter file, not out of range
+    }
+
+    #[test]
+    fn a_sibling_saving_some_other_file_changes_nothing_here() {
+        let (_d, mut v) = app(&[".", "mia"]);
+        let before = v.ring.lines.clone();
+        v.on_saved_by_other(Path::new("/void/I/ajeno.txt"));
+        assert_eq!(v.ring.lines, before);
+        assert!(v.status.is_empty());
+    }
+
+    #[test]
+    fn a_sibling_reordering_the_library_is_taken_in_keeping_the_selection() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.index = v.library.position("Uno.txt").unwrap();
+        // Another instance reorders and adds one.
+        let reordered = Library {
+            entries: vec!["Nuevo.txt".into(), "Dos.txt".into(), "Uno.txt".into()],
+            index: 0,
+        };
+        reordered.save(&v.void_dir).unwrap();
+
+        let lib_path = library::library_path(&v.void_dir);
+        v.on_saved_by_other(&lib_path);
+        assert_eq!(v.library.entries, vec!["Nuevo.txt", "Dos.txt", "Uno.txt"]);
+        assert_eq!(v.library.current(), "Uno.txt"); // followed by name, not by index
+    }
+
+    #[test]
+    fn a_library_reload_is_deferred_while_a_name_is_being_typed() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        let before = v.library.entries.clone();
+        v.begin_new_chapter(); // mid-naming: unsaved intent
+        Library { entries: vec!["Otro.txt".into()], index: 0 }
+            .save(&v.void_dir)
+            .unwrap();
+        let lib_path = library::library_path(&v.void_dir);
+        v.on_saved_by_other(&lib_path);
+        assert_eq!(v.library.entries, before); // untouched until the name settles
+    }
+
+    #[test]
+    fn a_selection_that_the_sibling_deleted_lands_somewhere_valid() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.index = v.library.position("Uno.txt").unwrap();
+        Library { entries: vec!["Dos.txt".into()], index: 0 }
+            .save(&v.void_dir)
+            .unwrap();
+        let lib_path = library::library_path(&v.void_dir);
+        v.on_saved_by_other(&lib_path);
+        assert!(v.library.index < v.library.entries.len());
+    }
+
+    #[test]
+    fn polling_without_any_ipc_attached_is_harmless() {
+        let (_d, mut v) = app(&[".", "a"]);
+        assert!(v.ipc.is_none()); // tests have no business opening sockets
+        v.poll_ipc();
     }
 
     // ── Random lines into the entry (Ctrl+0 / Ctrl+. in F1) ─────────────────────

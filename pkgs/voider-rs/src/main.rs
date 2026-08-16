@@ -12,6 +12,7 @@ mod config;
 mod f5;
 mod fonts;
 mod help;
+mod ipc;
 mod library;
 mod paragraphs;
 mod line_ring;
@@ -1139,7 +1140,13 @@ impl eframe::App for VoiderApp {
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.update_pointer(ctx);
+        // Take in what the other instances did before reading this frame's
+        // keys, so a keystroke always lands on the newest text.
+        self.voider.poll_ipc();
         self.handle_input(ctx);
+        // Nothing here generates its own repaints, so without this a sibling's
+        // save would sit unnoticed until the next key or mouse move.
+        ctx.request_repaint_after(std::time::Duration::from_millis(250));
         // A font chosen in F10 takes effect on this very frame.
         if self.voider.font_dirty {
             self.voider.font_dirty = false;
