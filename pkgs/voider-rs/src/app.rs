@@ -16,6 +16,7 @@ use crate::library::{self, Library};
 use crate::paragraphs;
 use crate::line_ring::LineRing;
 use crate::text_line::{self, TextLine};
+use crate::undo::{self, UndoManager};
 use crate::void;
 use crate::words;
 
@@ -85,6 +86,10 @@ pub struct Voider {
     pub settings_idx: usize,
     /// Raised when the font changed, so the view rebuilds it.
     pub font_dirty: bool,
+    /// Text-content undo, recorded at the save chokepoint.
+    pub undo: UndoManager,
+    /// True while an undo is being written, so it does not record itself.
+    pub undo_applying: bool,
     /// Set when the active file existed but could not be read — saving must stay
     /// blocked, or we would overwrite content we never saw.
     pub load_failed: bool,
@@ -115,18 +120,81 @@ impl Voider {
             scratch_return: None,
             settings_idx: 0,
             font_dirty: false,
+            undo: UndoManager::default(),
+            undo_applying: false,
             load_failed: doc.read_failed,
             status: String::new(),
         }
     }
 
     /// Persist the ring to the active file. A failed load blocks the write.
+    ///
+    /// This is the chokepoint: every text change passes through here, so it is
+    /// also where undo is recorded. `key` lets a burst of typing on one line
+    /// coalesce into a single undo step.
     pub fn save(&mut self) -> io::Result<()> {
+        self.save_keyed(None)
+    }
+
+    pub fn save_keyed(&mut self, key: Option<String>) -> io::Result<()> {
         if self.load_failed {
             self.status = "Save blocked: the active file failed to load".into();
             return Ok(());
         }
-        void::atomic_write(&self.current_file, &self.ring.lines, false)
+        let before = self.on_disk(&self.current_file.clone());
+        let after = self.ring.lines.clone();
+        void::atomic_write(&self.current_file, &after, false)?;
+        if !self.undo_applying {
+            let path = self.current_file.clone();
+            self.undo.record(path, before, after, key);
+        }
+        Ok(())
+    }
+
+    /// What the file holds right now, as the ring would see it.
+    fn on_disk(&self, path: &Path) -> Vec<String> {
+        void::load_doc(path).lines
+    }
+
+    // ── Undo / redo ───────────────────────────────────────────────────────────
+
+    /// Ctrl+Z. Restores every file in the last step — a paragraph sent away comes
+    /// back to its source and leaves its destination in one go.
+    pub fn undo(&mut self) -> io::Result<()> {
+        let Some(entry) = self.undo.undo() else {
+            self.status = "Nothing to undo".into();
+            return Ok(());
+        };
+        self.apply_undo_entry(&entry, true)
+    }
+
+    /// Ctrl+Shift+Z.
+    pub fn redo(&mut self) -> io::Result<()> {
+        let Some(entry) = self.undo.redo() else {
+            self.status = "Nothing to redo".into();
+            return Ok(());
+        };
+        self.apply_undo_entry(&entry, false)
+    }
+
+    fn apply_undo_entry(&mut self, entry: &undo::Entry, backwards: bool) -> io::Result<()> {
+        self.undo_applying = true;
+        for change in &entry.files {
+            let lines = if backwards { &change.before } else { &change.after };
+            void::atomic_write(&change.path, lines, false)?;
+            // If it's the file on screen, show the restored version at once.
+            if change.path == self.current_file {
+                let keep = self.ring.index;
+                self.ring = LineRing::new(void::load_doc(&change.path).lines);
+                self.ring.index = keep.min(self.ring.lines.len().saturating_sub(1));
+                let cur = self.ring.current().to_string();
+                self.entry.set_text(&cur);
+                self.entry.home();
+            }
+        }
+        self.undo_applying = false;
+        self.status = if backwards { "Undone".into() } else { "Redone".into() };
+        Ok(())
     }
 
     /// F1 Enter: write the entry into the current line, then open a blank line
@@ -335,6 +403,8 @@ impl Voider {
         while existing.last().is_some_and(|l| l.trim().is_empty()) {
             existing.pop();
         }
+        let target_before = void::load_doc(&target).lines;
+        let source_before = void::load_doc(&self.current_file).lines;
         let mut combined = existing;
         if !combined.is_empty() {
             combined.push(".".to_string());
@@ -346,7 +416,26 @@ impl Voider {
         if self.ring.index >= self.ring.lines.len() {
             self.ring.index = self.ring.lines.len().saturating_sub(1);
         }
+        // Both files move as ONE undo step: taking it back returns the paragraph
+        // to its source and removes it from the destination together.
+        self.undo_applying = true;
         self.save()?;
+        self.undo_applying = false;
+        self.undo.record_transaction(
+            vec![
+                undo::FileChange {
+                    path: self.current_file.clone(),
+                    before: source_before,
+                    after: self.ring.lines.clone(),
+                },
+                undo::FileChange {
+                    path: target.clone(),
+                    before: target_before,
+                    after: void::load_doc(&target).lines,
+                },
+            ],
+            Some("send".into()),
+        );
         let n = f5::para_count(&self.ring.lines);
         self.para_idx = if n == 0 { 0 } else { self.para_idx.min(n - 1) };
         self.picker_open = false;
@@ -434,7 +523,9 @@ impl Voider {
             return Ok(());
         }
         self.ring.lines[i] = text;
-        self.save()
+        // Keyed by the line: a burst of typing on it is one undo step, not one
+        // per keystroke.
+        self.save_keyed(Some(format!("doc:{i}")))
     }
 
     /// Move through the document. The caret lands at the start of the new line —
@@ -1031,6 +1122,80 @@ mod tests {
         v.doc_swap_words(1).unwrap();
         assert_eq!(v.entry.text(), "mundo hola cruel");
         assert_eq!(v.ring.lines[1], "mundo hola cruel"); // persisted
+    }
+
+    // ── undo, end to end ──────────────────────────────────────────────────────
+
+    #[test]
+    fn a_committed_line_can_be_taken_back() {
+        let (_d, mut v) = app(&[".", "vieja"]);
+        v.ring.index = 1;
+        v.entry.set_text("nueva");
+        v.commit_line().unwrap();
+        assert!(v.ring.lines.contains(&"nueva".to_string()));
+
+        v.undo().unwrap();
+        let on_disk = void::load_doc(&v.current_file);
+        assert!(on_disk.lines.contains(&"vieja".to_string()));
+        assert!(!on_disk.lines.contains(&"nueva".to_string()));
+        assert!(v.ring.lines.contains(&"vieja".to_string())); // and on screen
+    }
+
+    #[test]
+    fn undo_then_redo_returns_the_change() {
+        let (_d, mut v) = app(&[".", "vieja"]);
+        v.ring.index = 1;
+        v.entry.set_text("nueva");
+        v.commit_line().unwrap();
+        v.undo().unwrap();
+        v.redo().unwrap();
+        assert!(void::load_doc(&v.current_file).lines.contains(&"nueva".to_string()));
+    }
+
+    #[test]
+    fn a_burst_of_typing_undoes_as_one_step() {
+        let (_d, mut v) = app(&[".", "h"]);
+        v.ring.index = 1;
+        v.switch_to(View::F2);
+        for text in ["ho", "hol", "hola"] {
+            v.entry.set_text(text);
+            v.doc_live_save().unwrap();
+        }
+        assert_eq!(v.undo.undo_depth(), 1); // one step, not three
+        v.undo().unwrap();
+        assert!(void::load_doc(&v.current_file).lines.contains(&"h".to_string()));
+    }
+
+    #[test]
+    fn undoing_a_sent_paragraph_puts_it_back_on_both_sides() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F5);
+        v.para_idx = 0; // 'de uno'
+        v.send_para_to("Dos.txt").unwrap();
+
+        v.undo().unwrap();
+        let src = void::load_doc(&v.current_file);
+        let dst = void::load_doc(&library::chapter_path(&v.void_dir, "Dos.txt"));
+        assert!(src.lines.contains(&"de uno".to_string())); // back home
+        assert!(!dst.lines.contains(&"de uno".to_string())); // and gone from there
+    }
+
+    #[test]
+    fn undoing_with_nothing_recorded_is_harmless() {
+        let (_d, mut v) = app(&[".", "intacta"]);
+        v.undo().unwrap();
+        assert!(void::load_doc(&v.current_file).lines.contains(&"intacta".to_string()));
+        assert_eq!(v.status, "Nothing to undo");
+    }
+
+    #[test]
+    fn a_moved_line_can_be_taken_back() {
+        let (_d, mut v) = app(&[".", "a", "b"]);
+        v.ring.index = 1;
+        v.switch_to(View::F2);
+        v.doc_swap_line(1).unwrap();
+        v.undo().unwrap();
+        assert_eq!(void::load_doc(&v.current_file).lines, vec![".", "a", "b"]);
     }
 
     // ── F5 ────────────────────────────────────────────────────────────────────

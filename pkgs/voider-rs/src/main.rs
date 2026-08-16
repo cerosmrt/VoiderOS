@@ -14,6 +14,7 @@ mod library;
 mod paragraphs;
 mod line_ring;
 mod text_line;
+mod undo;
 mod void;
 mod words;
 
@@ -140,6 +141,13 @@ impl VoiderApp {
                 self.voider.show_title = !self.voider.show_title;
             }
             Key::G if m.ctrl && m.shift => self.voider.commit_void(),
+            // Undo / redo of text content, from any view.
+            Key::Z if m.ctrl && m.shift => {
+                let _ = self.voider.redo();
+            }
+            Key::Z if m.ctrl => {
+                let _ = self.voider.undo();
+            }
             // Backtick: round trip to the scratch, from wherever you are.
             Key::Backtick => self.voider.scratch_toggle(),
             _ => return false,
