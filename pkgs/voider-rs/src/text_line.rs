@@ -62,6 +62,15 @@ impl TextLine {
         }
     }
 
+    /// Replace `[start, end)` with `text`, leaving the caret at its end — how a
+    /// re-rolled cut-up fragment overwrites the one before it.
+    pub fn replace_range(&mut self, start: usize, end: usize, text: &str) {
+        let start = start.min(self.chars.len());
+        let end = end.clamp(start, self.chars.len());
+        self.chars.splice(start..end, text.chars());
+        self.caret = start + text.chars().count();
+    }
+
     /// Delete the character before the caret. Returns whether anything went.
     pub fn backspace(&mut self) -> bool {
         if self.caret == 0 {
@@ -158,6 +167,21 @@ mod tests {
         l.insert("l");
         assert_eq!(l.text(), "hola");
         assert_eq!(l.caret(), 3);
+    }
+
+    #[test]
+    fn replace_range_overwrites_and_parks_the_caret_at_its_end() {
+        let mut l = TextLine::new("una fruta roja");
+        l.replace_range(4, 9, "manzana"); // "fruta" -> "manzana"
+        assert_eq!(l.text(), "una manzana roja");
+        assert_eq!(l.caret(), 11);
+    }
+
+    #[test]
+    fn replace_range_with_an_empty_span_just_inserts() {
+        let mut l = TextLine::new("uno dos");
+        l.replace_range(4, 4, "nuevo ");
+        assert_eq!(l.text(), "uno nuevo dos");
     }
 
     #[test]

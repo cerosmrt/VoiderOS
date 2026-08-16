@@ -69,12 +69,18 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
 
 - [x] **Tab in F1**: pull a random line from the void into the entry
       (`recycle_line_to_zero_txt`) — `test_controls` (32).
-- [ ] **Tab in F2**: insert/replace with a random fragment from `I/`
-      (`_doc_insert_random_i_line`) — `test_doc_tab`, `test_tab_replace` (23).
+- [x] **Tab in F2**: contextual — paragraph order on the leading dot, a
+      paragraph's own lines on any other dot, a random `I/` fragment on a
+      content line (`_doc_tab`, `_doc_insert_random_i_line`) — `test_doc_tab`.
+      Re-rolling a fragment in place (repeated Tab replaces, doesn't pile up)
+      needed a small addition the Python doesn't: `TextLine::replace_range`,
+      standing in for the text-selection Python gets for free from `QLineEdit`.
 - [ ] **Alt+Tab in F2**: insert from the working set (`_doc_insert_ws_line`).
+      Deferred — needs F7's working set, not built yet.
 - [ ] **Ctrl+0 / Ctrl+.**: a random line from a random file / from this file.
-- [ ] **Smart copy** (`Ctrl+C` with no selection: line → paragraph → chapter) —
-      `test_smart_copy` (5).
+- [x] **Smart copy** (`Ctrl+C` with no selection: line → paragraph → chapter) —
+      `test_smart_copy` (5). There is no selection to fall back to yet (no
+      selection model in `TextLine`), so every Ctrl+C is the contextual copy.
 
 ## 5. The other views
 

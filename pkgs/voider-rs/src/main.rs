@@ -151,6 +151,14 @@ impl VoiderApp {
                     View::F5 | View::F10 => {}
                 },
                 egui::Event::Key { key, pressed: true, modifiers, .. } => {
+                    // There is no text selection to fall back to here, so
+                    // Ctrl+C always means the contextual copy.
+                    if key == egui::Key::C && modifiers.ctrl {
+                        if let Some(text) = self.voider.smart_copy() {
+                            ctx.output_mut(|o| o.copied_text = text);
+                        }
+                        continue;
+                    }
                     if self.handle_global_key(key, modifiers) {
                         continue;
                     }
@@ -301,6 +309,11 @@ impl VoiderApp {
             Key::ArrowRight => self.voider.entry.move_caret(1),
             Key::Home => self.voider.doc_jump_edge(false),
             Key::End => self.voider.doc_jump_edge(true),
+            // Contextual: paragraph order on the leading dot, a paragraph's own
+            // lines on any other dot, a random I/ fragment on a content line.
+            Key::Tab => {
+                let _ = self.voider.doc_tab();
+            }
             // On the scratch this formats AND splits '/name' blocks out; on any
             // other file it just reformats into one sentence per line.
             Key::F if m.ctrl && m.shift => {

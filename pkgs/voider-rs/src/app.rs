@@ -84,6 +84,9 @@ pub struct Voider {
     pub para_focus: bool,
     /// F2: the line indices that make up the focused paragraph.
     pub para_focus_content: Vec<usize>,
+    /// F2 Tab: (ring index, start, end) of the last `I/` fragment inserted, so
+    /// pressing Tab again on the same spot re-rolls it instead of piling up.
+    pub pending_fragment: Option<(usize, usize, usize)>,
     /// F5: which paragraph the cursor is on.
     pub para_idx: usize,
     /// F5: the side catalogue for sending a paragraph to a chapter.
@@ -129,6 +132,7 @@ impl Voider {
             merge_dot_idx: None,
             para_focus: false,
             para_focus_content: Vec::new(),
+            pending_fragment: None,
             para_idx: 0,
             picker_open: false,
             picker_idx: 0,
@@ -936,6 +940,164 @@ impl Voider {
         lines.into_iter().next()
     }
 
+    // ── Tab in F2: the same cut-up, contextual ──────────────────────────────────
+
+    /// Tab in F2. The ring's index 0 is always the file's leading dot, never a
+    /// paragraph's own: there, Tab shuffles the paragraphs' ORDER (each keeps
+    /// its own line order). On any other dot it shuffles the LINES within that
+    /// one paragraph. On a content line it inserts a random `I/` fragment.
+    pub fn doc_tab(&mut self) -> io::Result<()> {
+        if self.ring.lines.is_empty() {
+            return Ok(());
+        }
+        if self.ring.index == 0 {
+            self.shuffle_paragraph_order()
+        } else if self.ring.current() == "." {
+            self.shuffle_para_lines()
+        } else {
+            self.insert_random_i_fragment()
+        }
+    }
+
+    fn shuffle_paragraph_order(&mut self) -> io::Result<()> {
+        let (_, mut paras) = paragraphs::from_lines(&self.ring.lines);
+        if paras.len() < 2 {
+            return Ok(());
+        }
+        library::shuffle(&mut paras);
+        self.ring.lines = paragraphs::to_lines(&paras);
+        self.ring.index = 0;
+        self.sync_entry();
+        self.save()
+    }
+
+    fn shuffle_para_lines(&mut self) -> io::Result<()> {
+        let Some(k) = paragraphs::para_at_dot(&self.ring.lines, self.ring.index) else {
+            return Ok(());
+        };
+        let (_, mut paras) = paragraphs::from_lines(&self.ring.lines);
+        if paras[k].len() < 2 {
+            return Ok(());
+        }
+        library::shuffle(&mut paras[k]);
+        let dot_idx = paragraphs::dot_line_index(k, &paras);
+        self.ring.lines = paragraphs::to_lines(&paras);
+        self.ring.index = dot_idx;
+        self.sync_entry();
+        self.save()
+    }
+
+    /// A random non-empty, non-dot line from a random `.txt` under `dir`
+    /// (walked recursively), never from `exclude`. Read-only — this is a copy.
+    pub fn random_line_from_dir(&self, dir: &Path, exclude: Option<&Path>) -> Option<String> {
+        let mut files: Vec<PathBuf> = Vec::new();
+        collect_txt_files(dir, &mut files);
+        if let Some(ex) = exclude {
+            files.retain(|f| f != ex);
+        }
+        library::shuffle(&mut files);
+        for path in files {
+            let mut lines: Vec<String> = void::load_doc(&path)
+                .lines
+                .into_iter()
+                .filter(|l| !l.trim().is_empty() && l.trim() != ".")
+                .collect();
+            if !lines.is_empty() {
+                library::shuffle(&mut lines);
+                return lines.into_iter().next();
+            }
+        }
+        None
+    }
+
+    /// Tab over a content line: insert a random `I/` fragment at the caret. A
+    /// trailing dot is dropped, and a capital is lowered unless it lands at the
+    /// very start of the line. Landing right after a fragment Tab just
+    /// inserted re-rolls it in place, rather than piling another one on.
+    fn insert_random_i_fragment(&mut self) -> io::Result<()> {
+        let i_dir = self.void_dir.join("I");
+        let Some(line) = self.random_line_from_dir(&i_dir, Some(&self.current_file)) else {
+            self.status = "No I/ lines to pull".into();
+            return Ok(());
+        };
+        let mut fragment = line.trim_end_matches('.').to_string();
+
+        let (start, end) = match self.pending_fragment {
+            Some((idx, s, e)) if idx == self.ring.index && self.entry.caret() == e => (s, e),
+            _ => (self.entry.caret(), self.entry.caret()),
+        };
+        if start > 0 {
+            if let Some(first) = fragment.chars().next() {
+                if first.is_uppercase() {
+                    let lowered: String = first.to_lowercase().collect();
+                    fragment = lowered + &fragment[first.len_utf8()..];
+                }
+            }
+        }
+        let frag_len = fragment.chars().count();
+        self.entry.replace_range(start, end, &fragment);
+        self.pending_fragment = Some((self.ring.index, start, start + frag_len));
+        self.doc_live_save()
+    }
+
+    /// Ctrl+C with nothing selected: copy the contextual unit. F2: the current
+    /// line, or — sitting on a dot — the paragraph that follows it. F3: the
+    /// highlighted chapter's raw text, or — sitting on a dot — the whole book
+    /// below it, chapters joined by a blank separator, the scratch portal
+    /// skipped. Any other view copies nothing.
+    pub fn smart_copy(&self) -> Option<String> {
+        match self.view {
+            View::F2 => {
+                if self.ring.lines.is_empty() {
+                    return None;
+                }
+                if self.ring.current() == "." {
+                    let n = self.ring.lines.len();
+                    let mut para = Vec::new();
+                    let mut i = self.ring.index + 1;
+                    while i < n && self.ring.lines[i] != "." {
+                        para.push(self.ring.lines[i].clone());
+                        i += 1;
+                    }
+                    if para.is_empty() { None } else { Some(para.join("\n")) }
+                } else {
+                    Some(self.ring.current().to_string())
+                }
+            }
+            View::F3 => {
+                let entries = &self.library.entries;
+                let n = entries.len();
+                if n == 0 {
+                    return None;
+                }
+                if library::is_separator(self.library.current()) {
+                    let mut parts = Vec::new();
+                    let mut i = (self.library.index + 1) % n;
+                    for _ in 0..n.saturating_sub(1) {
+                        let fname = &entries[i];
+                        if library::is_separator(fname) {
+                            break;
+                        }
+                        if !library::is_portal(fname) {
+                            let path = library::chapter_path(&self.void_dir, fname);
+                            if let Ok(text) = std::fs::read_to_string(&path) {
+                                parts.push(text.trim_end_matches('\n').to_string());
+                            }
+                        }
+                        i = (i + 1) % n;
+                    }
+                    if parts.is_empty() { None } else { Some(parts.join("\n.\n")) }
+                } else {
+                    let path = library::chapter_path(&self.void_dir, self.library.current());
+                    std::fs::read_to_string(&path)
+                        .ok()
+                        .map(|t| t.trim_end_matches('\n').to_string())
+                }
+            }
+            _ => None,
+        }
+    }
+
     // ── Shaping ───────────────────────────────────────────────────────────────
 
     /// Ctrl+Shift+F: break the active file into one sentence per line. Backed up
@@ -1606,6 +1768,26 @@ impl Voider {
             return false;
         }
         self.entry.backspace()
+    }
+}
+
+/// Walk `dir` recursively, collecting every `.txt` file that doesn't start
+/// with a dot. A port of the file-gathering half of `_random_line_from_dir`.
+fn collect_txt_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_txt_files(&path, out);
+        } else if path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.to_lowercase().ends_with(".txt") && !n.starts_with('.'))
+        {
+            out.push(path);
+        }
     }
 }
 
@@ -2488,6 +2670,188 @@ mod tests {
         assert!(library::chapter_path(&v.void_dir, "chapter.txt").exists());
         v.undo().unwrap();
         assert_eq!(void::load_doc(&v.current_file).lines, before);
+    }
+
+    // ── Tab in F2 (contextual cut-up) ───────────────────────────────────────────
+
+    #[test]
+    fn tab_on_the_leading_dot_shuffles_paragraph_order_not_their_content() {
+        let (_d, mut v) = app(&[".", "a1", "a2", ".", "b1", ".", "c1", "c2"]);
+        v.ring.index = 0;
+        v.doc_tab().unwrap();
+        assert_eq!(v.ring.index, 0); // stays on the leading dot
+        let (_, mut got) = paragraphs::from_lines(&v.ring.lines);
+        got.sort();
+        let mut expected = vec![
+            vec!["a1".to_string(), "a2".to_string()],
+            vec!["b1".to_string()],
+            vec!["c1".to_string(), "c2".to_string()],
+        ];
+        expected.sort();
+        assert_eq!(got, expected); // same blocks, each keeping its own order
+    }
+
+    #[test]
+    fn tab_on_the_leading_dot_is_a_noop_with_a_single_paragraph() {
+        let (_d, mut v) = app(&[".", "only", "one", "para"]);
+        let before = v.ring.lines.clone();
+        v.doc_tab().unwrap();
+        assert_eq!(v.ring.lines, before);
+    }
+
+    #[test]
+    fn tab_on_another_dot_shuffles_only_that_paragraphs_lines() {
+        let (_d, mut v) = app(&[".", "solo", ".", "b1", "b2", "b3"]);
+        v.ring.index = 2; // the dot before ['b1','b2','b3']
+        v.doc_tab().unwrap();
+        assert_eq!(v.ring.index, 2); // stays on the same separator
+        let (_, got) = paragraphs::from_lines(&v.ring.lines);
+        assert_eq!(got[0], vec!["solo".to_string()]); // untouched
+        let mut b = got[1].clone();
+        b.sort();
+        assert_eq!(b, vec!["b1".to_string(), "b2".to_string(), "b3".to_string()]);
+    }
+
+    #[test]
+    fn tab_on_a_dot_before_a_single_line_paragraph_is_a_noop() {
+        let (_d, mut v) = app(&[".", "a1", "a2", ".", "solo"]);
+        v.ring.index = 3; // the dot before ['solo']
+        let before = v.ring.lines.clone();
+        v.doc_tab().unwrap();
+        assert_eq!(v.ring.lines, before);
+    }
+
+    #[test]
+    fn tab_on_content_inserts_a_random_i_fragment_at_the_caret() {
+        let (_d, mut v) = app(&[".", "mine"]);
+        std::fs::create_dir_all(v.void_dir.join("I")).unwrap();
+        std::fs::write(v.void_dir.join("I").join("src.txt"), ".\nborrowed line\n").unwrap();
+        v.ring.index = 1;
+        v.entry = TextLine::new("mine"); // caret parked at the end, like Python's test
+        v.doc_tab().unwrap();
+        assert_eq!(v.ring.lines, vec![".".to_string(), "mineborrowed line".to_string()]);
+        assert_eq!(v.ring.index, 1);
+    }
+
+    #[test]
+    fn tab_at_the_start_of_the_line_inserts_before_the_text() {
+        let (_d, mut v) = app(&[".", "mine"]);
+        std::fs::create_dir_all(v.void_dir.join("I")).unwrap();
+        std::fs::write(v.void_dir.join("I").join("src.txt"), "word\n").unwrap();
+        v.ring.index = 1;
+        v.entry = TextLine::new("mine");
+        v.entry.set_caret(0);
+        v.doc_tab().unwrap();
+        assert_eq!(v.ring.lines, vec![".".to_string(), "wordmine".to_string()]);
+    }
+
+    #[test]
+    fn tab_with_no_i_lines_available_is_a_noop() {
+        let (_d, mut v) = app(&[".", "mine"]); // empty I/
+        v.ring.index = 1;
+        v.entry = TextLine::new("mine");
+        v.doc_tab().unwrap();
+        assert_eq!(v.ring.lines, vec![".".to_string(), "mine".to_string()]);
+    }
+
+    #[test]
+    fn tab_pressed_again_at_the_same_spot_re_rolls_instead_of_piling_up() {
+        let (_d, mut v) = app(&[".", "mine"]);
+        std::fs::create_dir_all(v.void_dir.join("I")).unwrap();
+        std::fs::write(v.void_dir.join("I").join("src.txt"), "loop\n").unwrap();
+        v.ring.index = 1;
+        v.entry = TextLine::new("mine");
+        v.doc_tab().unwrap();
+        assert_eq!(v.entry.text(), "mineloop");
+        v.doc_tab().unwrap(); // caret is still right where the fragment ends
+        assert_eq!(v.entry.text(), "mineloop"); // replaced, not doubled
+    }
+
+    #[test]
+    fn random_line_from_dir_never_returns_a_line_from_the_excluded_file() {
+        let (_d, v) = app(&["."]);
+        let i_dir = v.void_dir.join("I");
+        std::fs::create_dir_all(&i_dir).unwrap();
+        std::fs::write(i_dir.join("a.txt"), "keep\n").unwrap();
+        std::fs::write(i_dir.join("active.txt"), "skip me\n").unwrap();
+        let active = i_dir.join("active.txt");
+        for _ in 0..10 {
+            assert_eq!(v.random_line_from_dir(&i_dir, Some(&active)), Some("keep".to_string()));
+        }
+    }
+
+    #[test]
+    fn random_line_from_dir_with_nothing_there_returns_none() {
+        let (_d, v) = app(&["."]);
+        let i_dir = v.void_dir.join("I");
+        assert_eq!(v.random_line_from_dir(&i_dir, None), None);
+    }
+
+    // ── Smart copy (Ctrl+C, F2 / F3) ─────────────────────────────────────────────
+
+    #[test]
+    fn smart_copy_in_f2_copies_the_current_line() {
+        let (_d, mut v) = app(&[".", "hello", ".", "world"]);
+        v.view = View::F2;
+        v.ring.index = 1;
+        assert_eq!(v.smart_copy(), Some("hello".to_string()));
+    }
+
+    #[test]
+    fn smart_copy_on_a_dot_in_f2_copies_the_paragraph_that_follows() {
+        let (_d, mut v) = app(&[".", "a", "b", ".", "c"]);
+        v.view = View::F2;
+        v.ring.index = 0;
+        assert_eq!(v.smart_copy(), Some("a\nb".to_string()));
+    }
+
+    #[test]
+    fn a_dot_with_nothing_after_it_copies_nothing() {
+        let (_d, mut v) = app(&["a", "."]);
+        v.view = View::F2;
+        v.ring.index = v.ring.lines.len() - 1; // the trailing dot
+        assert_eq!(v.smart_copy(), None);
+    }
+
+    #[test]
+    fn smart_copy_on_a_dot_in_f3_copies_the_whole_book() {
+        let (_d, mut v) = app(&["."]);
+        v.view = View::F3;
+        let i = v.void_dir.join("I");
+        std::fs::create_dir_all(&i).unwrap();
+        std::fs::write(i.join("A.txt"), "a1\na2\n").unwrap();
+        std::fs::write(i.join("B.txt"), "b1\n").unwrap();
+        v.library = Library {
+            entries: vec![".".into(), "A.txt".into(), "B.txt".into()],
+            index: 0,
+        };
+        assert_eq!(v.smart_copy(), Some("a1\na2\n.\nb1".to_string()));
+    }
+
+    #[test]
+    fn smart_copy_on_a_dot_in_f3_skips_the_portal() {
+        let (_d, mut v) = app(&["."]);
+        v.view = View::F3;
+        let i = v.void_dir.join("I");
+        std::fs::create_dir_all(&i).unwrap();
+        std::fs::write(i.join("0.txt"), "scratch\n").unwrap();
+        std::fs::write(i.join("A.txt"), "a1\n").unwrap();
+        v.library = Library {
+            entries: vec![".".into(), "0.txt".into(), "A.txt".into()],
+            index: 0,
+        };
+        assert_eq!(v.smart_copy(), Some("a1".to_string()));
+    }
+
+    #[test]
+    fn smart_copy_on_a_chapter_in_f3_copies_its_raw_text() {
+        let (_d, mut v) = app(&["."]);
+        v.view = View::F3;
+        let i = v.void_dir.join("I");
+        std::fs::create_dir_all(&i).unwrap();
+        std::fs::write(i.join("chap.txt"), "line one\n.\nline two\n").unwrap();
+        v.library = Library { entries: vec!["chap.txt".into()], index: 0 };
+        assert_eq!(v.smart_copy(), Some("line one\n.\nline two".to_string()));
     }
 
     // ── merging a book (Ctrl+Shift+M on a dot in F3) ───────────────────────────
