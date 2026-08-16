@@ -590,6 +590,51 @@ impl Voider {
         self.save()
     }
 
+    // ── The cut-up ────────────────────────────────────────────────────────────
+
+    /// Tab: pull a random line from another chapter into the entry, to keep or
+    /// discard. This is loop writing — a line recirculated without its context.
+    /// It only ever COPIES: the file it came from is never touched.
+    pub fn recycle_line(&mut self) {
+        match self.random_line_from_book() {
+            Some(line) => {
+                self.entry.set_text(&line);
+                self.entry.end();
+            }
+            None => self.status = "Nothing to recycle yet".into(),
+        }
+    }
+
+    /// A random line of real text from any chapter but the active one.
+    pub fn random_line_from_book(&mut self) -> Option<String> {
+        if self.library.entries.is_empty() {
+            self.library = Library::load(&self.void_dir);
+        }
+        let src = self
+            .current_file
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let mut lines: Vec<String> = Vec::new();
+        for entry in &self.library.entries {
+            if library::is_separator(entry) || *entry == src {
+                continue;
+            }
+            let path = library::chapter_path(&self.void_dir, entry);
+            lines.extend(
+                void::load_doc(&path)
+                    .lines
+                    .into_iter()
+                    .filter(|l| !l.trim().is_empty() && l.trim() != "."),
+            );
+        }
+        if lines.is_empty() {
+            return None;
+        }
+        shuffle(&mut lines);
+        lines.into_iter().next()
+    }
+
     // ── Shaping ───────────────────────────────────────────────────────────────
 
     /// Ctrl+Shift+F: break the active file into one sentence per line. Backed up
@@ -1366,6 +1411,45 @@ mod tests {
         v.doc_swap_words(1).unwrap();
         assert_eq!(v.entry.text(), "mundo hola cruel");
         assert_eq!(v.ring.lines[1], "mundo hola cruel"); // persisted
+    }
+
+    // ── the cut-up ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn tab_brings_a_line_from_another_chapter() {
+        let (_d, mut v) = book(); // active is Uno.txt; Dos.txt holds 'de dos'
+        v.library = Library::load(&v.void_dir);
+        v.recycle_line();
+        assert_eq!(v.entry.text(), "de dos"); // came from elsewhere
+        assert_eq!(v.entry.caret(), 6); // ready to keep writing from its end
+    }
+
+    #[test]
+    fn recycling_never_takes_from_the_file_you_are_in() {
+        let (_d, mut v) = book();
+        v.library = Library::load(&v.void_dir);
+        for _ in 0..10 {
+            v.recycle_line();
+            assert_ne!(v.entry.text(), "de uno"); // that's the active file's line
+        }
+    }
+
+    #[test]
+    fn recycling_leaves_the_source_untouched() {
+        let (_d, mut v) = book();
+        v.library = Library::load(&v.void_dir);
+        v.recycle_line();
+        let src = void::load_doc(&library::chapter_path(&v.void_dir, "Dos.txt"));
+        assert!(src.lines.contains(&"de dos".to_string())); // it was only copied
+    }
+
+    #[test]
+    fn recycling_with_nowhere_to_pull_from_says_so() {
+        let (_d, mut v) = app(&[".", "sola"]);
+        v.library = Library::default();
+        v.library.entries = vec![];
+        v.recycle_line();
+        assert_eq!(v.status, "Nothing to recycle yet");
     }
 
     // ── shaping ───────────────────────────────────────────────────────────────

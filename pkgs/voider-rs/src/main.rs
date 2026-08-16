@@ -65,17 +65,63 @@ fn install_font(ctx: &egui::Context, family: &str) {
 }
 
 struct VoiderApp {
+    /// The mouse pointer is out of the way while you write.
+    pointer_hidden: bool,
     voider: Voider,
 }
 
 impl VoiderApp {
     fn new() -> Self {
-        Self { voider: app::open_sandbox() }
+        Self { voider: app::open_sandbox(), pointer_hidden: true }
     }
 
     /// The size the writer chose, used by every view.
     fn font_size(&self) -> f32 {
         self.voider.config.font_size
+    }
+
+    /// The mouse pointer: hidden while you type, back on any mouse activity, and
+    /// drawn by us as a white ring with a transparent centre so it never hides
+    /// the word underneath.
+    fn update_pointer(&mut self, ctx: &egui::Context) {
+        let (typed, moved) = ctx.input(|i| {
+            (
+                i.events.iter().any(|e| {
+                    matches!(e, egui::Event::Text(_))
+                        || matches!(e, egui::Event::Key { pressed: true, .. })
+                }),
+                i.pointer.velocity() != egui::Vec2::ZERO
+                    || i.events.iter().any(|e| {
+                        matches!(
+                            e,
+                            egui::Event::PointerMoved(_)
+                                | egui::Event::PointerButton { .. }
+                                | egui::Event::MouseWheel { .. }
+                        )
+                    }),
+            )
+        });
+        if moved {
+            self.pointer_hidden = false;
+        } else if typed {
+            self.pointer_hidden = true;
+        }
+        // The system arrow never shows: the ring below is the only pointer.
+        ctx.set_cursor_icon(egui::CursorIcon::None);
+    }
+
+    /// Paint the ring where the pointer is, unless it's hidden.
+    fn draw_pointer(&self, painter: &egui::Painter, ctx: &egui::Context) {
+        if self.pointer_hidden {
+            return;
+        }
+        if let Some(pos) = ctx.input(|i| i.pointer.hover_pos()) {
+            painter.circle_stroke(
+                pos,
+                11.0,
+                egui::Stroke::new(2.0_f32, egui::Color32::WHITE),
+            );
+        }
     }
 
     fn handle_input(&mut self, ctx: &egui::Context) {
@@ -189,6 +235,8 @@ impl VoiderApp {
             Key::ArrowLeft => self.voider.entry.move_caret(-1),
             Key::ArrowRight => self.voider.entry.move_caret(1),
             Key::Home => self.voider.entry.home(),
+            // Tab: recirculate a line from elsewhere in the book (loop writing).
+            Key::Tab => self.voider.recycle_line(),
             // Alt walks the library without going through F3.
             Key::ArrowUp if m.alt => self.voider.step_file(-1),
             Key::ArrowDown if m.alt => self.voider.step_file(1),
@@ -678,6 +726,7 @@ impl eframe::App for VoiderApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.update_pointer(ctx);
         self.handle_input(ctx);
         // A font chosen in F10 takes effect on this very frame.
         if self.voider.font_dirty {
@@ -702,6 +751,7 @@ impl eframe::App for VoiderApp {
                     View::F10 => self.draw_f10(&painter, rect),
                 }
                 self.draw_title(&painter, rect);
+                self.draw_pointer(&painter, ctx);
                 if !self.voider.status.is_empty() {
                     painter.text(
                         egui::pos2(rect.center().x, rect.bottom() - 24.0),

@@ -27,7 +27,7 @@ pub fn reformat(lines: &[String]) -> Vec<String> {
     // A paragraph ends at a blank line or an existing separator; its lines are
     // joined back together before being split into sentences, so a sentence
     // broken across two lines is healed.
-    let mut flush = |para: &mut Vec<String>, out: &mut Vec<String>| {
+    let flush = |para: &mut Vec<String>, out: &mut Vec<String>| {
         if para.is_empty() {
             return;
         }
