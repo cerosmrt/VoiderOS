@@ -133,6 +133,8 @@ pub struct Voider {
     /// blocked, or we would overwrite content we never saw.
     pub load_failed: bool,
     pub status: String,
+    /// F11: the shortcut reference, over whatever view is underneath.
+    pub help_open: bool,
     /// F9: the active file as one editable block of prose.
     pub prose: String,
     /// Whether that prose was actually edited — viewing it saves nothing.
@@ -195,6 +197,7 @@ impl Voider {
             undo_applying: false,
             load_failed: doc.read_failed,
             status: String::new(),
+            help_open: false,
             prose: String::new(),
             prose_dirty: false,
             f2_search: None,

@@ -114,7 +114,25 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
       break there and wrapped lines DO join before splitting — the exact
       opposite of the ring-side `reformat`. Both branches now exist, as
       `reformat_prose` and `reformat`.
-- [ ] **F11 — help overlay**; **Escape → lock screen** — `test_lock_screen` (7).
+- [x] **F11 — help overlay**: the shortcut reference over whatever view you were
+      in, any key closing it. NOT a port of the Python's HELP table — that table
+      describes bindings this mirror doesn't have (F6/F7/F8, the metronome) or
+      means differently (F5 is paragraphs here), and has drifted from its own
+      code besides (it lists F9 as "Metronome"; `new_interface.py` opens the
+      prose editor). A help screen that lies is worse than none, so this one is
+      written from voider-rs's real keymap.
+- [ ] **Escape → lock screen** — `test_lock_screen` (7). *Deliberately not built
+      yet, and it should be a decision rather than a default.* The Python's
+      version authenticates the real Linux password through PAM. That is the one
+      piece of this mirror I cannot verify without Federico at the keyboard: I
+      can write the overlay and its state machine, but I cannot test that PAM
+      actually accepts the right password and refuses the wrong one, and an
+      unlock path that silently fails open is worse than no lock at all. It also
+      wants a new system dependency (the `pam` crate + PAM libs in `shell.nix`).
+      Worth doing together, not alone — and worth remembering that the lock is a
+      privacy screen either way, not a security boundary: it lives inside the
+      app, so a TTY switch or killing the process walks straight past it, in the
+      Python exactly as much as here.
 
 ## 6. The shell it lives in
 

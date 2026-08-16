@@ -10,6 +10,7 @@ mod app;
 mod config;
 mod f5;
 mod fonts;
+mod help;
 mod library;
 mod paragraphs;
 mod line_ring;
@@ -134,6 +135,9 @@ impl VoiderApp {
                 // character: the key event below handles it, so drop the text or
                 // it would be typed into the line as well.
                 egui::Event::Text(t) if t == "`" => {}
+                // While the help is up nothing types: the keypress that closes
+                // it must not also land in the text underneath.
+                egui::Event::Text(_) if self.voider.help_open => {}
                 egui::Event::Text(t) => match self.voider.view {
                     View::F1 => {
                         let _ = self.voider.type_text(&t, caps);
@@ -161,6 +165,12 @@ impl VoiderApp {
                     View::F5 | View::F9 | View::F10 => {}
                 },
                 egui::Event::Key { key, pressed: true, modifiers, .. } => {
+                    // The help is a reference, not a mode: any key at all puts
+                    // it away, and that key does nothing else.
+                    if self.voider.help_open {
+                        self.voider.help_open = false;
+                        continue;
+                    }
                     // There is no text selection to fall back to here, so
                     // Ctrl+C always means the contextual copy — unless a search
                     // bar has focus (a 'c' belongs in the query) or we're in F9,
@@ -203,6 +213,7 @@ impl VoiderApp {
             Key::F5 => self.voider.switch_to(View::F5),
             Key::F9 => self.voider.switch_to(View::F9),
             Key::F10 => self.voider.switch_to(View::F10),
+            Key::F11 => self.voider.help_open = true,
             // Size from anywhere, as the Python has it.
             Key::Plus | Key::Equals if m.ctrl => self.voider.settings_step_size(1),
             Key::Minus if m.ctrl => self.voider.settings_step_size(-1),
@@ -945,6 +956,63 @@ impl VoiderApp {
         self.voider.set_prose(&buffer);
     }
 
+    /// F11: the shortcut reference in two columns over a near-opaque ground.
+    fn draw_help(&self, painter: &egui::Painter, rect: egui::Rect) {
+        painter.rect_filled(rect, 0.0, egui::Color32::from_black_alpha(238));
+
+        let (left, right) = help::columns(help::ROWS);
+        let row_h = 21.0_f32;
+        let tallest = left.len().max(right.len()) as f32 * row_h;
+        let top = (rect.center().y - tallest / 2.0).max(rect.top() + 40.0);
+        let col_w = rect.width() / 2.0;
+        let key_font = egui::FontId::monospace(11.5);
+        let desc_font = egui::FontId::proportional(12.0);
+        let head_font = egui::FontId::proportional(12.0);
+
+        for (col, rows) in [left, right].iter().enumerate() {
+            let x = rect.left() + col_w * col as f32 + col_w * 0.10;
+            for (i, (key, desc)) in rows.iter().enumerate() {
+                let y = top + i as f32 * row_h;
+                match desc {
+                    // A section head, set apart in white.
+                    None if !key.is_empty() => {
+                        painter.text(
+                            egui::pos2(x, y),
+                            egui::Align2::LEFT_TOP,
+                            key,
+                            head_font.clone(),
+                            egui::Color32::from_gray(235),
+                        );
+                    }
+                    None => {} // a spacer
+                    Some(d) => {
+                        painter.text(
+                            egui::pos2(x + 12.0, y),
+                            egui::Align2::LEFT_TOP,
+                            key,
+                            key_font.clone(),
+                            egui::Color32::from_gray(165),
+                        );
+                        painter.text(
+                            egui::pos2(x + 12.0 + col_w * 0.30, y),
+                            egui::Align2::LEFT_TOP,
+                            d,
+                            desc_font.clone(),
+                            egui::Color32::from_gray(115),
+                        );
+                    }
+                }
+            }
+        }
+        painter.text(
+            egui::pos2(rect.center().x, rect.bottom() - 22.0),
+            egui::Align2::CENTER_CENTER,
+            "cualquier tecla cierra",
+            egui::FontId::proportional(11.0),
+            egui::Color32::from_gray(70),
+        );
+    }
+
     fn draw_title(&self, painter: &egui::Painter, rect: egui::Rect) {
         if !self.voider.show_title {
             return;
@@ -1002,6 +1070,9 @@ impl eframe::App for VoiderApp {
                     View::F10 => self.draw_f10(&painter, rect),
                 }
                 self.draw_title(&painter, rect);
+                if self.voider.help_open {
+                    self.draw_help(&painter, rect);
+                }
                 self.draw_pointer(&painter, ctx);
                 if !self.voider.status.is_empty() {
                     painter.text(
