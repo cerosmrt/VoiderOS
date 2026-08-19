@@ -101,36 +101,6 @@ THEME
   # Hyprland only supports one screen_shader at a time, so this is the only
   # sane approach for independently-toggleable effects.
 
-  # voider-proto: dev sandbox — runs the app directly (no watcher/auto-reload).
-  # The watcher restarted the app on every .py change, which clobbered live text
-  # edits; restart manually to pick up code changes instead.
-  voiderProto = pkgs.writeShellScriptBin "proto-voider" ''
-    cd /home/federico/VoiderOS/proto-voider
-    export QT_QPA_PLATFORM=wayland
-    export QT_PLUGIN_PATH=${pkgs.qt6.qtwayland}/lib/qt-6/plugins''${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}
-    export WAYLAND_DISPLAY=''${WAYLAND_DISPLAY:-wayland-1}
-    exec ${voiderPython}/bin/python3 voider.py
-  '';
-
-  # voider-rs: the Rust/egui mirror (pkgs/voider-rs). Built out of tree with its
-  # own toolchain (see pkgs/voider-rs/shell.nix — the system rustc is older than
-  # the deps need), so this just runs the binary and says how to build it if it
-  # isn't there yet. Runs against its own sandbox void, never ~/void.
-  voiderRs = pkgs.writeShellScriptBin "voider-rs" ''
-    cd /home/federico/VoiderOS/pkgs/voider-rs
-    export LD_LIBRARY_PATH=${lib.makeLibraryPath [ pkgs.wayland pkgs.libxkbcommon pkgs.libGL ]}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
-    export WAYLAND_DISPLAY=''${WAYLAND_DISPLAY:-wayland-1}
-    BIN=target/release/voider-rs
-    [ -x "$BIN" ] || BIN=target/debug/voider-rs
-    if [ ! -x "$BIN" ]; then
-      echo "voider-rs no está compilado todavía. Compilalo con:"
-      echo "  cd ~/VoiderOS/pkgs/voider-rs && nix-shell --run 'cargo build --release'"
-      read -r -p "Enter para cerrar..." _
-      exit 1
-    fi
-    exec ./"$BIN" "$@"
-  '';
-
   # voider-radio: plays random internet radio (jazz, ambient, classical)
   # First call starts playback, second call stops it.
   voiderRadio = pkgs.writeShellScriptBin "voider-radio" ''
@@ -496,8 +466,9 @@ THEME
     bind = SUPER, I, exec, kitty --working-directory ~/incoming
     bind = SUPER, B, exec, firefox
     bind = SUPER, A, exec, pavucontrol
-    bind = SUPER, P, exec, kitty --title proto-voider -e proto-voider
-    bind = SUPER, O, exec, kitty --title voider-rs -e voider-rs
+
+    # Atajos que agrega el perfil de desarrollo (vacío en la ISO).
+    ${config.voider.extraHyprlandBinds}
     bind = SUPER, E, exec, thunar
     bind = SUPER, Q, killactive,
     bind = SUPER, F, togglefloating, active
@@ -570,6 +541,17 @@ THEME
   '';
 in
 {
+  # Punto de extensión para los perfiles de máquina: los atajos que sólo tienen
+  # sentido desarrollando (abrir el sandbox de Python, correr el binario de Rust
+  # recién compilado) los agrega nix/profiles/dev.nix. El producto no los lleva,
+  # y por eso la ISO no sabe nada de ~/VoiderOS.
+  options.voider.extraHyprlandBinds = lib.mkOption {
+    type = lib.types.lines;
+    default = "";
+    description = "Atajos de Hyprland extra, agregados al final de la config.";
+  };
+
+  config = {
   # ── Hyprland ─────────────────────────────────────────────────────────────────
   programs.hyprland = {
     enable = true;
@@ -601,8 +583,6 @@ in
   environment.systemPackages = [
     voiderShell
     voiderPy
-    voiderProto
-    voiderRs
     voiderCursor
     fxUpdate
     fxOpenPanel
@@ -733,4 +713,5 @@ in
 
   # ── Security: polkit for privileged operations ───────────────────────────────
   security.polkit.enable = true;
+  };
 }

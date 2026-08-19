@@ -13,7 +13,10 @@
   # El menú del bootloader NO se pierde: con timeout 0 no aparece solo, pero
   # systemd-boot lo abre igual si mantenés ESPACIO durante el arranque. Esa es la
   # salida de emergencia para elegir una generación anterior.
-  boot.loader.timeout = 0;
+  # mkDefault: en una máquina instalada el menú no aparece (VoiderOS arranca a
+  # negro), pero la ISO live sí quiere mostrarlo — ahí conviene poder elegir.
+  # Sin esto, la preferencia de una máquina instalada rompía la ISO.
+  boot.loader.timeout = lib.mkDefault 0;
 
   # Esto ya agrega "loglevel=0" a los parámetros del kernel, así que no hace
   # falta ponerlo a mano abajo (iría antes y perdería igual).
@@ -95,13 +98,11 @@
   # Ensure D-Bus is available for audio services
   services.dbus.enable = true;
   security.rtkit.enable      = true;
-
-  # NTFS data disk
-  fileSystems."/mnt/data" = {
-    device  = "/dev/disk/by-uuid/F29420EE9420B6CF";
-    fsType  = "ntfs3";
-    options = [ "uid=1000" "gid=1000" "umask=0022" ];
-  };
+  # El disco de datos NTFS NO vive acá: es de una máquina concreta, no de
+  # VoiderOS. Estaba en la base con un UUID fijo y sin nofail, así que en
+  # cualquier otra computadora systemd esperaba un dispositivo inexistente y el
+  # arranque se colgaba. Ahora lo declara el perfil de la máquina que lo tiene
+  # (ver nix/profiles/tuf-data.nix, que importa el target `voider`).
 
   systemd.services."ModemManager".enable = false;
   powerManagement.cpuFreqGovernor = "performance";
