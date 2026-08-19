@@ -173,7 +173,7 @@ impl VoiderApp {
                     // F9's text goes into egui's own multiline widget, which
                     // reads the same events itself — typing it again here would
                     // double every character.
-                    View::F4 | View::F5 | View::F9 | View::F10 => {}
+                    View::F4 | View::F5 | View::F6 | View::F7 | View::F8 | View::F9 | View::F10 => {}
                 },
                 egui::Event::Key { key, pressed: true, modifiers, .. } => {
                     // The help is a reference, not a mode: any key at all puts
@@ -219,6 +219,9 @@ impl VoiderApp {
                         View::F2 => self.handle_f2_key(key, caps, modifiers),
                         View::F3 => self.handle_f3_key(key, modifiers),
                         View::F4 => self.handle_f4_key(key),
+                        View::F6 => self.handle_f6_key(key),
+                        View::F7 => self.handle_f7_key(key, modifiers),
+                        View::F8 => self.handle_f8_key(key),
                         View::F5 => self.handle_f5_key(key, modifiers),
                         View::F9 => self.handle_f9_key(key, modifiers),
                         View::F10 => self.handle_f10_key(key),
@@ -238,6 +241,9 @@ impl VoiderApp {
             Key::F3 => self.voider.switch_to(View::F3),
             Key::F4 => self.voider.switch_to(View::F4),
             Key::F5 => self.voider.switch_to(View::F5),
+            Key::F6 => self.voider.switch_to(View::F6),
+            Key::F7 => self.voider.switch_to(View::F7),
+            Key::F8 => self.voider.switch_to(View::F8),
             Key::F9 => self.voider.switch_to(View::F9),
             Key::F10 => self.voider.switch_to(View::F10),
             Key::F11 => self.voider.help_open = true,
@@ -551,6 +557,56 @@ impl VoiderApp {
         }
     }
 
+
+    /// F6, el lector del corpus: moverse por el libro y salir.
+    fn handle_f6_key(&mut self, key: egui::Key) {
+        use egui::Key;
+        match key {
+            Key::ArrowUp => self.voider.o_navigate(-1),
+            Key::ArrowDown => self.voider.o_navigate(1),
+            Key::PageUp => self.voider.o_navigate(-10),
+            Key::PageDown => self.voider.o_navigate(10),
+            // Volver al working set, que es de donde se viene.
+            Key::Escape => self.voider.switch_to(View::F7),
+            _ => {}
+        }
+    }
+
+    /// F7, el working set: sortear, agregar, sacar, abrir.
+    fn handle_f7_key(&mut self, key: egui::Key, m: egui::Modifiers) {
+        use egui::Key;
+        match key {
+            Key::ArrowUp => self.voider.ws_move(-2),
+            Key::ArrowDown => self.voider.ws_move(2),
+            // Tab llena la ranura con un libro que no esté ya en otra.
+            Key::Tab => self.voider.ws_tab(),
+            Key::Enter if m.shift => self.voider.ws_add_slot(),
+            Key::Delete if m.ctrl => self.voider.ws_remove_slot(),
+            Key::Enter => {
+                if self.voider.open_o_book() {
+                    self.voider.switch_to(View::F6);
+                }
+            }
+            Key::Escape => self.voider.switch_to(View::F1),
+            _ => {}
+        }
+    }
+
+    /// F8, el oráculo: cada movimiento es una tirada nueva; Enter se la queda.
+    fn handle_f8_key(&mut self, key: egui::Key) {
+        use egui::Key;
+        match key {
+            Key::ArrowUp | Key::ArrowDown | Key::Tab => {
+                self.voider.tts.cut();
+                self.voider.refresh_oracle();
+            }
+            Key::Enter => {
+                let _ = self.voider.keep_oracle_line();
+            }
+            Key::Escape => self.voider.switch_to(View::F1),
+            _ => {}
+        }
+    }
     /// F9 leaves editing to the widget: only Ctrl+S (save without leaving) and
     /// Escape (back to F2, where save-on-leave does the writing) are ours.
     fn handle_f9_key(&mut self, key: egui::Key, m: egui::Modifiers) {
@@ -1177,6 +1233,118 @@ impl VoiderApp {
         }
     }
 
+
+    /// Un anillo de líneas centrado, con la del medio encendida y las demás
+    /// apagándose hacia los bordes. Es la forma que ya tienen F2 y F3; F6 y F7
+    /// la comparten porque son la misma idea sobre otro contenido.
+    fn draw_ring(
+        &self,
+        painter: &egui::Painter,
+        rect: egui::Rect,
+        lines: &[String],
+        index: usize,
+        vacio: &str,
+    ) {
+        let centre = rect.center();
+        let line_h = self.font_size() * 1.7;
+        let font = egui::FontId::proportional(self.font_size());
+        let n = lines.len() as isize;
+        if n == 0 {
+            painter.text(
+                centre,
+                egui::Align2::CENTER_CENTER,
+                vacio,
+                font,
+                egui::Color32::from_gray(70),
+            );
+            return;
+        }
+        let reach = (rect.height() / 2.0 / line_h).ceil() as isize;
+        for offset in -reach..=reach {
+            let i = (index as isize + offset).rem_euclid(n) as usize;
+            let text = lines[i].as_str();
+            if text.is_empty() {
+                continue;
+            }
+            let alpha = if offset == 0 {
+                255
+            } else {
+                let fade = (1.0 - (offset.unsigned_abs() as f32 / F2_FADE_LINES)).clamp(0.0, 1.0);
+                (fade * fade * 200.0) as u8
+            };
+            if alpha == 0 {
+                continue;
+            }
+            painter.text(
+                egui::pos2(centre.x, centre.y + offset as f32 * line_h),
+                egui::Align2::CENTER_CENTER,
+                text,
+                font.clone(),
+                egui::Color32::from_white_alpha(alpha),
+            );
+        }
+    }
+
+    /// F6: el libro del corpus, línea por línea.
+    fn draw_f6(&self, painter: &egui::Painter, rect: egui::Rect) {
+        let v = &self.voider;
+        self.draw_ring(
+            painter,
+            rect,
+            &v.o_ring.lines,
+            v.o_ring.index,
+            "sin libro — Enter en F7 para abrir uno",
+        );
+        if !v.o_file.is_empty() {
+            painter.text(
+                egui::pos2(rect.center().x, rect.bottom() - 26.0),
+                egui::Align2::CENTER_CENTER,
+                corpus::clean_book_title(&v.o_file),
+                egui::FontId::proportional(11.0),
+                egui::Color32::from_gray(80),
+            );
+        }
+    }
+
+    /// F7: las ranuras del working set.
+    fn draw_f7(&self, painter: &egui::Painter, rect: egui::Rect) {
+        let v = &self.voider;
+        let entries = v.ws.browser_entries();
+        self.draw_ring(painter, rect, &entries, v.ws_index, corpus::EMPTY);
+        painter.text(
+            egui::pos2(rect.center().x, rect.bottom() - 26.0),
+            egui::Align2::CENTER_CENTER,
+            "Tab sortea   ⇧⏎ agrega   Ctrl+Supr saca   ⏎ abre",
+            egui::FontId::proportional(11.0),
+            egui::Color32::from_gray(75),
+        );
+    }
+
+    /// F8: una sola línea, la que salió. Ancha, centrada, sin nada alrededor.
+    fn draw_f8(&self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
+        let text = if self.voider.oracle.is_empty() { "..." } else { &self.voider.oracle };
+        let width = rect.width() * 0.62;
+        let galley = ctx.fonts(|f| {
+            f.layout(
+                text.to_string(),
+                egui::FontId::proportional(self.font_size()),
+                egui::Color32::from_gray(225),
+                width,
+            )
+        });
+        let pos = egui::pos2(
+            rect.center().x - galley.size().x / 2.0,
+            rect.center().y - galley.size().y / 2.0,
+        );
+        painter.galley(pos, galley, egui::Color32::from_gray(225));
+        painter.text(
+            egui::pos2(rect.center().x, rect.bottom() - 26.0),
+            egui::Align2::CENTER_CENTER,
+            "↑↓ otra   ⏎ quedársela",
+            egui::FontId::proportional(11.0),
+            egui::Color32::from_gray(75),
+        );
+    }
     /// F11: the shortcut reference in two columns over a near-opaque ground.
     fn draw_help(&self, painter: &egui::Painter, rect: egui::Rect) {
         painter.rect_filled(rect, 0.0, egui::Color32::from_black_alpha(238));
@@ -1296,6 +1464,9 @@ impl eframe::App for VoiderApp {
                     View::F2 => self.draw_f2(&painter, ctx, rect),
                     View::F3 => self.draw_f3(&painter, ctx, rect),
                     View::F4 => self.draw_f4(&painter, ctx, rect),
+                    View::F6 => self.draw_f6(&painter, rect),
+                    View::F7 => self.draw_f7(&painter, rect),
+                    View::F8 => self.draw_f8(&painter, ctx, rect),
                     View::F5 => self.draw_f5(&painter, ctx, rect),
                     // The only view built from a real widget rather than painted
                     // by hand: F9 wants ordinary prose editing (wrapping,

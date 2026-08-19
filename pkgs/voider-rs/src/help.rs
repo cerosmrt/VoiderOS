@@ -2,11 +2,11 @@
 //!
 //! A port of `help_overlay.py` in spirit, but NOT of its table: the Python's
 //! HELP list describes the Python's own bindings, several of which this mirror
-//! does not have (F6/F7/F8, the metronome) or means differently (F5 is
-//! paragraphs here, the `O/` fork there). Its table has even drifted from its
-//! own code — it lists F9 as "Metronome" while `new_interface.py` opens the
-//! prose editor. A help screen that lies is worse than none, so this one lists
-//! what voider-rs actually does, and nothing it doesn't.
+//! means differently, or that have drifted from its own code: it lists F5 as
+//! the `O/` fork and F9 as "Metronome", while its own new_interface.py has F5
+//! reordering paragraphs and F9 opening the prose editor — both of which is
+//! what this mirror does too. A help screen that lies is worse than none, so
+//! this one lists what voider-rs actually does, and nothing it doesn't.
 
 #![allow(dead_code)]
 
@@ -21,6 +21,9 @@ pub const ROWS: &[Row] = &[
     ("F3", Some("The library — the book's chapters in reading order")),
     ("F4", Some("Read — the book set in a column, page by page")),
     ("F5", Some("Paragraphs — move them, send one to a chapter")),
+    ("F6", Some("Read a book from O/ — the corpus")),
+    ("F7", Some("The working set — the books picked by hand")),
+    ("F8", Some("The oracle — a random line from the corpus")),
     ("F9", Some("Prose — the active file as one editable block")),
     ("F10", Some("Settings — the writing font and its size (←→)")),
     ("F11", Some("This help")),
@@ -74,6 +77,15 @@ pub const ROWS: &[Row] = &[
     ("READING  (F4)", None),
     ("→ / ← , PageDn / PageUp", Some("Turn the page")),
     ("Home / End", Some("First / last page")),
+    ("", None),
+    ("THE CORPUS  (F6 / F7 / F8)", None),
+    ("Tab  (F7)", Some("Draw a book into this slot — never one already used")),
+    ("Shift+Enter  (F7)", Some("Add a slot below this one")),
+    ("Ctrl+Delete  (F7)", Some("Remove the slot (not the one open in F6)")),
+    ("Enter  (F7)", Some("Open that book in the reader")),
+    ("↑ / ↓  (F8)", Some("Draw another line")),
+    ("Enter  (F8)", Some("Keep it — into the active document")),
+    ("Ctrl+T", Some("The voice: read aloud")),
 ];
 
 /// The rows split into two balanced columns, breaking only between sections so

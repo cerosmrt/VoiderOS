@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use crate::backup;
 use crate::config::Config;
+use crate::corpus;
 use crate::f5;
 use crate::fonts;
 use crate::ipc;
@@ -61,6 +62,12 @@ pub enum View {
     F2,
     /// The library: the book's chapters in reading order.
     F3,
+    /// El lector del corpus: un libro de O/ como anillo.
+    F6,
+    /// El working set: los libros elegidos a mano, uno por ranura.
+    F7,
+    /// El oráculo: una línea al azar del corpus.
+    F8,
     /// The book as a book: set in a column, turned page by page.
     F4,
     /// The active file as paragraphs, in order, to be moved or sent away.
@@ -80,7 +87,9 @@ impl View {
             View::F2 => Some("F2"),
             View::F3 => Some("F3"),
             View::F4 => Some("F4"),
-            View::F5 | View::F9 | View::F10 => None,
+            View::F6 => Some("F6"),
+            View::F7 => Some("F7"),
+            View::F5 | View::F8 | View::F9 | View::F10 => None,
         }
     }
 
@@ -90,6 +99,8 @@ impl View {
             "F2" => Some(View::F2),
             "F3" => Some(View::F3),
             "F4" => Some(View::F4),
+            "F6" => Some(View::F6),
+            "F7" => Some(View::F7),
             _ => None,
         }
     }
@@ -151,6 +162,18 @@ pub struct Voider {
     /// Ctrl+B: a backup worked out and waiting to be accepted. Nothing is
     /// written to the drive until it is.
     pub backup_prompt: Option<BackupPrompt>,
+    /// F6: el libro del corpus abierto, como anillo de líneas.
+    pub o_ring: LineRing,
+    /// F6: qué archivo de O/ es ese (vacío si no hay ninguno).
+    pub o_file: String,
+    /// F7: los libros elegidos a mano.
+    pub ws: corpus::WorkingSet,
+    /// F7: la posición del cursor en el anillo del working set.
+    pub ws_index: usize,
+    /// Los nombres de O/, desde el cache — nunca se recorre en vivo.
+    pub o_books: Vec<String>,
+    /// F8: la línea que el oráculo sacó.
+    pub oracle: String,
     /// F4: what is being read, as titled sections of prose.
     pub reading: Vec<reading::Section>,
     /// F4: which page is on screen.
@@ -230,6 +253,12 @@ impl Voider {
             status: String::new(),
             tts: Tts::default(),
             ipc: None,
+            o_ring: LineRing::new([".".to_string()]),
+            o_file: String::new(),
+            ws: corpus::WorkingSet::default(),
+            ws_index: 1,
+            o_books: Vec::new(),
+            oracle: String::new(),
             reading: Vec::new(),
             page: 0,
             open_at_para: 0,
@@ -402,6 +431,10 @@ impl Voider {
         if view != View::F3 {
             self.f3_search_cancel();
         }
+        // Salir del lector guarda por dónde ibas, como en el Python.
+        if self.view == View::F6 && view != View::F6 {
+            self.save_o_position();
+        }
         // Leaving the prose editor commits what was typed there.
         if self.view == View::F9 && view != View::F9 {
             let _ = self.prose_save();
@@ -441,6 +474,9 @@ impl Voider {
             }
             View::F9 => self.enter_prose_editor(),
             View::F4 => self.enter_reading(from),
+            View::F6 => self.enter_o_reader(),
+            View::F7 => self.enter_o_browser(),
+            View::F8 => self.refresh_oracle(),
         }
         self.save_last_view();
     }
@@ -626,6 +662,169 @@ impl Voider {
     }
 
 
+
+    // ── El lado O/: el corpus que se lee ───────────────────────────────────────
+
+    /// Dónde vive el corpus. Es un enlace a otro disco, y se lee, nunca se escribe.
+    pub fn o_dir(&self) -> PathBuf {
+        self.void_dir.join("O")
+    }
+
+    /// Cargar el working set y la lista de libros, una sola vez por sesión.
+    fn ensure_corpus_loaded(&mut self) {
+        if self.o_books.is_empty() {
+            self.o_books = corpus::load_cache(&self.void_dir);
+        }
+        if self.ws.books.is_empty() {
+            self.ws = corpus::WorkingSet::load(&self.o_dir());
+        }
+    }
+
+    /// F7: el working set, un separador antes de cada ranura.
+    pub fn enter_o_browser(&mut self) {
+        self.ensure_corpus_loaded();
+        if self.ws.books.is_empty() {
+            self.ws = corpus::WorkingSet::load(&self.o_dir());
+        }
+        let n = self.ws.browser_entries().len();
+        if self.ws_index == 0 || self.ws_index >= n {
+            self.ws_index = 1.min(n.saturating_sub(1));
+        }
+    }
+
+    /// Qué ranura está señalando el cursor de F7, si no está sobre un separador.
+    pub fn ws_current_slot(&self) -> Option<usize> {
+        self.ws.slot_at(self.ws_index)
+    }
+
+    /// Mover el cursor de F7, saltando los separadores: lo que interesa son los
+    /// libros, no las marcas entre ellos.
+    pub fn ws_move(&mut self, delta: isize) {
+        let n = self.ws.browser_entries().len() as isize;
+        if n <= 1 {
+            return;
+        }
+        let mut i = self.ws_index as isize;
+        for _ in 0..n {
+            i = (i + delta).rem_euclid(n);
+            if i % 2 == 1 {
+                break; // las impares son ranuras
+            }
+        }
+        self.ws_index = i as usize;
+    }
+
+    /// Tab en F7: llenar la ranura con un libro al azar que no esté ya en otra.
+    pub fn ws_tab(&mut self) {
+        self.ensure_corpus_loaded();
+        let Some(slot) = self.ws_current_slot() else { return };
+        if self.o_books.is_empty() {
+            self.status = "No hay cache de O/ — nada para sortear".into();
+            return;
+        }
+        let books = self.o_books.clone();
+        match self.ws.randomize(slot, &books) {
+            Some(name) => {
+                let _ = self.ws.save(&self.o_dir());
+                self.status = corpus::clean_book_title(&name);
+            }
+            None => self.status = "No quedan libros sin usar".into(),
+        }
+    }
+
+    /// Shift+Enter en F7: una ranura vacía nueva, con el cursor encima.
+    pub fn ws_add_slot(&mut self) {
+        let at = self.ws.add_slot(self.ws_current_slot());
+        let _ = self.ws.save(&self.o_dir());
+        self.ws_index = self.ws.ring_index_of(at);
+        self.status = format!("{} ranura(s)", self.ws.books.len());
+    }
+
+    /// Ctrl+Delete en F7: sacar la ranura, salvo que sea el libro abierto en F6.
+    pub fn ws_remove_slot(&mut self) {
+        let Some(slot) = self.ws_current_slot() else { return };
+        let open = (!self.o_file.is_empty()).then(|| self.o_file.clone());
+        match self.ws.remove_slot(slot, open.as_deref()) {
+            Some(next) => {
+                let _ = self.ws.save(&self.o_dir());
+                self.ws_index = self.ws.ring_index_of(next);
+                self.status = format!("{} ranura(s)", self.ws.books.len());
+            }
+            None => self.status = "Ese libro está abierto en el lector".into(),
+        }
+    }
+
+    /// Enter en F7: abrir esa ranura en el lector, donde la habías dejado.
+    pub fn open_o_book(&mut self) -> bool {
+        let Some(slot) = self.ws_current_slot() else { return false };
+        let name = self.ws.books[slot].path.clone();
+        if name.is_empty() {
+            return false; // una ranura vacía no abre nada; primero Tab
+        }
+        let path = self.o_dir().join(&name);
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            self.status = "No se pudo leer ese libro".into();
+            return false;
+        };
+        let lines: Vec<String> = text
+            .lines()
+            .map(|l| l.trim_end().to_string())
+            .filter(|l| !l.trim().is_empty())
+            .collect();
+        self.o_ring = LineRing::new(if lines.is_empty() { vec![".".to_string()] } else { lines });
+        let pos = self.ws.position_of(&name);
+        self.o_ring.index = pos.min(self.o_ring.lines.len().saturating_sub(1));
+        self.o_file = name;
+        true
+    }
+
+    /// F6: el lector. Si no hay libro cargado, trae el de la ranura actual.
+    pub fn enter_o_reader(&mut self) {
+        self.ensure_corpus_loaded();
+        if self.o_file.is_empty() {
+            self.open_o_book();
+        }
+    }
+
+    /// Guardar por dónde ibas leyendo. Al salir de F6.
+    pub fn save_o_position(&mut self) {
+        if self.o_file.is_empty() {
+            return;
+        }
+        let (file, idx) = (self.o_file.clone(), self.o_ring.index);
+        self.ws.save_position(&file, idx);
+        let _ = self.ws.save(&self.o_dir());
+    }
+
+    /// Moverse por el libro. Corta la voz, como toda navegación.
+    pub fn o_navigate(&mut self, delta: isize) {
+        self.tts.cut();
+        self.o_ring.move_by(delta);
+    }
+
+    /// F8: el oráculo. Una línea al azar del corpus, nueva en cada visita y en
+    /// cada movimiento — no es una lista para recorrer, es una tirada.
+    pub fn refresh_oracle(&mut self) {
+        self.ensure_corpus_loaded();
+        let dir = self.o_dir();
+        let books = self.o_books.clone();
+        self.oracle = corpus::oracle_line(&dir, &books);
+    }
+
+    /// Enter en F8: quedarse con la línea, metiéndola en el documento activo
+    /// debajo de donde estabas, y tirar otra.
+    pub fn keep_oracle_line(&mut self) -> io::Result<()> {
+        let line = self.oracle.trim().to_string();
+        if line.is_empty() || line == "..." {
+            return Ok(());
+        }
+        let at = (self.ring.index + 1).min(self.ring.lines.len());
+        self.ring.lines.insert(at, line);
+        self.ring.index = at;
+        self.save()?;
+        self.refresh_oracle();
+        Ok(())
+    }
     // ── Ctrl+T: la voz ─────────────────────────────────────────────────────────
 
     /// Lo que le toca leer a cada vista, o nada si esta vista no habla.
@@ -3714,6 +3913,145 @@ mod tests {
         std::fs::write(&other, "x\n").unwrap();
         v.set_active_file(other);
         assert_eq!(Config::load(&v.void_dir).active_file.as_deref(), Some("other.txt"));
+    }
+
+    // ── El lado O/ (F6 lector, F7 working set, F8 oráculo) ──────────────────────
+
+    /// Un Voider con un corpus de mentira: O/ con libros y su cache.
+    fn corpus_app(books: &[&str]) -> (tempfile::TempDir, Voider) {
+        let (d, mut v) = app(&[".", "mi texto"]);
+        let o = v.void_dir.join("O");
+        std::fs::create_dir_all(&o).unwrap();
+        for b in books {
+            std::fs::write(o.join(b), "primera linea\n.\nsegunda linea\n").unwrap();
+        }
+        corpus::rebuild_cache(&v.void_dir, &o).unwrap();
+        v.o_books = corpus::load_cache(&v.void_dir);
+        (d, v)
+    }
+
+    #[test]
+    fn f7_arranca_con_una_ranura_vacia() {
+        let (_d, mut v) = corpus_app(&["a.txt"]);
+        v.switch_to(View::F7);
+        assert_eq!(v.ws.books.len(), 1);
+        assert!(v.ws.books[0].is_empty());
+        assert_eq!(v.ws_current_slot(), Some(0));
+    }
+
+    #[test]
+    fn tab_en_f7_llena_la_ranura_y_lo_deja_guardado() {
+        let (_d, mut v) = corpus_app(&["a.txt"]);
+        v.switch_to(View::F7);
+        v.ws_tab();
+        assert_eq!(v.ws.books[0].path, "a.txt");
+        // Y sobrevive a releer del disco.
+        assert_eq!(corpus::WorkingSet::load(&v.o_dir()).books[0].path, "a.txt");
+    }
+
+    #[test]
+    fn el_cursor_de_f7_salta_los_separadores() {
+        let (_d, mut v) = corpus_app(&["a.txt", "b.txt"]);
+        v.switch_to(View::F7);
+        v.ws_add_slot();
+        assert_eq!(v.ws.books.len(), 2);
+        for _ in 0..6 {
+            v.ws_move(2);
+            assert!(v.ws_current_slot().is_some(), "cayó sobre un separador");
+        }
+    }
+
+    #[test]
+    fn enter_en_una_ranura_vacia_no_abre_nada() {
+        let (_d, mut v) = corpus_app(&["a.txt"]);
+        v.switch_to(View::F7);
+        assert!(!v.open_o_book());
+        assert!(v.o_file.is_empty());
+    }
+
+    #[test]
+    fn enter_en_una_ranura_llena_abre_el_libro_en_f6() {
+        let (_d, mut v) = corpus_app(&["a.txt"]);
+        v.switch_to(View::F7);
+        v.ws_tab();
+        assert!(v.open_o_book());
+        assert_eq!(v.o_file, "a.txt");
+        assert!(v.o_ring.lines.contains(&"primera linea".to_string()));
+    }
+
+    #[test]
+    fn f6_recuerda_por_donde_ibas_en_cada_libro() {
+        let (_d, mut v) = corpus_app(&["a.txt"]);
+        v.switch_to(View::F7);
+        v.ws_tab();
+        v.open_o_book();
+        v.o_ring.index = 2;
+        v.view = View::F6;
+        v.switch_to(View::F7); // salir guarda
+        v.o_file.clear();
+        v.open_o_book();
+        assert_eq!(v.o_ring.index, 2, "volvió al principio en vez de a donde estabas");
+    }
+
+    #[test]
+    fn el_libro_abierto_no_se_puede_sacar_del_conjunto() {
+        let (_d, mut v) = corpus_app(&["a.txt"]);
+        v.switch_to(View::F7);
+        v.ws_tab();
+        v.open_o_book();
+        v.ws_remove_slot();
+        assert_eq!(v.ws.books.len(), 1);
+        assert_eq!(v.ws.books[0].path, "a.txt", "se llevó puesto el libro que estaba leyendo");
+        assert!(v.status.contains("abierto"));
+    }
+
+    #[test]
+    fn el_oraculo_saca_una_linea_del_corpus() {
+        let (_d, mut v) = corpus_app(&["a.txt"]);
+        v.switch_to(View::F8);
+        assert!(v.oracle == "primera linea" || v.oracle == "segunda linea");
+    }
+
+    #[test]
+    fn quedarse_con_la_linea_del_oraculo_la_mete_en_el_documento() {
+        let (_d, mut v) = corpus_app(&["a.txt"]);
+        v.ring.index = 1; // sobre 'mi texto'
+        v.switch_to(View::F8);
+        let salida = v.oracle.clone();
+        v.keep_oracle_line().unwrap();
+        assert_eq!(v.ring.lines[2], salida);
+        assert_eq!(v.ring.index, 2);
+        // Y quedó guardado en disco.
+        assert!(void::load_doc(&v.current_file).lines.contains(&salida));
+    }
+
+    #[test]
+    fn el_oraculo_tira_otra_despues_de_quedarse_con_una() {
+        let (_d, mut v) = corpus_app(&["a.txt"]);
+        v.switch_to(View::F8);
+        v.keep_oracle_line().unwrap();
+        assert!(!v.oracle.is_empty());
+    }
+
+    #[test]
+    fn sin_corpus_el_oraculo_no_rompe_nada() {
+        let (_d, mut v) = app(&[".", "a"]);
+        v.switch_to(View::F8);
+        assert_eq!(v.oracle, "...");
+        v.keep_oracle_line().unwrap(); // no mete "..." en el texto
+        assert_eq!(v.ring.lines, vec![".".to_string(), "a".into()]);
+    }
+
+    #[test]
+    fn f6_y_f7_son_vistas_a_las_que_se_vuelve_al_reiniciar() {
+        let (_d, mut v) = corpus_app(&["a.txt"]);
+        v.switch_to(View::F7);
+        assert_eq!(Config::load(&v.void_dir).last_view.as_deref(), Some("F7"));
+        v.switch_to(View::F6);
+        assert_eq!(Config::load(&v.void_dir).last_view.as_deref(), Some("F6"));
+        // El oráculo no: es una tirada, no un lugar donde se está.
+        v.switch_to(View::F8);
+        assert_eq!(Config::load(&v.void_dir).last_view.as_deref(), Some("F6"));
     }
 
     // ── F4: the book as a book ───────────────────────────────────────────────────
