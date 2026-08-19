@@ -19,7 +19,12 @@
     "${modulesPath}/installer/cd-dvd/installation-cd-minimal.nix"
   ];
 
-  isoImage.isoName = lib.mkForce "VoiderOS.iso";
+  # El nombre del archivo sale de `image.baseName`, NO de `isoImage.isoName`.
+  # En 25.05 isoName quedó renombrado a image.fileName por compatibilidad, pero
+  # iso-image.nix arma el nombre real con `isoName = "${config.image.baseName}.iso"`,
+  # así que setear isoName evalúa bien y no cambia nada. Verificado leyendo el
+  # módulo: la ISO salía como nixos-minimal-<label>-<system>.iso.
+  image.baseName = lib.mkForce "VoiderOS";
   isoImage.volumeID = lib.mkForce "VOIDEROS";
   # El instalador de NixOS y su documentación no pintan nada en una máquina de
   # escribir; sacarlos también achica la imagen.
