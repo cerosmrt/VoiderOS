@@ -40,7 +40,6 @@
     password     = "";
   };
   users.users.root.password = lib.mkForce "";
-  services.getty.autologinUser = lib.mkForce null;
 
   # ── La sesión ───────────────────────────────────────────────────────────────
   # greetd entra solo como `voider` y lanza Hyprland, que hospeda a voider-rs.
@@ -79,6 +78,19 @@
   '';
 
   environment.systemPackages = [ voiderRs pkgs.kitty ];
+
+  # wlroots se niega a arrancar sin GPU salvo que se le permita explícitamente el
+  # render por software. Esto es lo que hace que la MISMA ISO sirva en QEMU y en
+  # una máquina de verdad: acá se HABILITA el fallback, no se fuerza — con GPU
+  # real se sigue usando la GPU. (LIBGL_ALWAYS_SOFTWARE, que usa el target
+  # voider-vm, sí la forzaría, y en hardware real sería desperdiciarla.)
+  environment.sessionVariables.WLR_RENDERER_ALLOW_SOFTWARE = "1";
+  environment.sessionVariables.WLR_NO_HARDWARE_CURSORS = "1";
+
+  # Consola de respaldo. La había apagado con mkForce null, y fue un error: si la
+  # sesión gráfica no levanta, sin esto queda una pantalla negra sin ninguna
+  # forma de averiguar por qué.
+  services.getty.autologinUser = lib.mkDefault "voider";
 
   # ── El void ─────────────────────────────────────────────────────────────────
   # Vacío. voider-rs lo crea solo en ~/void la primera vez que escribís.
