@@ -9,6 +9,7 @@
 mod app;
 mod backup;
 mod config;
+mod corpus;
 mod f5;
 mod fonts;
 mod help;
