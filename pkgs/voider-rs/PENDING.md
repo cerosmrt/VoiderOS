@@ -185,8 +185,12 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
       *This corrected a real mistake*: `Ctrl+±` had been bound to type size here
       with a comment claiming the Python did the same. It doesn't — it binds
       `opacity_up`/`opacity_down`, and size lives on F10's `←/→`.
-- [ ] **TTS** (`Ctrl+T`) — needs a speech engine decision (the Python shells out
-      to its own); not started.
+- [x] **TTS** (`Ctrl+T`) — `piper` + `aplay`, igual que el Python, con los
+      mismos argumentos y los mismos modelos `.onnx`. La detección de idioma
+      es una heurística propia en vez de `langdetect`: acentos, signos de
+      apertura y palabras muy frecuentes, cayendo a inglés ante la duda como
+      hace el Python. Navegar corta la voz (`_tts_cut`); en F2 sigue sola
+      línea por línea; F4 no habla, es una página para mirar.
 - [ ] **Pickers**: active file, book folder, void folder.
 - [ ] **Be the desktop**: wlr-layer-shell. `pkgs/voider-shell/` is already a Rust
       layer-shell host, so this is closer than it looks.

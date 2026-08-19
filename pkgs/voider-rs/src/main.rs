@@ -21,6 +21,7 @@ mod reading;
 mod reformat;
 mod split;
 mod text_line;
+mod tts;
 mod undo;
 mod void;
 mod words;
@@ -253,6 +254,8 @@ impl VoiderApp {
                     if self.voider.typewriter { "ON" } else { "OFF" }
                 );
             }
+            // Ctrl+T: la voz. (Ctrl+Shift+T es el titulo, abajo.)
+            Key::T if m.ctrl && !m.shift => self.voider.tts_toggle(),
             Key::T if m.ctrl && m.shift => {
                 self.voider.show_title = !self.voider.show_title;
             }
@@ -1261,6 +1264,8 @@ impl eframe::App for VoiderApp {
         // Take in what the other instances did before reading this frame's
         // keys, so a keystroke always lands on the newest text.
         self.voider.poll_ipc();
+        // Cuando la linea termino de sonar, la voz sigue sola con la siguiente.
+        self.voider.tts_poll();
         self.handle_input(ctx);
         // Nothing here generates its own repaints, so without this a sibling's
         // save would sit unnoticed until the next key or mouse move.

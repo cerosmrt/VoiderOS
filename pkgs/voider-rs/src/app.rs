@@ -22,6 +22,7 @@ use crate::reformat;
 use crate::split;
 use crate::line_ring::LineRing;
 use crate::text_line::{self, TextLine};
+use crate::tts::Tts;
 use crate::undo::{self, UndoManager};
 use crate::void;
 use chrono::Datelike;
@@ -140,6 +141,8 @@ pub struct Voider {
     /// blocked, or we would overwrite content we never saw.
     pub load_failed: bool,
     pub status: String,
+    /// Ctrl+T: la voz. Vive acá porque cada vista decide qué se lee.
+    pub tts: Tts,
     /// Telling sibling instances what changed. `None` when running alone (and
     /// in tests, which have no business opening sockets).
     pub ipc: Option<ipc::Ipc>,
@@ -225,6 +228,7 @@ impl Voider {
             undo_applying: false,
             load_failed: doc.read_failed,
             status: String::new(),
+            tts: Tts::default(),
             ipc: None,
             reading: Vec::new(),
             page: 0,
@@ -621,6 +625,68 @@ impl Voider {
         self.entry.home();
     }
 
+
+    // ── Ctrl+T: la voz ─────────────────────────────────────────────────────────
+
+    /// Lo que le toca leer a cada vista, o nada si esta vista no habla.
+    /// F4 no habla a propósito: es una página para mirar, no para escuchar.
+    fn tts_current_text(&self) -> Option<String> {
+        match self.view {
+            View::F1 => Some(self.ring.current().to_string()),
+            View::F2 => Some(self.ring.current().to_string()),
+            View::F5 => f5::units(&self.ring.lines).get(self.para_idx).map(|u| match u {
+                f5::Unit::Para { text, .. } => text.clone(),
+                f5::Unit::Mark { name } => name.clone(),
+            }),
+            // F4 no habla: es una pagina para mirar. F3/F9/F10 tampoco.
+            _ => None,
+        }
+    }
+
+    /// Ctrl+T: prender o apagar. Al prender, empieza por donde estás parado.
+    pub fn tts_toggle(&mut self) {
+        if self.tts.toggle() {
+            self.status = "Voz encendida".into();
+            self.tts_speak_current();
+        } else {
+            self.status = "Voz apagada".into();
+        }
+    }
+
+    fn tts_speak_current(&mut self) {
+        if !self.tts.active {
+            return;
+        }
+        if let Some(text) = self.tts_current_text() {
+            let dir = self.void_dir.clone();
+            self.tts.speak(&dir, &text);
+        }
+    }
+
+    /// Llamado cada frame: cuando la línea terminó de sonar, avanza a la
+    /// siguiente. Sólo en F2, que es la vista que lee seguido; en F1 y F5 se
+    /// dice lo que hay y se calla, como en el Python.
+    pub fn tts_poll(&mut self) {
+        if !self.tts.active || self.tts.is_speaking() {
+            return;
+        }
+        if self.view != View::F2 {
+            return;
+        }
+        // Avanzar a la próxima línea con texto, sin quedarse en los puntos.
+        let n = self.ring.lines.len();
+        if n == 0 {
+            return;
+        }
+        for _ in 0..n {
+            self.ring.move_by(1);
+            if crate::tts::is_speakable(self.ring.current()) {
+                break;
+            }
+        }
+        self.sync_entry();
+        self.tts_speak_current();
+    }
     // ── Ctrl+B: the copy that leaves the machine ───────────────────────────────
 
     /// Today, as the backup folder names it.
@@ -1423,6 +1489,9 @@ impl Voider {
     /// at the end, so walking a paragraph feels continuous. Focused (see
     /// `enter_para_focus`), it walks only within the paragraph, wrapping there.
     pub fn doc_navigate(&mut self, delta: isize) -> io::Result<()> {
+        // Navegar corta la voz y la deja apagada, para que no siga sola por
+        // donde el lector ya no esta. Es el _tts_cut del Python.
+        self.tts.cut();
         let at_end = self.entry.caret() == self.entry.len();
         self.doc_live_save()?;
         self.save_last_line();
