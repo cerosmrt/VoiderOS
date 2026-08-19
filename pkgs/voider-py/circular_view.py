@@ -11,7 +11,7 @@ class CircularView(QWidget):
         super().__init__(parent)
         self.ring = ring
         self._offset = 0.0
-        self.line_height = 38
+        # El espacio entre lineas SIGUE a la fuente (ver la propiedad line_height).
         
         self.max_alpha = 1.0
         self.min_alpha = 0.0
@@ -158,6 +158,24 @@ class CircularView(QWidget):
         t = distance_from_center_px / half_h  # 0 at center, 1 at screen edge
         alpha = math.cos(t * math.pi / 2) if t < 1.0 else 0.0
         return max(0.0, min(self.max_alpha, alpha))
+
+    # Proporcion entre el alto de la letra y el salto de linea. 1.31 es el
+    # numero que reproduce exactamente los 38px de antes con la fuente por
+    # defecto (22pt -> 29px de letra): para quien nunca toco el tamano, F2 se
+    # ve igual que siempre; para todos los demas, deja de romperse.
+    LINE_SPACING = 1.31
+
+    @property
+    def line_height(self):
+        """Salto entre lineas, derivado de la fuente actual.
+
+        Tiene que seguir a la fuente: el alto del glifo crece con el tamano, y
+        si el salto no crece con el, las lineas se pisan. Antes era un 38 fijo
+        elegido a ojo para el default, y a 30pt la letra ya media 40px. Se lee
+        en cada frame en vez de guardarse, asi un cambio de fuente en F10 se ve
+        al instante sin que nadie tenga que acordarse de recalcular nada.
+        """
+        return max(1, int(QFontMetrics(self.font()).height() * self.LINE_SPACING))
 
     def paintEvent(self, event):
         if self.width() == 0 or self.height() == 0:
