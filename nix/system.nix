@@ -5,6 +5,30 @@
   boot.loader.systemd-boot.enable   = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
+  # ── Arranque en silencio: pantalla negra hasta que aparece Voider ────────────
+  # VoiderOS no tiene panel ni escritorio; tampoco debería tener un arranque que
+  # se vea. Sin esto systemd escribe sus [ OK ] verdes sobre el negro, y lo
+  # primero que ve el usuario no es el void sino un log.
+  #
+  # El menú del bootloader NO se pierde: con timeout 0 no aparece solo, pero
+  # systemd-boot lo abre igual si mantenés ESPACIO durante el arranque. Esa es la
+  # salida de emergencia para elegir una generación anterior.
+  boot.loader.timeout = 0;
+
+  # Esto ya agrega "loglevel=0" a los parámetros del kernel, así que no hace
+  # falta ponerlo a mano abajo (iría antes y perdería igual).
+  boot.consoleLogLevel = 0;      # los mensajes del kernel al framebuffer
+  boot.initrd.verbose  = false;  # el initrd, que es lo primero que habla
+
+  boot.kernelParams = [
+    "quiet"                         # el kernel se calla
+    "udev.log_priority=3"           # udev deja de narrar cada dispositivo
+    "rd.udev.log_level=3"           # lo mismo, dentro del initrd
+    "rd.systemd.show_status=false"  # los [ OK ] del initrd
+    "systemd.show_status=false"     # los [ OK ] verdes del sistema
+    "vt.global_cursor_default=0"    # ni el cursor titilando sobre el negro
+  ];
+
   networking.hostName           = "nixos";
   networking.networkmanager.enable = true;
 
