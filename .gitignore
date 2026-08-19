@@ -10,3 +10,7 @@ __pycache__/
 
 # proto-voider runtime state (position, active file) — never committed
 proto-voider/state.json
+
+# Enlaces de salida de nix build (nix build .#voider-iso, etc.)
+result
+result-*
