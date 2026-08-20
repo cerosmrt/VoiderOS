@@ -97,8 +97,12 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
       Re-rolling a fragment in place (repeated Tab replaces, doesn't pile up)
       needed a small addition the Python doesn't: `TextLine::replace_range`,
       standing in for the text-selection Python gets for free from `QLineEdit`.
-- [ ] **Alt+Tab in F2**: insert from the working set (`_doc_insert_ws_line`).
-      Deferred — needs F7's working set, not built yet.
+- [x] **Shift+Tab in F2**: insert a fragment from the working set instead of
+      from `I/` (`_doc_insert_ws_line`). *No es Alt+Tab*, aunque PENDING y el
+      propio Python lo llamaran así: la señal se llama `altTabPressed` y su
+      comentario dice "Alt+Tab", pero se emite con `Key_Backtab`, que es
+      Shift+Tab. La tabla de ayuda del Python acertaba; el nombre de la señal
+      no. Estaba trabado por F7, que ahora existe.
 - [x] **Ctrl+0 / Ctrl+.** in F1: a random line from anywhere in the void
       (scratch excluded — it's where lines LAND) / from this file, skipping
       whatever the entry already holds. Both only ever copy.

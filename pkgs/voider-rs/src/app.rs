@@ -1980,8 +1980,65 @@ impl Voider {
             self.status = "No I/ lines to pull".into();
             return Ok(());
         };
-        let mut fragment = line.trim_end_matches('.').to_string();
+        self.insert_fragment(&line)
+    }
 
+    /// Shift+Tab sobre una línea en F2: lo mismo, pero trayendo del corpus — de
+    /// los libros que vos elegiste para el working set, no de tu propio libro.
+    /// Port de `_doc_insert_ws_line`.
+    ///
+    /// (En el Python la señal se llama `altTabPressed` y su comentario dice
+    /// "Alt+Tab", pero se emite con `Key_Backtab`, que es Shift+Tab. El nombre
+    /// miente; la tecla real es la que está acá. La tabla de ayuda del Python
+    /// dice Shift+Tab, y esta vez la que tiene razón es la ayuda.)
+    pub fn insert_random_ws_fragment(&mut self) -> io::Result<()> {
+        self.ensure_corpus_loaded();
+        let Some(line) = self.random_line_from_working_set() else {
+            self.status = "No hay libros en el working set (F7)".into();
+            return Ok(());
+        };
+        self.insert_fragment(&line)
+    }
+
+    /// Una línea al azar de los libros del working set. Nunca de una ranura
+    /// vacía, y si un libro no se puede leer se pasa al siguiente.
+    pub fn random_line_from_working_set(&mut self) -> Option<String> {
+        let mut filled: Vec<String> = self
+            .ws
+            .books
+            .iter()
+            .filter(|b| !b.is_empty())
+            .map(|b| b.path.clone())
+            .collect();
+        if filled.is_empty() {
+            return None;
+        }
+        library::shuffle(&mut filled);
+        let o_dir = self.o_dir();
+        for name in filled {
+            let Ok(text) = std::fs::read_to_string(o_dir.join(&name)) else {
+                continue;
+            };
+            let mut lines: Vec<&str> = text
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty() && *l != ".")
+                .collect();
+            if lines.is_empty() {
+                continue;
+            }
+            library::shuffle(&mut lines);
+            return Some(lines[0].to_string());
+        }
+        None
+    }
+
+    /// Meter un fragmento en la línea que se está editando: sin el punto final,
+    /// en minúscula salvo que caiga al principio, y reemplazando el fragmento
+    /// anterior si el cursor sigue donde lo dejó — así repetir la tecla vuelve a
+    /// sortear en vez de apilar.
+    fn insert_fragment(&mut self, line: &str) -> io::Result<()> {
+        let mut fragment = line.trim_end_matches('.').to_string();
         let (start, end) = match self.pending_fragment {
             Some((idx, s, e)) if idx == self.ring.index && self.entry.caret() == e => (s, e),
             _ => (self.entry.caret(), self.entry.caret()),
@@ -3783,6 +3840,74 @@ mod tests {
         let (_d, v) = app(&["."]);
         let i_dir = v.void_dir.join("I");
         assert_eq!(v.random_line_from_dir(&i_dir, None), None);
+    }
+
+    // ── Shift+Tab en F2: el fragmento viene del corpus ──────────────────────────
+
+    #[test]
+    fn shift_tab_trae_una_linea_del_working_set() {
+        let (_d, mut v) = corpus_app(&["libro.txt"]);
+        v.switch_to(View::F7);
+        v.ws_tab(); // llenar la ranura
+        v.switch_to(View::F2);
+        v.ring.index = 1;
+        v.entry = TextLine::new("lo mio ");
+        v.insert_random_ws_fragment().unwrap();
+        assert!(
+            v.entry.text().starts_with("lo mio "),
+            "no debe pisar lo que ya estaba: {:?}",
+            v.entry.text()
+        );
+        assert!(v.entry.text().len() > "lo mio ".len(), "no insertó nada");
+    }
+
+    #[test]
+    fn sin_working_set_shift_tab_avisa_y_no_toca_la_linea() {
+        let (_d, mut v) = corpus_app(&["libro.txt"]);
+        // ninguna ranura llena
+        v.ring.index = 1;
+        v.entry = TextLine::new("intacto");
+        v.insert_random_ws_fragment().unwrap();
+        assert_eq!(v.entry.text(), "intacto");
+        assert!(v.status.contains("working set"));
+    }
+
+    #[test]
+    fn el_fragmento_del_corpus_nunca_sale_de_una_ranura_vacia() {
+        let (_d, mut v) = corpus_app(&["a.txt"]);
+        v.ws.books = vec![corpus::Slot::empty(), corpus::Slot::empty()];
+        assert_eq!(v.random_line_from_working_set(), None);
+    }
+
+    #[test]
+    fn un_libro_ilegible_no_corta_la_busqueda() {
+        let (_d, mut v) = corpus_app(&["bueno.txt"]);
+        v.ws.books = vec![
+            corpus::Slot { path: "no-existe.txt".into(), position: 0 },
+            corpus::Slot { path: "bueno.txt".into(), position: 0 },
+        ];
+        // Se saltea el que no se puede leer y sigue con el siguiente.
+        let line = v.random_line_from_working_set();
+        assert!(line.is_some(), "un libro roto no debe cortar la búsqueda");
+    }
+
+    #[test]
+    fn repetir_shift_tab_vuelve_a_sortear_en_vez_de_apilar() {
+        let (_d, mut v) = corpus_app(&["libro.txt"]);
+        v.switch_to(View::F7);
+        v.ws_tab();
+        v.switch_to(View::F2);
+        v.ring.index = 1;
+        v.entry = TextLine::new("");
+        v.insert_random_ws_fragment().unwrap();
+        let largo = v.entry.text().chars().count();
+        v.insert_random_ws_fragment().unwrap();
+        assert_eq!(
+            v.entry.text().chars().count(),
+            largo,
+            "apiló en vez de reemplazar: {:?}",
+            v.entry.text()
+        );
     }
 
     // ── Smart copy (Ctrl+C, F2 / F3) ─────────────────────────────────────────────

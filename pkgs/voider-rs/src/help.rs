@@ -41,6 +41,7 @@ pub const ROWS: &[Row] = &[
     ("THE CUT-UP", None),
     ("Tab  (F1)", Some("Pull a random line from the void into the entry")),
     ("Tab  (F2, on a line)", Some("Insert a random I/ fragment — Tab again re-rolls it")),
+    ("Shift+Tab  (F2)", Some("Insert a fragment from the working set instead")),
     ("Tab  (F2, on a dot)", Some("Shuffle the lines within that paragraph")),
     ("Tab  (F2, on the top dot)", Some("Shuffle the order of the paragraphs")),
     ("Tab  (F3, on a dot)", Some("Shuffle that book — numbered titles keep their place")),

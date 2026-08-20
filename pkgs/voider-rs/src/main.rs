@@ -402,6 +402,11 @@ impl VoiderApp {
             Key::End => self.voider.doc_jump_edge(true),
             // Contextual: paragraph order on the leading dot, a paragraph's own
             // lines on any other dot, a random I/ fragment on a content line.
+            // Shift+Tab: el fragmento viene del corpus (los libros del working
+            // set en F7), no de tu propio libro.
+            Key::Tab if m.shift => {
+                let _ = self.voider.insert_random_ws_fragment();
+            }
             Key::Tab => {
                 let _ = self.voider.doc_tab();
             }
