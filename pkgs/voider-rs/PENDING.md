@@ -201,7 +201,14 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
       apertura y palabras muy frecuentes, cayendo a inglés ante la duda como
       hace el Python. Navegar corta la voz (`_tts_cut`); en F2 sigue sola
       línea por línea; F4 no habla, es una página para mirar.
-- [ ] **Pickers**: active file, book folder, void folder.
+- [x] **Pickers**: archivo activo (`Ctrl+F2`), carpeta del libro (`Ctrl+F3`),
+      void entero (`Ctrl+F4`). El Python abre un `QFileDialog`; acá es un
+      navegador propio (`browse.rs`) con la misma forma de anillo que el resto,
+      porque una caja gris de GTK en el medio rompería lo único que la
+      aplicación defiende. Buscando una carpeta, Enter NAVEGA y Shift+Enter
+      ELIGE la carpeta donde estás — si no, no habría forma de entrar a una sin
+      elegirla. Cambiar de void no toca el anterior: sólo se deja de mirarlo, y
+      se limpia el historial de deshacer para que no se crucen.
 - [ ] **Be the desktop**: wlr-layer-shell. `pkgs/voider-shell/` is already a Rust
       layer-shell host, so this is closer than it looks.
 

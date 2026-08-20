@@ -8,6 +8,7 @@
 
 mod app;
 mod backup;
+mod browse;
 mod config;
 mod corpus;
 mod f5;
@@ -30,6 +31,7 @@ mod words;
 use eframe::egui;
 
 use app::{caps_lock_on, View, Voider};
+
 
 /// Matches the Python view: the circle inset from the shorter side.
 const CIRCLE_INSET: f32 = 35.0;
@@ -149,6 +151,8 @@ impl VoiderApp {
                 // While the help is up nothing types: the keypress that closes
                 // it must not also land in the text underneath.
                 egui::Event::Text(_) if self.voider.help_open => {}
+                // Con el navegador abierto no se escribe: la tecla es para él.
+                egui::Event::Text(_) if self.voider.browser.is_some() => {}
                 egui::Event::Text(t) => match self.voider.view {
                     View::F1 => {
                         let _ = self.voider.type_text(&t, caps);
@@ -180,6 +184,24 @@ impl VoiderApp {
                     // it away, and that key does nothing else.
                     if self.voider.help_open {
                         self.voider.help_open = false;
+                        continue;
+                    }
+                    // El navegador abierto se adueña del teclado: está por
+                    // cambiar a qué texto apunta Voider entero.
+                    if self.voider.browser.is_some() {
+                        match key {
+                            egui::Key::ArrowUp => {
+                                if let Some(b) = &mut self.voider.browser { b.move_by(-1) }
+                            }
+                            egui::Key::ArrowDown => {
+                                if let Some(b) = &mut self.voider.browser { b.move_by(1) }
+                            }
+                            egui::Key::Enter => {
+                                let _ = self.voider.browser_enter(modifiers.shift);
+                            }
+                            egui::Key::Escape => self.voider.cancel_browser(),
+                            _ => {}
+                        }
                         continue;
                     }
                     // A backup waiting to be accepted owns the keyboard: it is
@@ -236,6 +258,11 @@ impl VoiderApp {
     fn handle_global_key(&mut self, key: egui::Key, m: egui::Modifiers) -> bool {
         use egui::Key;
         match key {
+            // Con Ctrl, las teclas de vista apuntan Voider a otro lado. Van
+            // ANTES que las sin guarda, o el match nunca las alcanza.
+            Key::F2 if m.ctrl => self.voider.open_browser(browse::Purpose::ActiveFile),
+            Key::F3 if m.ctrl => self.voider.open_browser(browse::Purpose::BookDir),
+            Key::F4 if m.ctrl => self.voider.open_browser(browse::Purpose::VoidDir),
             Key::F1 => self.voider.switch_to(View::F1),
             Key::F2 => self.voider.switch_to(View::F2),
             Key::F3 => self.voider.switch_to(View::F3),
@@ -1354,6 +1381,84 @@ impl VoiderApp {
             egui::Color32::from_gray(75),
         );
     }
+
+    /// El navegador: la misma forma de anillo que todo lo demás, con el título
+    /// arriba diciendo qué se está eligiendo y la carpeta actual abajo.
+    fn draw_browser(&self, painter: &egui::Painter, rect: egui::Rect) {
+        let Some(b) = &self.voider.browser else {
+            return;
+        };
+        painter.rect_filled(rect, 0.0, egui::Color32::from_black_alpha(244));
+        let centre = rect.center();
+        let line_h = self.font_size() * 1.55;
+        let font = egui::FontId::proportional(self.font_size() * 0.85);
+
+        painter.text(
+            egui::pos2(centre.x, rect.top() + 46.0),
+            egui::Align2::CENTER_CENTER,
+            b.purpose.title(),
+            egui::FontId::proportional(self.font_size() * 0.7),
+            egui::Color32::from_gray(150),
+        );
+
+        let n = b.entries.len() as isize;
+        if n == 0 {
+            painter.text(
+                centre,
+                egui::Align2::CENTER_CENTER,
+                "(vacío)",
+                font,
+                egui::Color32::from_gray(80),
+            );
+        } else {
+            let reach = (rect.height() / 2.6 / line_h).ceil() as isize;
+            for offset in -reach..=reach {
+                let i = (b.index as isize + offset).rem_euclid(n) as usize;
+                let entry = &b.entries[i];
+                let alpha = if offset == 0 {
+                    255
+                } else {
+                    let fade = (1.0 - (offset.unsigned_abs() as f32 / 6.0)).clamp(0.0, 1.0);
+                    (fade * fade * 190.0) as u8
+                };
+                if alpha == 0 {
+                    continue;
+                }
+                let colour = if entry.is_dir {
+                    egui::Color32::from_white_alpha(alpha)
+                } else {
+                    egui::Color32::from_rgba_unmultiplied(210, 210, 190, alpha)
+                };
+                painter.text(
+                    egui::pos2(centre.x, centre.y + offset as f32 * line_h),
+                    egui::Align2::CENTER_CENTER,
+                    entry.display(),
+                    font.clone(),
+                    colour,
+                );
+            }
+        }
+
+        painter.text(
+            egui::pos2(centre.x, rect.bottom() - 48.0),
+            egui::Align2::CENTER_CENTER,
+            b.dir.display().to_string(),
+            egui::FontId::monospace(11.0),
+            egui::Color32::from_gray(95),
+        );
+        let hint = if b.looking == browse::Looking::Dir {
+            "⏎ entrar   ⇧⏎ elegir esta carpeta   Esc cancela"
+        } else {
+            "⏎ entrar / elegir   Esc cancela"
+        };
+        painter.text(
+            egui::pos2(centre.x, rect.bottom() - 24.0),
+            egui::Align2::CENTER_CENTER,
+            hint,
+            egui::FontId::proportional(11.0),
+            egui::Color32::from_gray(75),
+        );
+    }
     /// F11: the shortcut reference in two columns over a near-opaque ground.
     fn draw_help(&self, painter: &egui::Painter, rect: egui::Rect) {
         painter.rect_filled(rect, 0.0, egui::Color32::from_black_alpha(238));
@@ -1487,6 +1592,9 @@ impl eframe::App for VoiderApp {
                 self.draw_title(&painter, rect);
                 if self.voider.backup_prompt.is_some() {
                     self.draw_backup_prompt(&painter, rect);
+                }
+                if self.voider.browser.is_some() {
+                    self.draw_browser(&painter, rect);
                 }
                 if self.voider.help_open {
                     self.draw_help(&painter, rect);

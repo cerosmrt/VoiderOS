@@ -10,6 +10,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::backup;
+use crate::browse;
 use crate::config::Config;
 use crate::corpus;
 use crate::f5;
@@ -157,6 +158,8 @@ pub struct Voider {
     /// Telling sibling instances what changed. `None` when running alone (and
     /// in tests, which have no business opening sockets).
     pub ipc: Option<ipc::Ipc>,
+    /// Ctrl+F2/F3/F4: el navegador abierto, esperando que elijas.
+    pub browser: Option<browse::Browser>,
     /// F11: the shortcut reference, over whatever view is underneath.
     pub help_open: bool,
     /// Ctrl+B: a backup worked out and waiting to be accepted. Nothing is
@@ -262,6 +265,7 @@ impl Voider {
             reading: Vec::new(),
             page: 0,
             open_at_para: 0,
+            browser: None,
             help_open: false,
             backup_prompt: None,
             prose: String::new(),
@@ -963,6 +967,111 @@ impl Voider {
         }
         self.sync_entry();
         self.tts_speak_current();
+    }
+
+    // ── Ctrl+F2/F3/F4: apuntar Voider a otro lado ──────────────────────────────
+
+    /// Abrir el navegador. Arranca donde tiene sentido para cada cosa: el
+    /// archivo activo y la carpeta del libro, en `I/`; el void, un nivel arriba
+    /// del actual, que es donde estarían los otros.
+    pub fn open_browser(&mut self, purpose: browse::Purpose) {
+        let start = match purpose {
+            browse::Purpose::ActiveFile | browse::Purpose::BookDir => self.void_dir.join("I"),
+            browse::Purpose::VoidDir => self
+                .void_dir
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| self.void_dir.clone()),
+        };
+        let start = if start.is_dir() { start } else { self.void_dir.clone() };
+        self.browser = Some(browse::Browser::open(&start, purpose));
+    }
+
+    pub fn cancel_browser(&mut self) {
+        if self.browser.take().is_some() {
+            self.status = "Cancelado".into();
+        }
+    }
+
+    /// Enter: entrar a la carpeta, o quedarse con lo señalado.
+    ///
+    /// Buscando un archivo, una carpeta se abre y un `.txt` se elige. Buscando
+    /// una carpeta hay que distinguir: `..` y las carpetas de adentro NAVEGAN,
+    /// y lo que se elige es la carpeta donde uno está — por eso confirmar una
+    /// carpeta es Shift+Enter, no Enter. Si no, no habría forma de entrar a una
+    /// carpeta sin elegirla.
+    pub fn browser_enter(&mut self, confirm_dir: bool) -> io::Result<()> {
+        let Some(browser) = &mut self.browser else {
+            return Ok(());
+        };
+        if browser.looking == browse::Looking::Dir && !confirm_dir {
+            browser.descend();
+            return Ok(());
+        }
+        if browser.looking == browse::Looking::File {
+            if let Some(entry) = browser.current() {
+                if entry.is_dir {
+                    browser.descend();
+                    return Ok(());
+                }
+            }
+        }
+        let Some(chosen) = browser.selection() else {
+            return Ok(());
+        };
+        let purpose = browser.purpose;
+        self.browser = None;
+        self.apply_choice(purpose, chosen)
+    }
+
+    fn apply_choice(&mut self, purpose: browse::Purpose, chosen: PathBuf) -> io::Result<()> {
+        match purpose {
+            browse::Purpose::ActiveFile => {
+                self.set_active_file(chosen.clone());
+                self.status = format!("Activo: {}", file_title(&chosen));
+                self.switch_to(View::F2);
+            }
+            // La carpeta del libro es `I/`, así que elegirla es elegir su padre
+            // como void. Es lo mismo que hace el Python, que mueve book_dir y
+            // deduce el resto.
+            browse::Purpose::BookDir => {
+                let void = if chosen.file_name().is_some_and(|n| n == "I") {
+                    chosen.parent().map(Path::to_path_buf).unwrap_or(chosen.clone())
+                } else {
+                    chosen.clone()
+                };
+                self.retarget_void(void)?;
+            }
+            browse::Purpose::VoidDir => self.retarget_void(chosen)?,
+        }
+        Ok(())
+    }
+
+    /// Apuntar a otro void entero: otra biblioteca, otro scratch, otra config.
+    /// Nada del anterior se toca — sólo se deja de mirarlo.
+    fn retarget_void(&mut self, dir: PathBuf) -> io::Result<()> {
+        if !dir.is_dir() {
+            self.status = "Esa carpeta no existe".into();
+            return Ok(());
+        }
+        let _ = std::fs::create_dir_all(dir.join("I"));
+        self.void_dir = dir;
+        self.config = Config::load(&self.void_dir);
+        self.typewriter = self.config.typewriter;
+        self.show_title = self.config.show_title;
+        self.library = Library::load(&self.void_dir);
+        self.ws = corpus::WorkingSet::default();
+        self.o_books.clear();
+        self.o_file.clear();
+        let scratch = self.scratch_path();
+        if !scratch.exists() {
+            void::atomic_write(&scratch, &[".".to_string()], false)?;
+        }
+        self.set_active_file(scratch);
+        self.undo.clear();
+        self.status = format!("Void: {}", self.void_dir.display());
+        self.switch_to(View::F1);
+        Ok(())
     }
     // ── Ctrl+B: the copy that leaves the machine ───────────────────────────────
 
@@ -4601,6 +4710,114 @@ mod tests {
         v.random_line_from_here();
         assert_eq!(v.entry.text(), "intacto");
         assert!(v.status.contains("nothing to pull"));
+    }
+
+    // ── Ctrl+F2/F3/F4: apuntar Voider a otro lado ───────────────────────────────
+
+    #[test]
+    fn el_navegador_de_archivo_arranca_en_la_carpeta_del_libro() {
+        let (_d, mut v) = book();
+        v.open_browser(browse::Purpose::ActiveFile);
+        let b = v.browser.as_ref().unwrap();
+        assert_eq!(b.dir, v.void_dir.join("I"));
+        assert_eq!(b.looking, browse::Looking::File);
+    }
+
+    #[test]
+    fn elegir_un_txt_lo_deja_activo_y_abre_f2() {
+        let (_d, mut v) = book();
+        v.open_browser(browse::Purpose::ActiveFile);
+        let b = v.browser.as_mut().unwrap();
+        b.index = b.entries.iter().position(|e| e.name == "Dos.txt").unwrap();
+        v.browser_enter(false).unwrap();
+        assert!(v.browser.is_none());
+        assert_eq!(v.current_file, library::chapter_path(&v.void_dir, "Dos.txt"));
+        assert_eq!(v.view, View::F2);
+    }
+
+    #[test]
+    fn buscando_carpeta_enter_navega_y_shift_enter_elige() {
+        let (_d, mut v) = book();
+        let otro = v.void_dir.join("otro-void");
+        std::fs::create_dir_all(otro.join("I")).unwrap();
+        v.open_browser(browse::Purpose::VoidDir);
+        // Enter entra, no elige.
+        let b = v.browser.as_mut().unwrap();
+        b.dir = v.void_dir.clone();
+        b.entries = browse::list(&b.dir, browse::Looking::Dir);
+        b.index = b.entries.iter().position(|e| e.name == "otro-void").unwrap();
+        v.browser_enter(false).unwrap();
+        assert!(v.browser.is_some(), "Enter no debe elegir una carpeta");
+        assert_eq!(v.browser.as_ref().unwrap().dir, otro);
+        // Shift+Enter sí.
+        v.browser_enter(true).unwrap();
+        assert!(v.browser.is_none());
+        assert_eq!(v.void_dir, otro);
+    }
+
+    #[test]
+    fn cambiar_de_void_no_toca_el_anterior() {
+        let (_d, mut v) = book();
+        let viejo = v.void_dir.clone();
+        let antes = void::load_doc(&library::chapter_path(&viejo, "Uno.txt")).lines;
+        let otro = viejo.join("otro");
+        std::fs::create_dir_all(otro.join("I")).unwrap();
+
+        v.open_browser(browse::Purpose::VoidDir);
+        if let Some(b) = v.browser.as_mut() {
+            b.dir = otro.clone();
+            b.entries = browse::list(&otro, browse::Looking::Dir);
+        }
+        v.browser_enter(true).unwrap();
+
+        assert_eq!(v.void_dir, otro);
+        // El void viejo quedó exactamente como estaba.
+        assert_eq!(void::load_doc(&library::chapter_path(&viejo, "Uno.txt")).lines, antes);
+    }
+
+    #[test]
+    fn cambiar_de_void_deja_el_scratch_abierto_y_limpia_lo_del_anterior() {
+        let (_d, mut v) = book();
+        let otro = v.void_dir.join("otro");
+        std::fs::create_dir_all(otro.join("I")).unwrap();
+        v.o_file = "algo.txt".into();
+        v.open_browser(browse::Purpose::VoidDir);
+        if let Some(b) = v.browser.as_mut() {
+            b.dir = otro.clone();
+        }
+        v.browser_enter(true).unwrap();
+        assert_eq!(v.current_file, v.scratch_path());
+        assert_eq!(v.view, View::F1);
+        assert!(v.o_file.is_empty(), "quedó el libro del corpus anterior");
+        assert!(!v.undo.can_undo(), "el historial del void anterior no debe cruzarse");
+    }
+
+    #[test]
+    fn elegir_la_carpeta_I_apunta_al_void_que_la_contiene() {
+        let (_d, mut v) = book();
+        let otro = v.void_dir.join("otro");
+        std::fs::create_dir_all(otro.join("I")).unwrap();
+        v.apply_choice(browse::Purpose::BookDir, otro.join("I")).unwrap();
+        assert_eq!(v.void_dir, otro, "I/ es la carpeta del libro; el void es su padre");
+    }
+
+    #[test]
+    fn cancelar_no_cambia_nada() {
+        let (_d, mut v) = book();
+        let antes = v.current_file.clone();
+        v.open_browser(browse::Purpose::ActiveFile);
+        v.cancel_browser();
+        assert!(v.browser.is_none());
+        assert_eq!(v.current_file, antes);
+    }
+
+    #[test]
+    fn apuntar_a_una_carpeta_que_no_existe_no_rompe_nada() {
+        let (_d, mut v) = book();
+        let antes = v.void_dir.clone();
+        v.apply_choice(browse::Purpose::VoidDir, PathBuf::from("/no/existe")).unwrap();
+        assert_eq!(v.void_dir, antes);
+        assert!(v.status.contains("no existe"));
     }
 
     // ── Ctrl+B: the backup, and the question it asks first ───────────────────────

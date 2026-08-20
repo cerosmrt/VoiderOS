@@ -75,6 +75,8 @@ pub const ROWS: &[Row] = &[
     ("Ctrl+Shift+T", Some("Show or hide the pinned title")),
     ("Caps Lock", Some("Scriptio continua: no capitals, no backspace, space commits")),
     ("F12", Some("Screenshot")),
+    ("Ctrl+F2 / Ctrl+F3", Some("Point Voider at another file / book folder")),
+    ("Ctrl+F4", Some("Point Voider at another void entirely")),
     ("", None),
     ("READING  (F4)", None),
     ("→ / ← , PageDn / PageUp", Some("Turn the page")),
