@@ -134,9 +134,14 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
       - **Justification and hyphenation.** egui has no justified layout and
         there's no Spanish hyphenation dictionary here; both are real work and
         purely typographic, so the column is ragged-right for now.
-      - **`Ctrl+P` print / `Ctrl+S` export PDF** (`test_print`). Needs a PDF
-        crate (`printpdf` or similar) plus `lp`; deliberately not started rather
-        than half-started.
+      - [x] **`Ctrl+S` exporta PDF / `Ctrl+P` imprime** (`test_print`). Resultó
+        un port más fiel de lo previsto: `printpdf` renderiza HTML igual que
+        `QTextDocument`, así que el formato del libro se describe una sola vez.
+        Trae la justificación de regalo — el PDF sale justificado aunque F4 en
+        pantalla siga en bandera. Las anclas `vparaN` van incluidas, que es lo
+        que pedía `test_open_position`. *Imprimir no funciona todavía en esta
+        máquina*: no hay `lp` ni CUPS en la config de NixOS, y `nix/` está
+        congelado; el error lo dice en vez de fallar mudo.
 - [ ] **F6 — the `O/` reader**: read a corpus book, remember the position.
 - [ ] **F7 — the `O/` browser** and the working set — `test_working_set`,
       `test_tab_ws` (26).

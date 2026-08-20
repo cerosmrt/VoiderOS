@@ -17,6 +17,7 @@ mod help;
 mod ipc;
 mod library;
 mod paragraphs;
+mod pdf;
 mod line_ring;
 mod position;
 mod reading;
@@ -240,7 +241,7 @@ impl VoiderApp {
                         View::F1 => self.handle_f1_key(key, caps, modifiers),
                         View::F2 => self.handle_f2_key(key, caps, modifiers),
                         View::F3 => self.handle_f3_key(key, modifiers),
-                        View::F4 => self.handle_f4_key(key),
+                        View::F4 => self.handle_f4_key(key, modifiers),
                         View::F6 => self.handle_f6_key(key),
                         View::F7 => self.handle_f7_key(key, modifiers),
                         View::F8 => self.handle_f8_key(key),
@@ -578,7 +579,7 @@ impl VoiderApp {
     }
 
     /// F4 is for reading: turn pages, or leave.
-    fn handle_f4_key(&mut self, key: egui::Key) {
+    fn handle_f4_key(&mut self, key: egui::Key, m: egui::Modifiers) {
         use egui::Key;
         let pages = self.reading_pages.max(1);
         match key {
@@ -586,6 +587,11 @@ impl VoiderApp {
                 self.voider.turn_page(1, pages)
             }
             Key::ArrowLeft | Key::ArrowUp | Key::PageUp => self.voider.turn_page(-1, pages),
+            // Ctrl+S guarda el libro como PDF; Ctrl+P además lo manda a imprimir.
+            Key::S if m.ctrl => {
+                self.voider.export_pdf();
+            }
+            Key::P if m.ctrl => self.voider.print_reading(),
             Key::Home => self.voider.page = 0,
             Key::End => self.voider.page = pages - 1,
             Key::Escape => self.voider.switch_to(View::F2),

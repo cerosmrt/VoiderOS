@@ -18,6 +18,7 @@ use crate::fonts;
 use crate::ipc;
 use crate::library::{self, Library};
 use crate::paragraphs;
+use crate::pdf;
 use crate::position;
 use crate::reading;
 use crate::reformat;
@@ -488,6 +489,56 @@ impl Voider {
     // ── F4: the book as a book ─────────────────────────────────────────────────
 
     /// Gather what F4 should show and where in it to open.
+
+    /// Ctrl+S en F4: el libro que estás leyendo, a un PDF al lado del void.
+    ///
+    /// El Python abre un diálogo de "guardar como"; acá el destino se deduce del
+    /// título, que es lo que uno iba a escribir igual. Devuelve dónde quedó.
+    pub fn export_pdf(&mut self) -> Option<PathBuf> {
+        if self.reading.is_empty() {
+            self.status = "Nada para exportar".into();
+            return None;
+        }
+        let title = self
+            .reading
+            .first()
+            .map(|s| s.title.clone())
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| file_title(&self.current_file));
+        let dest = pdf::default_path(&self.void_dir, &title);
+        let family = self.config.font_family.clone();
+        let html = pdf::book_html(&self.reading, &family);
+        // La fuente se incrusta si está en la máquina, así el PDF se ve igual
+        // en cualquier lado.
+        let bytes = match pdf::render(&html, &family, fonts::load_family(&family)) {
+            Ok(b) => b,
+            Err(e) => {
+                self.status = format!("PDF: {e}");
+                return None;
+            }
+        };
+        match std::fs::write(&dest, &bytes) {
+            Ok(()) => {
+                self.status = format!("PDF → {}", dest.display());
+                Some(dest)
+            }
+            Err(e) => {
+                self.status = format!("No se pudo escribir el PDF: {e}");
+                None
+            }
+        }
+    }
+
+    /// Ctrl+P en F4: lo mismo, y después a la impresora.
+    pub fn print_reading(&mut self) {
+        let Some(path) = self.export_pdf() else {
+            return;
+        };
+        match pdf::send_to_printer(&path) {
+            Ok(()) => self.status = format!("A la impresora: {}", path.display()),
+            Err(e) => self.status = format!("PDF guardado, pero no se imprimió: {e}"),
+        }
+    }
     ///
     /// Follows the F3 highlight, as the Python does: sitting on a separator
     /// means the whole book below it, one section per chapter with the scratch
@@ -4556,6 +4607,25 @@ mod tests {
         assert_eq!(Config::load(&v.void_dir).last_view.as_deref(), Some("F4"));
     }
 
+    #[test]
+    fn ctrl_s_en_f4_deja_un_pdf_de_verdad_en_el_disco() {
+        let (_d, mut v) = app(&[".", "Una frase.", "Otra frase.", ".", "Segundo parrafo."]);
+        v.switch_to(View::F4);
+        let dest = v.export_pdf().expect("no exportó");
+        assert!(dest.exists(), "el PDF no llegó al disco");
+        let bytes = std::fs::read(&dest).unwrap();
+        assert!(bytes.starts_with(b"%PDF"), "lo que quedó no es un PDF");
+        assert!(v.status.contains("PDF"));
+    }
+
+    #[test]
+    fn sin_nada_para_leer_no_se_exporta_nada() {
+        let (_d, mut v) = app(&["."]);
+        v.reading.clear();
+        assert!(v.export_pdf().is_none());
+        assert!(v.status.contains("Nada para exportar"));
+    }
+
     // ── Another instance saved (the IPC handlers) ───────────────────────────────
 
     #[test]
@@ -4793,7 +4863,7 @@ mod tests {
     }
 
     #[test]
-    fn elegir_la_carpeta_I_apunta_al_void_que_la_contiene() {
+    fn elegir_la_carpeta_del_libro_apunta_al_void_que_la_contiene() {
         let (_d, mut v) = book();
         let otro = v.void_dir.join("otro");
         std::fs::create_dir_all(otro.join("I")).unwrap();
