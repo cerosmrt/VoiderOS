@@ -79,9 +79,15 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
       navigation, Alt+Up/Down and Enter-again stay within it — `test_focus`.
 - [x] **Delete line to zero / trash cascade** (`Ctrl+Delete` / `Ctrl+Backspace`
       in F2) — same feature, PENDING listed it twice — `test_trash_cascade`.
-- [ ] **Merge stray `0.txt` files** (`_merge_zero_files`, Ctrl+Shift+F in F3):
-      absorbs subdirectory scratches into the root one. Doesn't map cleanly onto
-      the flat `I/` model here (no nested folders); deferred, low value.
+- [x] **Merge stray `0.txt` files** (`_merge_zero_files`, Ctrl+Shift+F in F3):
+      absorbs subdirectory scratches into the root one. *Estaba diferido con una
+      razón equivocada*: dije que no encajaba en el modelo plano de `I/` "porque
+      no hay carpetas anidadas". Las hay — el void real tiene `I/0` y
+      `I/0/25-10-25_phone`. La función no era código muerto, sólo no tenía nada
+      que absorber ese día. Una diferencia deliberada: en el Python esto además
+      corre al arrancar, en silencio; acá es sólo explícito, porque borrar
+      archivos sin que nadie lo pida cada vez que abrís es mucho poder para algo
+      que nadie miró.
 - [x] **`_book_split_current`** (Ctrl+Shift+S in F3): split the file the F3
       cursor is highlighting, without opening it. `split_at_markers` already
       does the real work on the ACTIVE file from F2 — this would just be a

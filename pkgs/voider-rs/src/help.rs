@@ -62,6 +62,7 @@ pub const ROWS: &[Row] = &[
     ("Shift+Enter", Some("Name a new chapter below this one")),
     ("Ctrl+Shift+M", Some("On a dot: merge that whole book into one chapter")),
     ("Ctrl+Shift+S", Some("Split the highlighted chapter at its markers")),
+    ("Ctrl+Shift+F", Some("Gather stray 0.txt drafts back into the scratch")),
     ("", None),
     ("EVERYWHERE", None),
     ("Ctrl+F", Some("Search — the document's lines (F2), the chapters (F3)")),

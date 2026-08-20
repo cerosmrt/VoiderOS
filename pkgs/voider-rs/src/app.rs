@@ -663,6 +663,84 @@ impl Voider {
 
 
 
+
+    /// Ctrl+Shift+F en F3: absorber los `0.txt` sueltos de subcarpetas de `I/`
+    /// dentro del scratch de la raíz, y borrar las carpetas que queden vacías.
+    /// Port de `_merge_zero_files`.
+    ///
+    /// Cada borrador que quedó tirado en una subcarpeta —los que deja sincronizar
+    /// desde el teléfono, por ejemplo— vuelve al único scratch, separado por un
+    /// punto para no pegarse con lo que ya había. El `0.txt` de la raíz nunca se
+    /// toca a sí mismo.
+    ///
+    /// En el Python esto corre además al arrancar, en silencio. Acá es sólo
+    /// explícito: absorber y borrar archivos sin que nadie lo haya pedido, cada
+    /// vez que abrís, es mucho poder para algo que nadie miró.
+    ///
+    /// Devuelve (absorbidos, carpetas borradas).
+    pub fn merge_stray_scratches(&mut self) -> io::Result<(usize, usize)> {
+        let i_dir = self.void_dir.join("I");
+        let root = self.scratch_path();
+        let root_real = root.canonicalize().unwrap_or_else(|_| root.clone());
+
+        let mut strays: Vec<PathBuf> = Vec::new();
+        collect_txt_files(&i_dir, &mut strays);
+        strays.retain(|p| {
+            let is_zero = p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.eq_ignore_ascii_case("0.txt"));
+            let is_root = p.canonicalize().map(|c| c == root_real).unwrap_or(false);
+            is_zero && !is_root
+        });
+        strays.sort();
+
+        if strays.is_empty() {
+            self.status = "Nada que juntar".into();
+            return Ok((0, 0));
+        }
+        void::git_commit(&self.void_dir, "I/", &format!("merge-zero {}", void::timestamp()));
+
+        let before = void::load_doc(&root).lines;
+        let mut after = before.clone();
+        let mut absorbed = 0usize;
+        for stray in &strays {
+            let Ok(text) = std::fs::read_to_string(stray) else {
+                continue;
+            };
+            let lines: Vec<String> = text
+                .lines()
+                .map(|l| l.trim_end().to_string())
+                .filter(|l| !l.trim().is_empty())
+                .collect();
+            after.push(".".to_string());
+            after.extend(lines);
+            if std::fs::remove_file(stray).is_ok() {
+                absorbed += 1;
+            }
+        }
+        if absorbed == 0 {
+            return Ok((0, 0));
+        }
+        void::atomic_write(&root, &after, true)?; // deja un .bak
+        self.undo.record(root.clone(), before, after.clone(), None);
+        if self.current_file == root {
+            self.ring = LineRing::new(after);
+            self.sync_entry();
+        }
+
+        // Las carpetas que quedaron vacías se van; `I/` nunca.
+        let mut removed_dirs = 0usize;
+        for stray in &strays {
+            if let Some(parent) = stray.parent() {
+                if parent != i_dir && std::fs::remove_dir(parent).is_ok() {
+                    removed_dirs += 1;
+                }
+            }
+        }
+        self.status = format!("{absorbed} borrador(es) al scratch");
+        Ok((absorbed, removed_dirs))
+    }
     // ── El lado O/: el corpus que se lee ───────────────────────────────────────
 
     /// Dónde vive el corpus. Es un enlace a otro disco, y se lee, nunca se escribe.
@@ -4038,6 +4116,107 @@ mod tests {
         std::fs::write(&other, "x\n").unwrap();
         v.set_active_file(other);
         assert_eq!(Config::load(&v.void_dir).active_file.as_deref(), Some("other.txt"));
+    }
+
+    // ── Ctrl+Shift+F en F3: juntar los borradores sueltos ───────────────────────
+
+    #[test]
+    fn un_cero_en_una_subcarpeta_vuelve_al_scratch_y_desaparece() {
+        let (_d, mut v) = app(&["."]);
+        let sub = v.void_dir.join("I").join("telefono");
+        std::fs::create_dir_all(&sub).unwrap();
+        void::atomic_write(&v.scratch_path(), &[".".into(), "lo de siempre".into()], false).unwrap();
+        std::fs::write(sub.join("0.txt"), "escrito en el tren\n").unwrap();
+
+        let (absorbidos, carpetas) = v.merge_stray_scratches().unwrap();
+        assert_eq!(absorbidos, 1);
+        assert_eq!(carpetas, 1, "la carpeta vacía tenía que irse");
+        assert!(!sub.exists());
+
+        let scratch = void::load_doc(&v.scratch_path()).lines;
+        assert!(scratch.contains(&"lo de siempre".to_string()), "se perdió lo que ya había");
+        assert!(scratch.contains(&"escrito en el tren".to_string()), "no absorbió");
+    }
+
+    #[test]
+    fn lo_absorbido_va_separado_por_un_punto() {
+        let (_d, mut v) = app(&["."]);
+        let sub = v.void_dir.join("I").join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        void::atomic_write(&v.scratch_path(), &[".".into(), "viejo".into()], false).unwrap();
+        std::fs::write(sub.join("0.txt"), "nuevo\n").unwrap();
+        v.merge_stray_scratches().unwrap();
+        let s = void::load_doc(&v.scratch_path()).lines;
+        let i = s.iter().position(|l| l == "viejo").unwrap();
+        assert_eq!(s[i + 1], ".", "se pegó con lo anterior sin separador");
+        assert_eq!(s[i + 2], "nuevo");
+    }
+
+    #[test]
+    fn el_scratch_de_la_raiz_nunca_se_absorbe_a_si_mismo() {
+        let (_d, mut v) = app(&["."]);
+        void::atomic_write(&v.scratch_path(), &[".".into(), "solo esto".into()], false).unwrap();
+        let (absorbidos, _) = v.merge_stray_scratches().unwrap();
+        assert_eq!(absorbidos, 0);
+        assert_eq!(
+            void::load_doc(&v.scratch_path()).lines,
+            vec![".".to_string(), "solo esto".into()],
+            "se duplicó a sí mismo"
+        );
+    }
+
+    #[test]
+    fn sin_nada_suelto_no_toca_nada_y_lo_dice() {
+        let (_d, mut v) = app(&["."]);
+        void::atomic_write(&v.scratch_path(), &[".".into(), "intacto".into()], false).unwrap();
+        assert_eq!(v.merge_stray_scratches().unwrap(), (0, 0));
+        assert!(v.status.contains("Nada que juntar"));
+    }
+
+    #[test]
+    fn una_carpeta_que_todavia_tiene_cosas_no_se_borra() {
+        let (_d, mut v) = app(&["."]);
+        let sub = v.void_dir.join("I").join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("0.txt"), "borrador\n").unwrap();
+        std::fs::write(sub.join("otra-cosa.txt"), "no soy un scratch\n").unwrap();
+        let (absorbidos, carpetas) = v.merge_stray_scratches().unwrap();
+        assert_eq!(absorbidos, 1);
+        assert_eq!(carpetas, 0, "borró una carpeta que todavía tenía un archivo");
+        assert!(sub.join("otra-cosa.txt").exists());
+    }
+
+    #[test]
+    fn juntar_es_un_solo_paso_de_deshacer() {
+        let (_d, mut v) = app(&["."]);
+        let sub = v.void_dir.join("I").join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        void::atomic_write(&v.scratch_path(), &[".".into(), "original".into()], false).unwrap();
+        std::fs::write(sub.join("0.txt"), "absorbido\n").unwrap();
+        v.set_active_file(v.scratch_path());
+        v.merge_stray_scratches().unwrap();
+        v.undo().unwrap();
+        assert_eq!(
+            void::load_doc(&v.scratch_path()).lines,
+            vec![".".to_string(), "original".into()]
+        );
+    }
+
+    #[test]
+    fn varios_borradores_entran_todos() {
+        let (_d, mut v) = app(&["."]);
+        for n in ["a", "b", "c"] {
+            let sub = v.void_dir.join("I").join(n);
+            std::fs::create_dir_all(&sub).unwrap();
+            std::fs::write(sub.join("0.txt"), format!("de {n}\n")).unwrap();
+        }
+        let (absorbidos, carpetas) = v.merge_stray_scratches().unwrap();
+        assert_eq!(absorbidos, 3);
+        assert_eq!(carpetas, 3);
+        let s = void::load_doc(&v.scratch_path()).lines;
+        for n in ["a", "b", "c"] {
+            assert!(s.contains(&format!("de {n}")), "faltó {n}");
+        }
     }
 
     // ── El lado O/ (F6 lector, F7 working set, F8 oráculo) ──────────────────────

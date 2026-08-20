@@ -453,6 +453,10 @@ impl VoiderApp {
         match key {
             // Ctrl+F: search the library's chapters.
             Key::F if m.ctrl && !m.shift => self.voider.open_f3_search(),
+            // Ctrl+Shift+F: juntar los 0.txt sueltos de subcarpetas en el scratch.
+            Key::F if m.ctrl && m.shift => {
+                let _ = self.voider.merge_stray_scratches();
+            }
             // Ctrl+Shift+M on a separator: name and merge that book into one file.
             Key::M if m.ctrl && m.shift => self.voider.book_merge_prompt(),
             // Split the highlighted (not necessarily open) chapter at its markers.
