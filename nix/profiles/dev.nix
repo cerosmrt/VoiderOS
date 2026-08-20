@@ -6,7 +6,7 @@
 #
 # Lo importan los perfiles de máquina (voider, voider-lenovo, voider-vm). La ISO
 # no lo importa, y por eso la ISO no sabe nada de /home/federico ni de ~/VoiderOS.
-{ config, pkgs, lib, ... }:
+{ config, pkgs, lib, voiderRs, ... }:
 
 let
   repo = "/home/federico/VoiderOS";
@@ -46,7 +46,11 @@ let
   '';
 in
 {
-  environment.systemPackages = [ voiderProto voiderRsDev ];
+  # Las dos versiones conviven a propósito en una máquina de desarrollo:
+  # `voider-rs` es el paquete reproducible (el mismo que viaja en la ISO), y
+  # `voider-rs-dev` corre lo que acabás de compilar con cargo. Comparar una con
+  # otra es justamente lo que uno quiere poder hacer acá.
+  environment.systemPackages = [ voiderProto voiderRsDev voiderRs ];
 
   # Los dos atajos de desarrollo, por el punto de extensión que expone
   # nix/modules/voider.nix. Super+O corre el binario recién compilado con cargo;

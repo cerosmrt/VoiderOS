@@ -75,6 +75,9 @@
     mkVoiderSystem = { hardwareConfig, hasNvidia ? true, hasMntData ? true, extraModules ? [] }:
       lib.nixosSystem {
         inherit system;
+        # Los perfiles de desarrollo también reciben el paquete, para tener el
+        # binario reproducible al lado del compilado a mano.
+        specialArgs = { inherit voiderRs; };
         modules = baseModules
           ++ [ hardwareConfig ]
           ++ lib.optionals (!hasNvidia) [ noNvidiaOverrides ]
@@ -142,6 +145,7 @@
       # QEMU test VM
       voider-vm = lib.nixosSystem {
         inherit system;
+        specialArgs = { inherit voiderRs; };
         modules = baseModules ++ [ vmOverrides noNvidiaOverrides ./nix/profiles/dev.nix ];
       };
 
