@@ -172,3 +172,37 @@ def test_backup_vault_solo_llama_a_metodos_que_existen(tmp_path):
     llamados = set(re.findall(r'self\.(_?[a-zA-Z_][a-zA-Z0-9_]*)\(', fuente))
     faltantes = [n for n in sorted(llamados) if not hasattr(FullscreenCircleApp, n)]
     assert not faltantes, f'_backup_vault llama a métodos inexistentes: {faltantes}'
+
+
+# ── lo que no vale la pena copiar ─────────────────────────────────────────────
+
+def test_las_voces_generadas_no_viajan(tmp_path):
+    """tts/ son cientos de MB de modelos .onnx que se vuelven a bajar. El backup
+    es para lo que NO se puede recuperar."""
+    app = _app(tmp_path)
+    _write(os.path.join(app.void_dir, 'I', 'a.txt'), 'hola')
+    _write(os.path.join(app.void_dir, 'tts', 'voz.onnx'), 'x' * 9000)
+    files, total, skipped = app._backup_plan(app.void_dir)
+    rels = [f[0] for f in files]
+    assert not any(r.startswith('tts') for r in rels), 'se copió tts'
+    assert 'tts' in skipped, 'la omisión tiene que verse, no esconderse'
+    assert total == len('hola')
+
+
+def test_el_scratch_si_viaja(tmp_path):
+    """0.txt es el texto vivo; excluir tts no puede llevárselo puesto."""
+    app = _app(tmp_path)
+    _write(os.path.join(app.void_dir, 'I', '0.txt'), 'el borrador')
+    _write(os.path.join(app.void_dir, '0.txt'), '')
+    files, _, _ = app._backup_plan(app.void_dir)
+    rels = [f[0] for f in files]
+    assert os.path.join('I', '0.txt') in rels
+    assert '0.txt' in rels
+
+
+def test_un_archivo_que_se_llama_tts_no_se_confunde_con_la_carpeta(tmp_path):
+    app = _app(tmp_path)
+    _write(os.path.join(app.void_dir, 'I', 'tts.txt'), 'sobre las voces')
+    files, _, skipped = app._backup_plan(app.void_dir)
+    rels = [f[0] for f in files]
+    assert os.path.join('I', 'tts.txt') in rels, 'se comió un texto por el nombre'

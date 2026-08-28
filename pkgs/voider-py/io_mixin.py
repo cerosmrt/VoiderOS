@@ -12,6 +12,11 @@ from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
 from app_config import _save_config
 from line_ring import LineRing
 
+# Carpetas de primer nivel que NO viajan en el backup. El backup existe para lo
+# que no se puede recuperar; los modelos de voz se vuelven a bajar y pesan más
+# que todo el resto junto (309 MB contra 78 MB de texto e historial).
+_BACKUP_SKIP_DIRS = ("tts",)
+
 
 class IoMixin:
 
@@ -1325,6 +1330,13 @@ class IoMixin:
         """
         files, total, skipped = [], 0, []
         for dirpath, dirnames, filenames in os.walk(src_dir, followlinks=False):
+            # Las carpetas excluidas, sólo en la raíz del void: un I/tts/
+            # sería texto sobre las voces, no las voces.
+            if os.path.abspath(dirpath) == os.path.abspath(src_dir):
+                for d in list(dirnames):
+                    if d in _BACKUP_SKIP_DIRS:
+                        dirnames.remove(d)
+                        skipped.append(d)
             # Sacar de la recorrida los directorios que son enlaces.
             for d in list(dirnames):
                 full = os.path.join(dirpath, d)
