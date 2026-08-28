@@ -1282,42 +1282,166 @@ class IoMixin:
         self.current_file_index = (self.current_file_index + 1) % len(self.txt_files)
         self.switch_to_file(self.txt_files[self.current_file_index])
 
-    def _backup_vault(self):
-        """Ctrl+B: pick a destination folder, copy void_dir there.
-        Folder name: {voidname}_{YY}-{MM}-{DD}({n})
-        where n is how many backups of this vault already exist in that destination."""
-        dest_root = QFileDialog.getExistingDirectory(
-            self, "Backup destination folder", os.path.expanduser("~"))
-        if not dest_root:
-            return  # cancelled
-        try:
+    # ── Ctrl+B: la copia que sale de la máquina ───────────────────────────────
+    #
+    # La versión anterior abría un diálogo de carpeta y copiaba SÓLO los .txt,
+    # así que perdía el .git — es decir, todo el historial. Esto sigue el diseño
+    # escrito en roadmap/pending.txt: detectar el pendrive, mostrar qué se va a
+    # escribir y a dónde, confirmar, commitear el void, y recién ahí copiar todo
+    # tal cual está.
+
+    def _backup_media_roots(self):
+        """Dónde monta el escritorio los medios extraíbles."""
+        user = os.environ.get('USER') or ''
+        return [f'/run/media/{user}', f'/media/{user}', '/run/media', '/media']
+
+    def _detect_drives(self):
+        """Los medios montados, sin repetir. Vacío si no hay ninguno."""
+        found = []
+        for root in self._backup_media_roots():
+            if not os.path.isdir(root):
+                continue
+            try:
+                names = sorted(os.listdir(root))
+            except OSError:
+                continue
+            for name in names:
+                p = os.path.join(root, name)
+                if os.path.isdir(p) and p not in found:
+                    found.append(p)
+        return found
+
+    def _backup_plan(self, src_dir):
+        """Qué se copiaría, SIN escribir nada.
+
+        Devuelve (archivos, bytes, enlaces_salteados), donde archivos es una
+        lista de (ruta_relativa, bytes).
+
+        Dos reglas que importan:
+          * el .git viaja — es la razón de existir de esta versión;
+          * los enlaces a directorios se anotan pero NO se siguen. O/ apunta a
+            /mnt/data; seguirlo convertiría un backup del texto en una copia de
+            76 mil libros del corpus.
+        """
+        files, total, skipped = [], 0, []
+        for dirpath, dirnames, filenames in os.walk(src_dir, followlinks=False):
+            # Sacar de la recorrida los directorios que son enlaces.
+            for d in list(dirnames):
+                full = os.path.join(dirpath, d)
+                if os.path.islink(full):
+                    dirnames.remove(d)
+                    skipped.append(os.path.relpath(full, src_dir))
+            for fname in filenames:
+                full = os.path.join(dirpath, fname)
+                if os.path.islink(full):
+                    continue
+                try:
+                    size = os.path.getsize(full)
+                except OSError:
+                    continue
+                files.append((os.path.relpath(full, src_dir), size))
+                total += size
+        files.sort()
+        skipped.sort()
+        return files, total, skipped
+
+    def _backup_folder_name(self, dest_root, fecha=None):
+        """{void}_{YY-MM-DD}(n) — n cuenta lo que ya hay de hoy, así dos backups
+        en un mismo día nunca caen uno sobre el otro."""
+        if fecha is None:
             now = datetime.datetime.now()
-            src_dir = self.void_dir
-            vault_name = os.path.basename(os.path.normpath(src_dir))
-            date_str = now.strftime(f'{str(now.year)[2:]}-{now.strftime("%m-%d")}')
-            prefix = f"{vault_name}_{date_str}"
-            # Count existing backups of this vault on this date
+            fecha = f"{str(now.year)[2:]}-{now.strftime('%m-%d')}"
+        vault = os.path.basename(os.path.normpath(self.void_dir)) or 'void'
+        prefix = f'{vault}_{fecha}'
+        try:
             existing = [d for d in os.listdir(dest_root)
-                        if os.path.isdir(os.path.join(dest_root, d))
-                        and d.startswith(f"{prefix}")]
-            n = len(existing) + 1
-            folder_name = f"{prefix}({n})"
-            backup_dest = os.path.join(dest_root, folder_name)
-            os.makedirs(backup_dest, exist_ok=True)
-            count = 0
-            for root, dirs, files in os.walk(src_dir):
-                for fname in files:
-                    if not fname.lower().endswith('.txt'):
-                        continue
-                    src = os.path.join(root, fname)
-                    rel = os.path.relpath(root, src_dir)
-                    dst_dir = os.path.join(backup_dest, rel)
-                    os.makedirs(dst_dir, exist_ok=True)
-                    shutil.copy2(src, os.path.join(dst_dir, fname))
-                    count += 1
-            print(f"📦 Backup: {count} archivos → {folder_name}")
-        except Exception as e:
-            print(f"⚠️ Backup error: {e}")
+                        if d.startswith(prefix)
+                        and os.path.isdir(os.path.join(dest_root, d))]
+        except OSError:
+            existing = []
+        return f'{prefix}({len(existing) + 1})'
+
+    def _backup_copy(self, src_dir, dest_dir, files):
+        """Hacer la copia que el plan describe. Devuelve cuántos archivos llegaron."""
+        copied = 0
+        for rel, _size in files:
+            src = os.path.join(src_dir, rel)
+            dst = os.path.join(dest_dir, rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            try:
+                shutil.copy2(src, dst)
+                copied += 1
+            except OSError as e:
+                print(f"⚠️ No se pudo copiar {rel}: {e}")
+        return copied
+
+    @staticmethod
+    def _human_bytes(n):
+        if n < 1024:
+            return f'{n} B'
+        for i, unit in enumerate(('KB', 'MB', 'GB', 'TB')):
+            scale = 1024 ** (i + 1)
+            if n < scale * 1024 or i == 3:
+                return f'{n / scale:.1f} {unit}'
+
+    def _backup_vault(self):
+        """Ctrl+B: el void entero a un pendrive, con su historial."""
+        from PyQt6.QtWidgets import QMessageBox
+
+        drives = self._detect_drives()
+        if not drives:
+            QMessageBox.information(self, 'Backup',
+                                    'No hay ningún pendrive montado.')
+            return
+
+        # Con más de uno, que elija; con uno solo, se muestra igual para aceptar.
+        dest_root = drives[0]
+        if len(drives) > 1:
+            from PyQt6.QtWidgets import QInputDialog
+            elegido, ok = QInputDialog.getItem(
+                self, 'Backup', '¿A cuál?', drives, 0, False)
+            if not ok:
+                return
+            dest_root = elegido
+
+        files, total, skipped = self._backup_plan(self.void_dir)
+        if not files:
+            QMessageBox.information(self, 'Backup', 'No hay nada que copiar.')
+            return
+
+        folder = self._backup_folder_name(dest_root)
+        dest_dir = os.path.join(dest_root, folder)
+
+        # El paso de confirmación: mostrar qué y a dónde ANTES de escribir nada.
+        detalle = (f'{len(files)} archivos · {self._human_bytes(total)}\n\n'
+                   f'{dest_dir}')
+        if skipped:
+            detalle += f'\n\n(sin seguir: {", ".join(skipped)})'
+        respuesta = QMessageBox.question(
+            self, 'Backup', detalle,
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Ok)
+        if respuesta != QMessageBox.StandardButton.Ok:
+            print('↩ Backup cancelado')
+            return
+
+        # Commitear primero, para que no quede nada sin registrar afuera.
+        self.commit_void()
+        # Volver a planificar: el commit acaba de cambiar el .git, y ese
+        # historial es justamente el punto.
+        files, total, _ = self._backup_plan(self.void_dir)
+
+        try:
+            os.makedirs(dest_dir, exist_ok=True)
+            copiados = self._backup_copy(self.void_dir, dest_dir, files)
+        except OSError as e:
+            QMessageBox.warning(self, 'Backup', f'No se pudo escribir:\n{e}')
+            return
+
+        print(f'📦 Backup: {copiados} archivos · {self._human_bytes(total)} → {dest_dir}')
+        QMessageBox.information(
+            self, 'Backup',
+            f'{copiados} archivos · {self._human_bytes(total)}\n\n{dest_dir}')
 
     def take_screenshot(self):
         """F12: Capture the full screen and save to void_dir/screenshots/."""
