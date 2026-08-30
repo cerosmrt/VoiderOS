@@ -3,7 +3,7 @@
   "book_dir": "/home/federico/void/I",
   "void_key": "enter",
   "font_family": "EB Garamond",
-  "font_size": 22,
+  "font_size": 12,
   "reading_font": "EB Garamond",
   "reading_size": 13,
   "reading_hyphen_lang": "auto",
@@ -51,5 +51,6 @@
     "typewriter_toggle": "Ctrl+Shift+W",
     "backup": "Ctrl+B"
   },
-  "show_view_title": true
+  "show_view_title": true,
+  "typewriter_mode": true
 }

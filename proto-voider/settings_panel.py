@@ -46,7 +46,11 @@ class SettingsPanel(QWidget):
         # Font size
         lay.addWidget(self._label('Font size (pt)'))
         self.size_spin = QSpinBox()
-        self.size_spin.setRange(6, 48)
+        # Sin tope arbitrario arriba: si querés la letra enorme, es tu pantalla y
+        # tu texto. El 48 de antes no defendía nada — ahora que F2 escala bien el
+        # espaciado, agrandar no rompe la vista. Abajo sí hay un piso: por
+        # debajo de 4pt no se lee, y no se puede volver a subir sin ver nada.
+        self.size_spin.setRange(4, 999)
         self.size_spin.setStyleSheet(self._INPUT_STYLE)
         lay.addWidget(self.size_spin)
 

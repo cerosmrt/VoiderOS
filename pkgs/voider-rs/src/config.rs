@@ -43,9 +43,13 @@ pub fn config_path(void_dir: &Path) -> PathBuf {
     void_dir.join("voider-rs.conf")
 }
 
-/// The sizes the settings panel offers.
-pub const SIZES: [f32; 12] = [
+
+// Los tamaños que ofrece F10. Sin tope arbitrario arriba: si querés la letra
+// enorme, es tu pantalla y tu texto — y desde que el espaciado sigue a la fuente,
+// agrandar ya no rompe la vista.
+pub const SIZES: [f32; 17] = [
     11.0, 13.0, 15.0, 17.0, 19.0, 22.0, 26.0, 30.0, 33.0, 38.0, 44.0, 52.0,
+    64.0, 80.0, 100.0, 130.0, 170.0,
 ];
 
 /// How thin the ground may get. Never 0: a window you cannot see is a window
