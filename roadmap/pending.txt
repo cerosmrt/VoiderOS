@@ -217,6 +217,29 @@ VIEWS
 - Oracle as Tab key on F1/F5 instead of dedicated F8 view — discussed,
   not decided. Would free F8 for other uses.
 
+- F1 — EL TEXTO SE APAGA MIENTRAS ESCRIBIS (typewriter + scriptio continua).
+  En F1, con typewriter Y scriptio continua prendidos, lo escrito deberia irse
+  degradando a negro hasta desaparecer. Fade away.
+
+  Por que va justo ahi y no en cualquier vista: esos dos modos ya sacaron el
+  backspace y las mayusculas. Lo unico que queda es escribir hacia adelante.
+  Que el texto se apague detras es la conclusion de eso — la linea entra al void
+  mientras la escribis, en vez de al soltarla. Loop writing llevado al momento.
+
+  Sin decidir (hay que probarlo escribiendo, no razonarlo):
+    * Se apaga por TIEMPO (a los N segundos de escrita) o por DISTANCIA
+      (a las N lineas de distancia del cursor)? La distancia es mas predecible;
+      el tiempo se parece mas a la memoria.
+    * Llega a negro del todo, o queda un piso de gris apenas visible?
+    * El texto SE BORRA o solo se deja de ver? Esto es lo unico que no es
+      cosmetico: si se borra, hay que poder recuperarlo (el archivo en disco
+      sigue completo — es la pantalla la que olvida, no el void).
+
+  Nota de implementacion: en voider-rs es casi gratis. F1 ya dibuja cada linea
+  con su propio alfa segun la distancia al centro (F2_FADE_LINES); esto es la
+  misma idea con otra variable. En Python hay que ver como se lleva con el
+  repintado de Qt.
+
 F5 / REORDER
 ------------
 - D3 — DONE (commit 4033375): F5 '>' → Right → F3 send mode → Enter moves the
