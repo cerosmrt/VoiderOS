@@ -291,6 +291,52 @@ SAFETY / GIT
   Pairs with the auto-commit item below: git = version history on the internal
   disk; Ctrl+B = physical off-machine copy (with history) to external media.
 
+
+- SUBIR EL LIBRO A GOOGLE DRIVE (rclone) — decidido: SUBIR, no sincronizar.
+  Es el mismo Ctrl+B del pendrive, con Drive como destino en vez de un USB:
+  una copia que sale de la maquina, no una carpeta espejada.
+
+  Esa distincion es toda la diferencia y conviene no perderla:
+    * SINCRONIZAR (bidireccional) traeria de vuelta el problema de last-writer-
+      wins, pero por red y sin el IPC que lo arregla localmente. Y peor: un
+      cliente de Drive escribiendo sobre .git mientras git lo lee puede dejar el
+      repo corrupto. Drive no hace merge de tres vias; hace copias en conflicto.
+    * SUBIR (una via) no tiene nada de eso. Nadie escribe /void salvo Voider.
+
+  Diseno (mismo esqueleto que Ctrl+B, ya construido y probado):
+    1. git commit /void primero, para no subir nada sin registrar.
+    2. Calcular que se sube y cuanto, SIN subir.
+    3. CONFIRMAR mostrando destino, archivos y tamano.
+    4. rclone copy (NUNCA rclone sync) a una carpeta con fecha.
+    5. Reportar.
+
+  Dos reglas que no son opcionales:
+
+    * `copy`, jamas `sync`. sync borra en el destino lo que ya no esta local: un
+      error local se propagaria como borrado en la unica copia de respaldo. copy
+      nunca borra. Es la diferencia entre un backup y un espejo de tus errores.
+
+    * Carpeta con fecha, no una sola carpeta que se sobreescribe. Cada subida es
+      una instantanea. Si no, la version rota de hoy pisa la buena de ayer y el
+      backup no sirvio para nada.
+
+  Que viaja: lo mismo que el Ctrl+B del pendrive — .txt + .git (el historial es
+  el punto), sin tts/ (309 MB regenerables) y sin seguir el enlace O/ (76 mil
+  libros del corpus). Son ~78 MB por subida.
+
+  Requiere `rclone config` una vez (OAuth contra Drive). Es interactivo: lo tiene
+  que hacer Federico, no se puede automatizar desde acá.
+
+  Todavia SIN escribir. El primer paso util es un script suelto que haga los 5
+  pasos de arriba y se corra a mano; recien si resulta comodo, atarlo a una tecla
+  dentro de Voider. rclone v1.69.1 ya esta disponible en la maquina.
+
+  A DECIDIR, y no es tecnico: esto sube el libro inedito a un servidor de Google.
+  Puede que este perfecto — es un backup fuera de la casa, que es justamente lo
+  que un backup deberia ser — pero conviene que sea una decision tomada y no una
+  a la que se llego sin pensar. Si molesta, la misma forma sirve contra un git
+  remote privado, que para un repo git ademas encaja mejor: subiria solo los
+  cambios en vez de 78 MB cada vez.
 - PORTABLE BACKUP (extends the Ctrl+B pendrive item above) — one key that drops
   a self-contained, portable bundle onto a pendrive: the book + the app, so you
   can work revisions on another (Windows) machine and later reconcile them back
