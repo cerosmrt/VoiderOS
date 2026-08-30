@@ -184,7 +184,9 @@ pub fn take_para(lines: &[String], ordinal: usize) -> Option<(Vec<String>, Vec<S
 }
 
 /// Drop leading, doubled and trailing separators left behind by a move.
-fn collapse_dots(lines: &[String]) -> Vec<String> {
+/// Sacar los separadores que sobran: al principio, al final, y los repetidos.
+/// Lo usa F5 al mover párrafos y F2 al mandar texto afuera.
+pub fn collapse_dots(lines: &[String]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for l in lines {
         let is_dot = l.trim() == ".";

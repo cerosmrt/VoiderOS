@@ -355,6 +355,23 @@ impl VoiderApp {
 
     fn handle_f2_key(&mut self, key: egui::Key, caps: bool, m: egui::Modifiers) {
         use egui::Key;
+        // Con el panel desplegado, las teclas son suyas: estás eligiendo a qué
+        // capítulo se va el texto, no editando.
+        if self.voider.picker_open {
+            match key {
+                Key::Escape | Key::ArrowLeft => self.voider.picker_open = false,
+                Key::ArrowDown | Key::Tab => self.voider.picker_cycle(1),
+                Key::ArrowUp => self.voider.picker_cycle(-1),
+                Key::Enter | Key::ArrowRight => {
+                    let entries = self.voider.picker_entries();
+                    if let Some(e) = entries.get(self.voider.picker_idx).cloned() {
+                        let _ = self.voider.doc_send_to(&e);
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
         // A search bar takes exclusive focus: only its own keys mean anything.
         if self.voider.f2_search.is_some() {
             match key {
@@ -412,6 +429,11 @@ impl VoiderApp {
             Key::ArrowDown if m.alt => {
                 let _ = self.voider.doc_swap_line(1);
             }
+            // Alt+Shift+→ despliega la biblioteca al costado: la misma idea que
+            // Alt mover cosas, pero más lejos — en vez de correr la palabra de
+            // al lado, el texto se va a otro capítulo. Va ANTES del Alt+→ suelto,
+            // o ese lo taparía.
+            Key::ArrowRight if m.alt && m.shift => self.voider.doc_open_picker(),
             Key::ArrowLeft if m.alt => {
                 let _ = self.voider.doc_swap_words(-1);
             }
@@ -748,6 +770,14 @@ impl VoiderApp {
     }
 
     fn draw_f2(&self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
+        // Con el panel desplegado, el texto se corre a la izquierda y la
+        // biblioteca ocupa el tercio derecho — igual que en F5.
+        let full = rect;
+        let panel_w = if self.voider.picker_open { rect.width() * 0.32 } else { 0.0 };
+        let rect = egui::Rect::from_min_max(
+            rect.min,
+            egui::pos2(rect.max.x - panel_w, rect.max.y),
+        );
         let centre = rect.center();
         let line_h = self.font_size() * 1.7;
         let font = egui::FontId::proportional(self.font_size());
@@ -819,6 +849,9 @@ impl VoiderApp {
             );
         }
         self.draw_entry_line(painter, ctx, centre, rect, self.voider.typewriter);
+        if self.voider.picker_open {
+            self.draw_picker(painter, rect.max.x, panel_w, full);
+        }
     }
 
     /// The library: chapter titles in reading order, the current one centred.

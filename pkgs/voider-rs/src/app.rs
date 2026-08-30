@@ -1519,22 +1519,113 @@ impl Voider {
 
     /// Move the current paragraph out of this file and append it to `entry`.
     /// Snapshots the void first: this rewrites two files.
-    pub fn send_para_to(&mut self, entry: &str) -> io::Result<bool> {
-        let target = library::chapter_path(&self.void_dir, entry);
-        if target == self.current_file {
-            return Ok(false);
+    /// Lo que Alt+→ se llevaría desde donde está el cursor en F2, y con qué
+    /// queda el archivo. Sobre un punto, el párrafo que abre (y el punto); sobre
+    /// una línea, esa línea sola.
+    ///
+    /// Es la misma dualidad que F2 ya tiene en todos lados — Alt+↑ mueve el
+    /// párrafo sobre un punto y la línea sobre una línea, Ctrl+C copia lo mismo.
+    pub fn doc_send_scope(&self) -> Option<(Vec<String>, Vec<String>)> {
+        let lines = &self.ring.lines;
+        let i = self.ring.index;
+        if lines.is_empty() {
+            return None;
         }
+        if lines[i] == "." {
+            // El párrafo que abre este punto: hasta el próximo punto o el final.
+            let mut end = i + 1;
+            while end < lines.len() && lines[end] != "." {
+                end += 1;
+            }
+            let taken: Vec<String> = lines[i + 1..end].to_vec();
+            if taken.iter().all(|l| l.trim().is_empty()) {
+                return None; // un punto sin párrafo debajo no manda nada
+            }
+            let mut rest: Vec<String> = lines[..i].to_vec();
+            rest.extend_from_slice(&lines[end..]);
+            Some((taken, tidy_after_send(rest)))
+        } else {
+            if lines[i].trim().is_empty() {
+                return None;
+            }
+            let taken = vec![lines[i].clone()];
+            let mut rest: Vec<String> = lines[..i].to_vec();
+            rest.extend_from_slice(&lines[i + 1..]);
+            Some((taken, tidy_after_send(rest)))
+        }
+    }
+
+    /// Alt+→ en F2: desplegar la biblioteca al costado para elegir a dónde va.
+    /// Sobre un punto vacío o una línea en blanco no hay nada que mandar, así
+    /// que no se abre — mejor que abrirse y después no hacer nada.
+    pub fn doc_open_picker(&mut self) {
+        if self.doc_send_scope().is_none() {
+            self.status = "Nada para enviar desde acá".into();
+            return;
+        }
+        if self.library.entries.is_empty() {
+            self.library = Library::load(&self.void_dir);
+        }
+        self.picker_idx = 0;
+        self.picker_open = true;
+    }
+
+    /// Mandar lo que el cursor señala al capítulo elegido.
+    pub fn doc_send_to(&mut self, entry: &str) -> io::Result<bool> {
+        let Some((taken, rest)) = self.doc_send_scope() else {
+            return Ok(false);
+        };
+        let sent = self.append_to_chapter(entry, taken, rest, "doc-send")?;
+        if sent {
+            self.picker_open = false;
+            self.sync_entry();
+        }
+        Ok(sent)
+    }
+
+    /// F5: mandar el párrafo donde está el cursor al capítulo elegido.
+    pub fn send_para_to(&mut self, entry: &str) -> io::Result<bool> {
         let Some((para, rest)) = f5::take_para(&self.ring.lines, self.para_idx) else {
             return Ok(false);
         };
+        let sent = self.append_to_chapter(entry, para, rest, "f5-send")?;
+        if sent {
+            let n = f5::para_count(&self.ring.lines);
+            self.para_idx = if n == 0 { 0 } else { self.para_idx.min(n - 1) };
+            self.picker_open = false;
+        }
+        Ok(sent)
+    }
+
+    /// Sacar `taken` de este archivo y agregarlo al final de `entry`, en UN solo
+    /// paso de deshacer. Lo comparten F5 (que manda párrafos) y F2 (que manda un
+    /// párrafo o una línea según dónde estés parado).
+    ///
+    /// El texto que llega se separa con un punto del que ya había, así entra
+    /// como párrafo propio en vez de pegarse al último.
+    fn append_to_chapter(
+        &mut self,
+        entry: &str,
+        taken: Vec<String>,
+        rest: Vec<String>,
+        scope: &str,
+    ) -> io::Result<bool> {
+        let target = library::chapter_path(&self.void_dir, entry);
+        if target == self.current_file {
+            self.status = "Ese es este mismo archivo".into();
+            return Ok(false);
+        }
+        if taken.is_empty() {
+            return Ok(false);
+        }
         void::git_commit(
             &self.void_dir,
             "I/",
-            &format!("f5-send {}", void::timestamp()),
+            &format!("{scope} {}", void::timestamp()),
         );
 
-        // Read the target raw (no synthesised leading dot) and append after a
-        // separator, so the arriving paragraph stays a paragraph of its own.
+        // El destino se lee crudo (sin el punto que load_doc sintetiza) para no
+        // ir agregando uno en cada envío.
         let mut existing: Vec<String> = std::fs::read_to_string(&target)
             .map(|t| t.lines().map(|l| l.trim_end().to_string()).collect())
             .unwrap_or_default();
@@ -1543,19 +1634,20 @@ impl Voider {
         }
         let target_before = void::load_doc(&target).lines;
         let source_before = void::load_doc(&self.current_file).lines;
+
         let mut combined = existing;
         if !combined.is_empty() {
             combined.push(".".to_string());
         }
-        combined.extend(para);
+        combined.extend(taken);
         void::atomic_write(&target, &combined, false)?;
 
         self.ring.lines = rest;
         if self.ring.index >= self.ring.lines.len() {
             self.ring.index = self.ring.lines.len().saturating_sub(1);
         }
-        // Both files move as ONE undo step: taking it back returns the paragraph
-        // to its source and removes it from the destination together.
+        // Los dos archivos se mueven como UN paso: deshacer devuelve el texto a
+        // su origen y lo saca del destino a la vez.
         self.undo_applying = true;
         self.save()?;
         self.undo_applying = false;
@@ -1574,9 +1666,7 @@ impl Voider {
             ],
             Some("send".into()),
         );
-        let n = f5::para_count(&self.ring.lines);
-        self.para_idx = if n == 0 { 0 } else { self.para_idx.min(n - 1) };
-        self.picker_open = false;
+        self.status = format!("→ {}", library::display_name(entry));
         Ok(true)
     }
 
@@ -3025,6 +3115,21 @@ impl Voider {
         }
         self.entry.backspace()
     }
+}
+
+/// Dejar el archivo prolijo después de sacarle texto: sin puntos repetidos ni
+/// colgando al final, pero CON el punto inicial.
+///
+/// F5 usa `collapse_dots` a secas porque reconstruye el anillo desde los
+/// párrafos y vuelve a poner los puntos; en F2 el punto de arriba es
+/// estructural — `load_doc` siempre lo garantiza — así que sacarlo dejaría el
+/// archivo en un estado que ninguna otra parte del programa produce.
+fn tidy_after_send(lines: Vec<String>) -> Vec<String> {
+    let mut out = f5::collapse_dots(&lines);
+    if out.first().map(|l| l != ".").unwrap_or(true) {
+        out.insert(0, ".".to_string());
+    }
+    out
 }
 
 /// Whether two paths mean the same file. Compares canonically where possible
@@ -4516,6 +4621,147 @@ mod tests {
         // El oráculo no: es una tirada, no un lugar donde se está.
         v.switch_to(View::F8);
         assert_eq!(Config::load(&v.void_dir).last_view.as_deref(), Some("F6"));
+    }
+
+    // ── Alt+→ en F2: mandar desde donde estás parado ────────────────────────────
+
+    #[test]
+    fn sobre_una_linea_se_manda_esa_linea() {
+        let (_d, mut v) = book();
+        v.ring.lines = vec![".".into(), "primera".into(), "segunda".into()];
+        v.ring.index = 1;
+        let (taken, rest) = v.doc_send_scope().unwrap();
+        assert_eq!(taken, vec!["primera".to_string()]);
+        assert_eq!(rest, vec![".".to_string(), "segunda".into()]);
+    }
+
+    #[test]
+    fn sobre_un_punto_se_manda_el_parrafo_que_abre() {
+        let (_d, mut v) = book();
+        v.ring.lines = vec![
+            ".".into(), "a1".into(), "a2".into(),
+            ".".into(), "b1".into(),
+        ];
+        v.ring.index = 0; // sobre el primer punto
+        let (taken, rest) = v.doc_send_scope().unwrap();
+        assert_eq!(taken, vec!["a1".to_string(), "a2".into()]);
+        assert_eq!(rest, vec![".".to_string(), "b1".into()], "quedó un punto huérfano");
+    }
+
+    #[test]
+    fn el_punto_del_medio_se_lleva_su_parrafo_y_no_el_de_arriba() {
+        let (_d, mut v) = book();
+        v.ring.lines = vec![
+            ".".into(), "a1".into(),
+            ".".into(), "b1".into(), "b2".into(),
+        ];
+        v.ring.index = 2;
+        let (taken, rest) = v.doc_send_scope().unwrap();
+        assert_eq!(taken, vec!["b1".to_string(), "b2".into()]);
+        assert_eq!(rest, vec![".".to_string(), "a1".into()]);
+    }
+
+    #[test]
+    fn un_punto_sin_parrafo_debajo_no_manda_nada() {
+        let (_d, mut v) = book();
+        v.ring.lines = vec![".".into(), "a".into(), ".".into()];
+        v.ring.index = 2; // el punto final, sin nada abajo
+        assert!(v.doc_send_scope().is_none());
+    }
+
+    #[test]
+    fn el_panel_no_se_abre_si_no_hay_nada_para_mandar() {
+        let (_d, mut v) = book();
+        v.ring.lines = vec![".".into(), "a".into(), ".".into()];
+        v.ring.index = 2;
+        v.doc_open_picker();
+        assert!(!v.picker_open, "se abrió para después no hacer nada");
+        assert!(v.status.contains("Nada para enviar"));
+    }
+
+    #[test]
+    fn el_panel_se_abre_sobre_una_linea() {
+        let (_d, mut v) = book();
+        v.ring.lines = vec![".".into(), "algo".into()];
+        v.ring.index = 1;
+        v.doc_open_picker();
+        assert!(v.picker_open);
+        assert!(!v.library.entries.is_empty(), "el panel se abrió sin biblioteca");
+    }
+
+    #[test]
+    fn mandar_una_linea_la_saca_de_aca_y_la_pone_alla() {
+        let (_d, mut v) = book();
+        v.ring.lines = vec![".".into(), "se va".into(), "se queda".into()];
+        v.ring.index = 1;
+        assert!(v.doc_send_to("Dos.txt").unwrap());
+
+        assert_eq!(v.ring.lines, vec![".".to_string(), "se queda".into()]);
+        let destino = void::load_doc(&library::chapter_path(&v.void_dir, "Dos.txt")).lines;
+        assert!(destino.contains(&"se va".to_string()), "no llegó: {destino:?}");
+        assert!(destino.contains(&"de dos".to_string()), "pisó lo que ya había");
+    }
+
+    #[test]
+    fn lo_que_llega_entra_como_parrafo_propio() {
+        let (_d, mut v) = book();
+        v.ring.lines = vec![".".into(), "recien llegado".into()];
+        v.ring.index = 1;
+        v.doc_send_to("Dos.txt").unwrap();
+        let d = void::load_doc(&library::chapter_path(&v.void_dir, "Dos.txt")).lines;
+        let i = d.iter().position(|l| l == "recien llegado").unwrap();
+        assert_eq!(d[i - 1], ".", "se pegó al párrafo anterior");
+    }
+
+    #[test]
+    fn mandar_a_este_mismo_archivo_no_hace_nada() {
+        let (_d, mut v) = book();
+        v.ring.lines = vec![".".into(), "algo".into()];
+        v.ring.index = 1;
+        let antes = v.ring.lines.clone();
+        assert!(!v.doc_send_to("Uno.txt").unwrap()); // Uno.txt ES el activo
+        assert_eq!(v.ring.lines, antes);
+    }
+
+    #[test]
+    fn mandar_es_un_solo_paso_de_deshacer_en_los_dos_archivos() {
+        let (_d, mut v) = book();
+        v.ring.lines = vec![".".into(), "viajera".into(), "queda".into()];
+        v.save().unwrap();
+        let origen_antes = void::load_doc(&v.current_file).lines;
+        let destino_antes = void::load_doc(&library::chapter_path(&v.void_dir, "Dos.txt")).lines;
+        v.ring.index = 1;
+        v.doc_send_to("Dos.txt").unwrap();
+
+        v.undo().unwrap();
+        assert_eq!(void::load_doc(&v.current_file).lines, origen_antes, "no volvió al origen");
+        assert_eq!(
+            void::load_doc(&library::chapter_path(&v.void_dir, "Dos.txt")).lines,
+            destino_antes,
+            "quedó en el destino después de deshacer"
+        );
+    }
+
+    #[test]
+    fn mandar_cierra_el_panel() {
+        let (_d, mut v) = book();
+        v.ring.lines = vec![".".into(), "algo".into()];
+        v.ring.index = 1;
+        v.doc_open_picker();
+        v.doc_send_to("Dos.txt").unwrap();
+        assert!(!v.picker_open);
+    }
+
+    #[test]
+    fn f5_sigue_mandando_parrafos_como_siempre() {
+        // El refactor comparte código con F2; F5 no puede cambiar de conducta.
+        let (_d, mut v) = book();
+        v.ring.lines = vec![".".into(), "p1a".into(), "p1b".into()];
+        v.switch_to(View::F5);
+        v.para_idx = 0;
+        assert!(v.send_para_to("Dos.txt").unwrap());
+        let d = void::load_doc(&library::chapter_path(&v.void_dir, "Dos.txt")).lines;
+        assert!(d.contains(&"p1a".to_string()) && d.contains(&"p1b".to_string()));
     }
 
     // ── F4: the book as a book ───────────────────────────────────────────────────
