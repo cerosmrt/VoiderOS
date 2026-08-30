@@ -21,6 +21,7 @@
 #![allow(dead_code)]
 
 use std::io::{ErrorKind, Read, Write};
+#[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 
@@ -34,6 +35,7 @@ pub fn default_socket_path() -> PathBuf {
     dir.join("voider-rs.sock")
 }
 
+#[cfg(unix)]
 enum Role {
     /// First one here: owns the socket and relays between the others.
     Hub {
@@ -46,11 +48,13 @@ enum Role {
     Alone,
 }
 
+#[cfg(unix)]
 pub struct Ipc {
     role: Role,
     path: PathBuf,
 }
 
+#[cfg(unix)]
 impl Ipc {
     /// Bind the socket, or connect to whoever already has it. A socket file
     /// left behind by a crashed run refuses connections; that is the signal it
@@ -166,6 +170,7 @@ impl Ipc {
     }
 }
 
+#[cfg(unix)]
 impl Drop for Ipc {
     fn drop(&mut self) {
         // Only the hub owns the file, so only the hub clears it.
@@ -177,6 +182,7 @@ impl Drop for Ipc {
 
 /// Read what's available and cut it into whole lines, keeping any partial tail
 /// for next time. `Err(())` means the peer is gone.
+#[cfg(unix)]
 fn drain(stream: &mut UnixStream, buf: &mut Vec<u8>) -> Result<Vec<String>, ()> {
     let mut chunk = [0u8; 4096];
     loop {
@@ -196,10 +202,45 @@ fn drain(stream: &mut UnixStream, buf: &mut Vec<u8>) -> Result<Vec<String>, ()> 
     Ok(msgs)
 }
 
+
+// ── Sin sockets de Unix (Windows) ───────────────────────────────────────────
+//
+// La sincronización entre instancias vive sobre sockets de dominio Unix, que en
+// Windows no existen (habría que usar named pipes). Acá va un stub inerte con la
+// misma interfaz: la aplicación no se entera, y simplemente no hay aviso entre
+// ventanas.
+//
+// Se pierde poco: el escenario que esto protege es tener dos Voider abiertos
+// sobre el mismo void, que es una costumbre de la máquina de escritura, no de
+// una copia portátil. Vale saberlo igual — en Windows, dos ventanas sobre el
+// mismo texto se pisan como lo hacía el Python antes del IPC.
+
+#[cfg(not(unix))]
+pub struct Ipc {
+    path: PathBuf,
+}
+
+#[cfg(not(unix))]
+impl Ipc {
+    pub fn start(path: &Path) -> Self {
+        Self { path: path.to_path_buf() }
+    }
+    pub fn is_hub(&self) -> bool {
+        false
+    }
+    pub fn is_alone(&self) -> bool {
+        true
+    }
+    pub fn notify_saved(&mut self, _saved: &Path) {}
+    pub fn poll(&mut self) -> Vec<PathBuf> {
+        Vec::new()
+    }
+}
 fn parse(msg: &str) -> Option<PathBuf> {
     msg.strip_prefix(PREFIX).map(PathBuf::from)
 }
 
+#[cfg(unix)]
 #[cfg(test)]
 mod tests {
     use super::*;

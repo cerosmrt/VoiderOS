@@ -1,3 +1,7 @@
+// En Windows, sin la ventana negra de consola detrás: Voider ES la interfaz,
+// no una herramienta lanzada desde una terminal. En Linux el atributo se ignora.
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 //! voider-rs — a Rust/egui mirror of proto-voider.
 //!
 //! Parallel to the Python app, which stays untouched: this is a second

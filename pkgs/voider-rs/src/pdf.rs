@@ -11,6 +11,7 @@
 
 #![allow(dead_code)]
 
+#[cfg(feature = "pdf")]
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -91,6 +92,7 @@ pub fn default_path(void_dir: &Path, title: &str) -> PathBuf {
 
 /// HTML → PDF. La fuente se incrusta si se encontró en la máquina, así el PDF
 /// se ve igual en cualquier lado; si no, el renderizador usa la suya.
+#[cfg(feature = "pdf")]
 pub fn render(html: &str, font_family: &str, font_bytes: Option<Vec<u8>>) -> Result<Vec<u8>, String> {
     use printpdf::*;
 
@@ -111,6 +113,13 @@ pub fn render(html: &str, font_family: &str, font_bytes: Option<Vec<u8>>) -> Res
     Ok(doc.save(&PdfSaveOptions::default(), &mut save_warnings))
 }
 
+
+/// Sin la característica `pdf` (el build de Windows, donde rust-fontconfig no
+/// linkea), componer no está disponible. Se dice, en vez de fallar callado.
+#[cfg(not(feature = "pdf"))]
+pub fn render(_html: &str, _font_family: &str, _font_bytes: Option<Vec<u8>>) -> Result<Vec<u8>, String> {
+    Err("esta versión se compiló sin exportación de PDF".to_string())
+}
 /// Mandar un PDF ya escrito a la impresora del sistema.
 ///
 /// El Python abre el diálogo de impresión de Qt. Acá se pasa a `lp`, que es lo
@@ -231,6 +240,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "pdf")]
     fn el_pdf_se_genera_de_verdad_y_empieza_como_un_pdf() {
         let html = book_html(&[sec("PRUEBA", &["Una frase para componer.", "Y otra más."])], "serif");
         let bytes = render(&html, "serif", None).expect("no compuso");

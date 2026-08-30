@@ -13,7 +13,10 @@ egui   = "0.29"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-printpdf = "0.12.6"
+# El PDF es opcional: rust-fontconfig, que printpdf arrastra, no linkea al
+# cross-compilar a Windows. Con --no-default-features sale el .exe sin exportar
+# PDF; en Linux va incluido, que es donde se usa para imprimir el libro.
+printpdf = { version = "0.12.6", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
@@ -22,3 +25,7 @@ tempfile = "3"
 opt-level     = 3
 lto           = true
 codegen-units = 1
+
+[features]
+default = ["pdf"]
+pdf = ["dep:printpdf"]
