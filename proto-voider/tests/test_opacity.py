@@ -43,3 +43,31 @@ def test_se_registran_las_variantes_de_teclado_para_subir():
     assert "Ctrl+=" in src, "sin esta variante, subir la opacidad no responde"
     assert "Ctrl++" in src
     assert "Ctrl+-" in src
+
+
+def test_se_le_pide_a_hyprland_no_solo_a_qt():
+    """Qt no puede en Wayland: imprime "This plugin does not support setting
+    window opacity" y no pasa nada. La opacidad la decide el compositor.
+
+    Se sigue llamando setWindowOpacity porque es lo correcto donde SÍ funciona
+    (X11), pero además hay que pedírselo a Hyprland.
+    """
+    import inspect
+    src = inspect.getsource(App._apply_opacity)
+    assert "hyprctl" in src, "sin esto no pasa nada en Wayland"
+    assert "setWindowOpacity" in src, "no hay que perder el camino que sí anda en X11"
+
+
+def test_usa_alphaoverride():
+    """Sin alphaoverride, Hyprland multiplica nuestro alpha por su regla global
+    y el efecto casi no se nota."""
+    import inspect
+    assert "alphaoverride" in inspect.getsource(App._apply_opacity)
+
+
+def test_sin_hyprland_no_se_rompe():
+    """En otro escritorio, o en una VM, hyprctl no existe. Eso no es un error:
+    la opacidad es un accesorio y no puede impedir escribir."""
+    import inspect
+    src = inspect.getsource(App._apply_opacity)
+    assert "except" in src and "pass" in src

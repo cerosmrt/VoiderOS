@@ -131,7 +131,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
 
         self.opacity = self._clamp_opacity(self.config.get("opacity", 1.0))
         self._setup_opacity_shortcuts()
-        self.setWindowOpacity(self.opacity)
+        self._apply_opacity(self.opacity)
         self.txt_files = []
         self.current_file_index = 0
         self.current_view = 0  # 0=F1, 1=F2, 2=F3(book), 3=F4(vault)
@@ -905,11 +905,35 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
 
     def _change_opacity(self, delta):
         self.opacity = self._clamp_opacity(self.opacity + delta)
-        self.setWindowOpacity(self.opacity)
+        self._apply_opacity(self.opacity)
         # Se guarda, asi la ventana vuelve como la dejaste.
         self.config['opacity'] = self.opacity
         _save_config(self.config)
         print(f"◐ Opacidad {int(self.opacity * 100)}%")
+
+    def _apply_opacity(self, value):
+        """Aplicar la opacidad a la ventana.
+
+        Qt no puede hacerlo en Wayland: setWindowOpacity imprime "This plugin
+        does not support setting window opacity" y no pasa nada. La opacidad de
+        una ventana la decide el compositor, no la aplicacion.
+
+        Asi que se le pide a Hyprland, que es quien manda. alphaoverride le dice
+        que use nuestro valor en vez de sus propias reglas; sin eso, alpha queda
+        multiplicado por la regla global y el efecto casi no se nota.
+
+        Se sigue llamando a setWindowOpacity igual: es lo correcto donde SI
+        funciona (X11, y otros compositores), y donde no, es inofensivo.
+        """
+        self.setWindowOpacity(value)
+        try:
+            for prop, val in (('alphaoverride', '1'), ('alpha', f'{value:.2f}')):
+                subprocess.run(
+                    ['hyprctl', 'dispatch', 'setprop', 'title:^(Voider)$', prop, val],
+                    capture_output=True, timeout=2,
+                )
+        except (OSError, subprocess.SubprocessError):
+            pass   # sin Hyprland (otro escritorio, o una VM): no es un error
 
     @classmethod
     def _clamp_opacity(cls, value):
