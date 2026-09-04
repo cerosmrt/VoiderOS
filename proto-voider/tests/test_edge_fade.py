@@ -105,3 +105,44 @@ def test_no_rompe_con_tamano_cero(qapp):
     w = EdgeFade()
     w.resize(0, 0)
     w.render(QPixmap(1, 1))
+
+
+def test_nada_se_ve_fuera_del_circulo(qapp):
+    """Lo que Federico vio: con la letra grande, las letras desbordaban.
+
+    El renglón es un rectángulo y el círculo es redondo — arriba y abajo del
+    centro el círculo se angosta, así que las puntas del renglón caen AFUERA.
+    Tapar el exterior lo recorta de verdad, a cualquier tamaño de fuente.
+
+    Sobre fondo blanco: todo lo de afuera del círculo tiene que quedar negro.
+    """
+    img = _render(fondo="white")
+    r = min(W, H) // 2 - EdgeFade.CIRCLE_INSET
+    cx, cy = W // 2, H // 2
+    # Puntos claramente afuera: las cuatro esquinas y los costados lejanos.
+    afuera = [(5, 5), (W - 5, 5), (5, H - 5), (W - 5, H - 5), (2, cy), (W - 3, cy)]
+    for x, y in afuera:
+        assert _rojo(img, x, y) < 30, f"se ve algo fuera del círculo en ({x},{y})"
+
+
+def test_la_esquina_del_renglon_no_desborda(qapp):
+    """El caso exacto del bug: un renglón ALTO (letra grande). Su esquina
+    superior izquierda cae fuera del círculo, y no se tiene que ver."""
+    w = EdgeFade()
+    w.resize(W, H)
+    r = min(W, H) // 2 - EdgeFade.CIRCLE_INSET
+    # Renglón de 160px de alto, como con fuente enorme.
+    w.set_entry_rect(W // 2 - r, H // 2 - 80, r, 160)
+    pm = QPixmap(W, H)
+    pm.fill(QColor("white"))
+    w.render(pm)
+    img = pm.toImage()
+    # Arriba a la izquierda del renglón: dentro del rectángulo, fuera del círculo.
+    x, y = W // 2 - r + 4, H // 2 - 78
+    assert QColor(img.pixel(x, y)).red() < 30, "la esquina del renglón desborda"
+
+
+def test_adentro_del_circulo_sigue_viendose(qapp):
+    """El recorte no puede tapar de más: el centro tiene que seguir limpio."""
+    img = _render(fondo="white")
+    assert _rojo(img, W // 2 - 5, H // 2) > 200

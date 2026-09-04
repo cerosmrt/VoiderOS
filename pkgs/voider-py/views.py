@@ -77,8 +77,8 @@ class EdgeFade(QWidget):
         self.update()
 
     def paintEvent(self, event):
-        from PyQt6.QtGui import QLinearGradient
-        from PyQt6.QtCore import QRect
+        from PyQt6.QtGui import QLinearGradient, QPainterPath
+        from PyQt6.QtCore import QRect, QRectF
         if self.width() == 0 or self.height() == 0:
             return
         painter = QPainter(self)
@@ -95,8 +95,23 @@ class EdgeFade(QWidget):
                 grad.setColorAt(1.0, QColor(0, 0, 0, 0))
                 painter.fillRect(QRect(x, y, w, h), grad)
 
-        # 2. El círculo ENCIMA, para que el degradado no le coma el trazo.
+        # 2. Todo lo que queda AFUERA del círculo, en negro. El renglón es un
+        # rectángulo y el círculo es redondo: arriba y abajo del centro el
+        # círculo se angosta, así que las puntas del renglón caen afuera. Con la
+        # letra grande eso se ve como letras desbordando el círculo. Tapar el
+        # exterior lo recorta de verdad, a cualquier tamaño de fuente, en vez de
+        # confiar en que el degradado llegue a tiempo.
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        cx0, cy0 = self.width() / 2.0, self.height() / 2.0
+        r0 = min(self.width(), self.height()) / 2.0 - self.CIRCLE_INSET
+        if r0 > 0:
+            afuera = QPainterPath()
+            afuera.addRect(QRectF(self.rect()))
+            adentro = QPainterPath()
+            adentro.addEllipse(cx0 - r0, cy0 - r0, r0 * 2, r0 * 2)
+            painter.fillPath(afuera.subtracted(adentro), QColor(0, 0, 0, 255))
+
+        # 3. El círculo ENCIMA, para que el degradado no le coma el trazo.
         painter.setPen(QPen(QColor("white"), self.CIRCLE_PEN))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         cx, cy = self.width() // 2, self.height() // 2
