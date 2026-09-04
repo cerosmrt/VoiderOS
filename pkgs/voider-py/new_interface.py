@@ -39,7 +39,7 @@ from controls import setup_controls
 from line_ring import LineRing
 from circular_view import CircularView
 from widgets import CustomLineEdit
-from views import NormalView
+from views import NormalView, EdgeFade
 from metronome_view import MetronomeView
 from fx_panel import FxPanel
 from help_overlay import HelpOverlay
@@ -152,6 +152,9 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
 
         # Entry (F1)
         self.entry = CustomLineEdit(self)
+        # La capa que apaga el texto hacia el borde del circulo (F1 typewriter).
+        # Se crea aca, al lado del entry, porque va justo encima de el.
+        self._edge_fade = EdgeFade(self)
         self.entry.setFont(self._app_font)
         self.entry.setStyleSheet(f"""
             QLineEdit {{
@@ -544,6 +547,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self.stack.setCurrentWidget(self.normal_view)
             self.entry.show()
             self.entry.raise_()
+            self._reposition_entry()   # y la capa del degradado encima
             if fork_line:
                 # Forked O/ line: pre-fill so you can edit and commit it
                 self.entry.setText(fork_line)
@@ -832,6 +836,18 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             w, h, entry_height, getattr(self, '_typewriter_mode', False))
         self.entry.setFixedWidth(entry_width)
         self.entry.move(x, y)
+        # La capa del degradado se calza EXACTAMENTE sobre el renglon, y solo
+        # tiene sentido en typewriter: en modo clasico el texto va centrado y no
+        # corre hacia el borde, asi que no hay nada que apagar.
+        fade = getattr(self, '_edge_fade', None)
+        if fade is not None:
+            typewriter = getattr(self, '_typewriter_mode', False)
+            if typewriter and self.current_view == 0:
+                fade.setGeometry(x, y, entry_width, entry_height)
+                fade.show()
+                fade.raise_()   # despues del entry, o quedaria debajo
+            else:
+                fade.hide()
         # Search bars sit near the bottom
         bar_width = min(w - 100, 800)
         bar_x = (w - bar_width) // 2
