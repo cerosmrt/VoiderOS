@@ -129,8 +129,9 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._tts_timer.setInterval(50)
         self._tts_timer.timeout.connect(self._tts_poll)
 
-        self.opacity = 1.0
+        self.opacity = self._clamp_opacity(self.config.get("opacity", 1.0))
         self._setup_opacity_shortcuts()
+        self.setWindowOpacity(self.opacity)
         self.txt_files = []
         self.current_file_index = 0
         self.current_view = 0  # 0=F1, 1=F2, 2=F3(book), 3=F4(vault)
@@ -883,17 +884,36 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         super().leaveEvent(event)
         self._refocus_active_editor()
 
+    # Por debajo de esto no se baja. Una ventana que no se ve es una ventana que
+    # no se puede recuperar: las teclas para volver a subirla tambien serian
+    # invisibles. Es el mismo piso que usa la version Rust.
+    OPACITY_MIN = 0.25
+
     def _setup_opacity_shortcuts(self):
-        up = QShortcut(QKeySequence("Ctrl++"), self)
-        up.setContext(Qt.ShortcutContext.ApplicationShortcut)
-        up.activated.connect(lambda: self._change_opacity(0.1))
-        down = QShortcut(QKeySequence("Ctrl+-"), self)
-        down.setContext(Qt.ShortcutContext.ApplicationShortcut)
-        down.activated.connect(lambda: self._change_opacity(-0.1))
+        # Ctrl y '+' se escriben distinto segun el teclado: en layouts donde '+'
+        # es Shift+'=', apretar Ctrl y + manda Ctrl+Shift+=, que "Ctrl++" no
+        # matchea. Por eso se registran las tres formas — es el motivo tipico de
+        # que subir la opacidad "no haga nada" mientras bajarla si funciona.
+        for seq in ("Ctrl++", "Ctrl+=", "Ctrl+Shift+="):
+            sc = QShortcut(QKeySequence(seq), self)
+            sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
+            sc.activated.connect(lambda: self._change_opacity(0.1))
+        for seq in ("Ctrl+-", "Ctrl+_"):
+            sc = QShortcut(QKeySequence(seq), self)
+            sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
+            sc.activated.connect(lambda: self._change_opacity(-0.1))
 
     def _change_opacity(self, delta):
-        self.opacity = max(0.0, min(1.0, self.opacity + delta))
+        self.opacity = self._clamp_opacity(self.opacity + delta)
         self.setWindowOpacity(self.opacity)
+        # Se guarda, asi la ventana vuelve como la dejaste.
+        self.config['opacity'] = self.opacity
+        _save_config(self.config)
+        print(f"◐ Opacidad {int(self.opacity * 100)}%")
+
+    @classmethod
+    def _clamp_opacity(cls, value):
+        return max(cls.OPACITY_MIN, min(1.0, value))
 
     # ── Void key ─────────────────────────────────────────────────────────────
 
