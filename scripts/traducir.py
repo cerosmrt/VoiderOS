@@ -23,6 +23,13 @@ def main():
     ap.add_argument("--to", dest="hasta", default="es")
     a = ap.parse_args()
 
+    # stanza (el tokenizador que usa argos) escupe un WARNING por CADA linea
+    # traducida. Con 7000 lineas eso tapa el contador de avance y deja la
+    # ventana inservible, que era justo para lo que se abria.
+    import logging
+    for ruidoso in ("stanza", "argostranslate"):
+        logging.getLogger(ruidoso).setLevel(logging.ERROR)
+
     from argostranslate import package, translate
 
     # Bajar el modelo si no esta.
@@ -43,26 +50,37 @@ def main():
 
     lineas = open(a.entrada, encoding="utf-8", errors="replace").read().splitlines()
     total = len(lineas)
-    salida = []
-    for i, linea in enumerate(lineas, 1):
-        limpia = linea.strip()
-        # Los separadores y las lineas vacias pasan tal cual: son estructura del
-        # void, no texto. Traducirlos los rompe.
-        if not limpia or limpia == "." or all(c == "." for c in limpia):
-            salida.append(linea)
-        else:
-            try:
-                salida.append(traductor.translate(limpia))
-            except Exception as e:
-                # Una linea que falla no puede tumbar 7000: se deja el original.
-                print(f"  linea {i}: sin traducir ({e})", file=sys.stderr)
-                salida.append(linea)
-        if i % 100 == 0 or i == total:
-            print(f"  {i}/{total}", end="\r", flush=True)
+    hechas = 0
 
-    with open(a.salida, "w", encoding="utf-8") as f:
-        f.write("\n".join(salida) + "\n")
-    print(f"\nListo: {a.salida} ({total} lineas)")
+    # Se escribe A MEDIDA que avanza, no al final. Antes juntaba las 7000 lineas
+    # en memoria y escribia al terminar: si moria en la 6999, se perdia todo.
+    # Asi ademas el archivo se puede ir mirando mientras corre.
+    with open(a.salida, "w", encoding="utf-8", buffering=1) as f:
+        for i, linea in enumerate(lineas, 1):
+            limpia = linea.strip()
+            # Los separadores y las lineas vacias pasan tal cual: son estructura
+            # del void, no texto. Traducirlos los rompe.
+            if not limpia or limpia == "." or all(c == "." for c in limpia):
+                f.write(linea + "\n")
+                continue
+            try:
+                salida = traductor.translate(limpia)
+                hechas += 1
+            except Exception as e:
+                # Una linea que falla no puede tumbar las otras siete mil: se
+                # deja el original y se sigue.
+                print(f"  linea {i}: sin traducir ({e})", file=sys.stderr)
+                salida = linea
+            f.write(salida + "\n")
+
+            pct = i * 100 // total
+            # Recortada, para que una linea larga no rompa el renglon y se pueda
+            # seguir el avance de un vistazo.
+            muestra = salida if len(salida) <= 64 else salida[:63] + "…"
+            print(f"[{pct:3d}%] {i:5d}/{total}  {muestra}", flush=True)
+
+    print(f"\nListo: {a.salida}")
+    print(f"{total} lineas · {hechas} traducidas · {total - hechas} separadores")
 
 
 if __name__ == "__main__":
