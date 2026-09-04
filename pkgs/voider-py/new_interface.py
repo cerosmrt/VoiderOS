@@ -839,11 +839,15 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         # La capa del degradado se calza EXACTAMENTE sobre el renglon, y solo
         # tiene sentido en typewriter: en modo clasico el texto va centrado y no
         # corre hacia el borde, asi que no hay nada que apagar.
-        fade = getattr(self, '_edge_fade', None)
+        fade = getattr(self, "_edge_fade", None)
         if fade is not None:
-            typewriter = getattr(self, '_typewriter_mode', False)
+            typewriter = getattr(self, "_typewriter_mode", False)
             if typewriter and self.current_view == 0:
-                fade.setGeometry(x, y, entry_width, entry_height)
+                # La capa ocupa TODA la vista, no solo el renglon: ademas del
+                # degradado tiene que redibujar el circulo encima, o el negro le
+                # comeria el trazo por la izquierda.
+                fade.setGeometry(0, 0, w, h)
+                fade.set_entry_rect(x, y, entry_width, entry_height)
                 fade.show()
                 fade.raise_()   # despues del entry, o quedaria debajo
             else:
