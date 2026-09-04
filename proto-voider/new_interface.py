@@ -1,5 +1,6 @@
 # new_interface.py - App principal con sistema de 2 vistas + vault (F3)
 import os
+import subprocess
 import sys
 
 from PyQt6.QtWidgets import QApplication, QMainWindow, QStackedWidget, QFileDialog, QLineEdit, QTextBrowser
@@ -458,6 +459,12 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self.switch_to_view(view)
 
     def switch_to_view(self, view_index):
+        # La capa del circulo de F1 se esconde SIEMPRE al cambiar de vista. Es de
+        # F1 y de nadie mas: si queda visible, recorta F2/F3/F4 a un circulo y se
+        # come el texto. La muestra de nuevo _reposition_entry al entrar a F1.
+        fade = getattr(self, "_edge_fade", None)
+        if fade is not None and view_index != 0:
+            fade.hide()
         # Close search bars when leaving their view
         if self._f2_search_active and view_index != 1:
             self._close_f2_search(restore=True)
@@ -843,12 +850,17 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         fade = getattr(self, "_edge_fade", None)
         if fade is not None:
             typewriter = getattr(self, "_typewriter_mode", False)
-            if typewriter and self.current_view == 0:
-                # La capa ocupa TODA la vista, no solo el renglon: ademas del
-                # degradado tiene que redibujar el circulo encima, o el negro le
-                # comeria el trazo por la izquierda.
+            if self.current_view == 0:
+                # La capa va SIEMPRE en F1, no solo en typewriter: ademas del
+                # degradado es la que recorta el texto al circulo y redibuja el
+                # trazo encima. Sin ella, en modo clasico la letra grande se
+                # desparrama por toda la pantalla y el circulo desaparece detras.
                 fade.setGeometry(0, 0, w, h)
-                fade.set_entry_rect(x, y, entry_width, entry_height)
+                # El degradado direccional solo tiene sentido en typewriter: ahi
+                # el caret esta fijo y la linea corre hacia el borde. En clasico
+                # el texto va centrado, asi que se recorta pero no se apaga.
+                fade.set_entry_rect(x, y, entry_width, entry_height) if typewriter \
+                    else fade.set_entry_rect(0, 0, 0, 0)
                 fade.show()
                 fade.raise_()   # despues del entry, o quedaria debajo
             else:

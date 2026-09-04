@@ -146,3 +146,25 @@ def test_adentro_del_circulo_sigue_viendose(qapp):
     """El recorte no puede tapar de más: el centro tiene que seguir limpio."""
     img = _render(fondo="white")
     assert _rojo(img, W // 2 - 5, H // 2) > 200
+
+
+def test_sin_renglon_igual_recorta_al_circulo(qapp):
+    """El modo clásico: sin degradado direccional, pero el recorte sigue.
+
+    Al salir de typewriter la capa se escondía, y con la letra grande el texto se
+    desparramaba por toda la pantalla y el círculo desaparecía detrás. El
+    recorte no es del typewriter: es de F1.
+    """
+    img = _render(fondo="white", entry=False)
+    for x, y in ((5, 5), (W - 5, 5), (2, H // 2)):
+        assert _rojo(img, x, y) < 30, f"sin renglón no recortó en ({x},{y})"
+
+
+def test_sin_renglon_no_se_apaga_nada_adentro(qapp):
+    """En clásico el texto va centrado y no corre hacia ningún borde, así que
+    no hay que apagarlo — sólo recortarlo."""
+    img = _render(fondo="white", entry=False)
+    r = min(W, H) // 2 - EdgeFade.CIRCLE_INSET
+    # Bien adentro del círculo, del lado izquierdo: en typewriter esto estaría
+    # apagado; en clásico tiene que estar limpio.
+    assert _rojo(img, W // 2 - r + 40, H // 2) > 200, "apagó de más en modo clásico"
