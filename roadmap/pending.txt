@@ -9,6 +9,61 @@ ACTIVE — ready to implement next
 
 BUGS
 ----
+- F9 FUNDE EL TEXTO SIN PUNTUACIÓN (2026-09-08). Entrar a F9 y volver sobre un
+  texto escrito en scriptio continua colapsa la sesión entera en UNA línea.
+  Medido en I/0.txt: 8225 líneas → 2850, y los puntos separadores 563 → 302.
+  Son DOS transformaciones con pérdida, una en cada punta:
+    * al ABRIR — reading_page.py:102 lines_to_paragraphs() pega con ' ' todas
+      las líneas consecutivas hasta el próximo '.'. No toca el archivo, pero el
+      editor de F9 ya tiene el texto fundido en la mano.
+    * al GUARDAR — new_interface.py:_editor_save() escribe eso tal cual y llama
+      a reformat_active_file(), que reparte por oraciones. Sin puntos no hay
+      oraciones que repartir → queda una sola línea. Sólo dispara si el
+      documento quedó modified, pero alcanza con una tecla.
+  OJO: arreglar sólo el guardado NO alcanza — el editor ya recibió el texto
+  fundido al abrir. Hay que sacar las dos.
+  Federico decidió (2026-09-08) NO tocar F9 por ahora y atacarlo desde el dato,
+  con Ctrl+Shift+E (ya implementado, commit 483630d). O sea: el antídoto existe,
+  la cura no. Cada viaje a F9 sobre texto sin puntuación lo vuelve a fundir.
+  Opciones evaluadas cuando se retome:
+    A (recomendada) — F9 deja de transformar de los dos lados: muestra las
+      líneas del archivo como están y escribe lo que se ve. Ida y vuelta byte a
+      byte. Se pierde "ver el texto corrido" dentro de F9, pero eso ya es F4:
+      F4 ES la vista de prosa, F9 no necesita ser otra. Sub-decisión abierta:
+      los '.' se ven como puntos (verbatim total) o como línea en blanco.
+    B — mantener el reflow pero recordar las líneas que entraron y reescribir
+      sólo los párrafos realmente tocados. Arregla "fui y volví" pero NO el caso
+      de scriptio continua: una sesión suele ser UN solo grupo de punto, así que
+      tocar una palabra funde todo igual.
+    C — que split_sentences no funda sin puntuación. No sirve: el daño ya
+      ocurrió al abrir.
+  El mirror de Rust tiene el MISMO join con pérdida en su F9 (enter_prose_editor
+  / reformat_prose). Lo que se decida acá hay que replicarlo allá.
+
+- I/0.txt SIGUE FUNDIDO (2026-09-08). El daño está en el archivo, sin revertir
+  — Federico eligió recuperarlo a mano con Ctrl+Shift+E en vez de restaurar.
+  La versión buena está en el snapshot de /void 1289099 ("snapshot 2026-09-08
+  09:31:36"): `git -C ~/void show 1289099:I/0.txt`. Verificado que la
+  recuperación sería SIN PÉRDIDA — secuencia de palabras idéntica, cero palabras
+  en el archivo actual que no estén en el snapshot; la única diferencia son los
+  saltos de línea y los puntos. El .bak de I/0.txt NO sirve: es de las 09:42,
+  escrito por el propio reformat, ya fundido.
+  Hay DOS clases de línea fundida y Ctrl+Shift+E sólo arregla una:
+    * scriptio continua (líneas 97, 91, 93 — palabras pegadas, el espacio ES el
+      salto). Ctrl+Shift+E las devuelve exactas. Cero puntos adentro.
+    * prosa normal (línea 69: "sin is not arbitrary prohibition it is
+      ontological misalignment...") — fundida por el mismo bug, pero ahí el
+      espacio separa PALABRAS. Ctrl+Shift+E la dejaría en una palabra por línea.
+      Para éstas no hay comando: o se restaura del snapshot, o se reponen los
+      saltos a mano.
+
+- Divergencia Python/Rust en backspace + Caps (2026-09-08). El bloqueo de
+  backspace en scriptio continua va SÓLO en el input de F1 — F2/F3 es donde se
+  edita y ahí se borra siempre, con Caps o sin Caps (Federico fue explícito).
+  El Python quedó así (commit e359896). El Rust NO: main.rs bloquea backspace
+  con caps también en el handler de F2 (~línea 415). Hay que sacarlo de ahí para
+  que el mirror sea fiel.
+
 - F4 Ctrl+P (save PDF) floods stderr: on print/export from the F4 reader, Qt
   emits a wall of 'OpenType support missing for "<font>", script 18' (one per
   installed font) plus Wayland 'QWaylandTextInputv3::disableSurface' warnings.
