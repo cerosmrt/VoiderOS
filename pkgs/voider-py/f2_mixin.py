@@ -1,10 +1,25 @@
 # f2_mixin.py — F2 doc editor methods
 import os
 import random
+import re
 
 from PyQt6.QtCore import Qt
 
 from line_ring import LineRing
+
+
+def split_on_spaces(text):
+    """Devolverle los saltos de línea a un texto de scriptio continua fundido.
+
+    En scriptio continua la barra espaciadora suelta la línea al void, así que
+    dentro de una línea el espacio no separa palabras: ES el salto de línea que
+    se perdió. La regla, textual: «convierte los espacios en puntos y los puntos
+    en linebreaks» — o sea, corta por espacio y por punto.
+
+    Los signos que cierran de otro modo (? ! …) quedan pegados a su fragmento,
+    que es donde el escritor los puso.
+    """
+    return [p for p in re.split(r'[\s.]+', text.strip()) if p]
 
 
 class F2Mixin:
@@ -509,6 +524,73 @@ class F2Mixin:
             self.switch_to_view(0)   # F1 mirrors this empty line; write here
         else:
             self._doc_split_line(0)
+
+    def _split_line_on_spaces(self):
+        """Ctrl+Shift+E en F2: partirle los espacios a la línea donde estoy —
+        o, parado en un punto, a todas las líneas de ese párrafo.
+
+        Es el antídoto de un viaje a F9 con texto sin puntuación: F9 pega las
+        líneas con un espacio, y sin puntos no hay oraciones que volver a
+        separar, así que la sesión entera queda en una sola línea. Acá el
+        espacio vuelve a ser lo que era mientras se escribía en scriptio
+        continua: el salto de línea.
+
+        Los puntos separadores no se tocan nunca — son la estructura.
+        """
+        ring = self.line_ring
+        lines = ring.lines
+        n = len(lines)
+        if not n:
+            return
+        idx = ring.index
+
+        if lines[idx] == '.':
+            # El párrafo que abre este punto. El punto mismo queda afuera.
+            targets = []
+            i = (idx + 1) % n
+            for _ in range(n - 1):
+                if lines[i] == '.':
+                    break
+                targets.append(i)
+                i = (i + 1) % n
+        else:
+            targets = [idx]
+        if not targets:
+            return
+
+        # Si no hay nada que partir, no se escribe un paso de undo vacío ni un
+        # .bak que pisaría uno bueno.
+        if not any(len(split_on_spaces(lines[i])) > 1 for i in targets):
+            print("↩ No hay espacios que convertir en líneas.")
+            return
+
+        if self._para_focus:
+            self._exit_para_focus()
+
+        first = targets[0]
+        tset = set(targets)
+        new_lines, new_index = [], 0
+        for i, line in enumerate(lines):
+            if i == first:
+                new_index = len(new_lines)
+            if i in tset:
+                pieces = split_on_spaces(line)
+                new_lines.extend(pieces if pieces else [line])
+            else:
+                new_lines.append(line)
+
+        self._undo_begin()
+        if not self._atomic_write_lines(self.current_file_path, new_lines, backup=True):
+            return
+        ring.lines = new_lines
+        ring.index = new_index
+        self._undo_commit(key=('split_spaces', self.current_file_path))
+        if self.circular_view:
+            self.circular_view._offset = 0.0
+            self.circular_view.editor.setText(ring.current())
+            self.circular_view.editor.setCursorPosition(0)
+            self.circular_view.update()
+        print(f"↵ {len(targets)} línea(s) → {len(new_lines) - (n - len(targets))} líneas")
 
     def _enter_para_focus(self):
         ring = self.line_ring

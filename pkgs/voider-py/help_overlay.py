@@ -52,6 +52,7 @@ HELP = [
     ("Ctrl+0",            "Rebase: make current line first"),
     ("Ctrl+Shift+R",      "Randomise all lines in 0.txt"),
     ("Ctrl+Shift+D",      "Dispatch: route /name paragraphs to files"),
+    ("Ctrl+Shift+E",      "Split at spaces: each space back into a line break"),
     ("",                  ""),
     ("HYPRLAND",          None),
     ("Super+J",           "CRT scanlines panel"),

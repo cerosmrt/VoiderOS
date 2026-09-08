@@ -247,6 +247,11 @@ class KeyRouterMixin:
             else:
                 self.reformat_active_file()
             event.accept()
+        elif self._matches(key, mods, 'split_spaces'):
+            # Devolverle los saltos a una línea de scriptio continua que quedó
+            # fundida: cada espacio vuelve a ser el salto que era.
+            self._split_line_on_spaces()
+            event.accept()
         elif self._matches(key, mods, 'shuffle_zero'):
             self._shuffle_zero()
             event.accept()
