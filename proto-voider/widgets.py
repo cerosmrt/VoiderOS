@@ -25,17 +25,13 @@ def neutralize_caps(editor, event):
     return False
 
 
-def caps_blocks_backspace(editor, event, allow_ctrl=False):
-    """Scriptio continua is writing without going back. While Caps is on, the line
-    can only be typed forward or released to the void — Backspace erases nothing.
-    Returns True if it swallowed the key.
+def caps_blocks_backspace(editor, event):
+    """Scriptio continua is writing without going back. While Caps is on, the F1
+    line can only be typed forward or released to the void — Backspace erases
+    nothing. Returns True if it swallowed the key.
 
-    `allow_ctrl=True` lets Ctrl+⌫ through: in the F2/F3 editor that combo isn't
-    editing, it sends the whole line down the trash cascade. In the F1 entry it
-    would only delete a word, so there it stays blocked too."""
+    Sólo el input de F1: F2/F3 es donde se edita, y ahí se borra siempre."""
     if event.key() != Qt.Key.Key_Backspace:
-        return False
-    if allow_ctrl and (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
         return False
     caps = getattr(editor.window(), '_capslock_on', None)
     if not (caps and caps()):

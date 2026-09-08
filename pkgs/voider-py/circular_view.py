@@ -337,13 +337,8 @@ class CustomLineEdit(QLineEdit):
         shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
 
         # Caps Lock never uppercases (same as F1) — letters type in normal case.
-        from widgets import neutralize_caps, caps_blocks_backspace
+        from widgets import neutralize_caps
         if neutralize_caps(self, event):
-            return
-
-        # Scriptio continua: tampoco se borra. Ctrl+⌫ sí pasa — eso no es editar,
-        # es mandar la línea entera a la cascada de basura.
-        if caps_blocks_backspace(self, event, allow_ctrl=True):
             return
 
         # Ctrl+C: a selection copies normally; with nothing selected, fire a

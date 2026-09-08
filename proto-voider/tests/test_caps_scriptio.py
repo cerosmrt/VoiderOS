@@ -64,52 +64,43 @@ class TestCapsNeutralised:
         assert le.text() == '5'
 
 
-# Scriptio continua is writing without going back: con Caps prendido la línea
-# sólo se puede escribir hacia adelante o soltarla al void. Backspace no borra.
-# (El mirror de Rust ya lo hace así — esto pone al Python a la par.)
-@pytest.mark.parametrize("EditCls", [F1Edit, DocEdit])
-class TestCapsBlocksBackspace:
-    def _edit(self, qapp, EditCls, caps, text='hola'):
+# Scriptio continua es escribir sin volver atrás: con Caps prendido la línea de
+# F1 sólo se escribe hacia adelante o se suelta al void. Backspace no borra.
+# Sólo el input de F1 — F2/F3 es donde se edita, y ahí se borra siempre.
+class TestCapsBlocksBackspaceInF1:
+    def _edit(self, qapp, caps, text='hola'):
         app = FakeApp(caps)
-        le = EditCls(app)
+        le = F1Edit(app)
         le._keep_app = app
         le.setText(text)
         le.setCursorPosition(len(text))
         return le
 
-    def test_caps_on_backspace_erases_nothing(self, qapp, EditCls):
-        le = self._edit(qapp, EditCls, caps=True)
+    def test_caps_on_backspace_erases_nothing(self, qapp):
+        le = self._edit(qapp, caps=True)
         _type(le, Qt.Key.Key_Backspace, '\b')
         assert le.text() == 'hola'
 
-    def test_caps_off_backspace_erases(self, qapp, EditCls):
-        le = self._edit(qapp, EditCls, caps=False)
+    def test_caps_off_backspace_erases(self, qapp):
+        le = self._edit(qapp, caps=False)
         _type(le, Qt.Key.Key_Backspace, '\b')
         assert le.text() == 'hol'
 
-    def test_caps_on_ctrl_backspace_still_reaches_the_app(self, qapp, EditCls):
-        """Ctrl+⌫ manda la línea a la cascada de basura — no es edición, no se bloquea."""
-        le = self._edit(qapp, EditCls, caps=True)
-        fired = []
-        if hasattr(le, 'deleteLineToZero'):
-            le.deleteLineToZero.connect(lambda: fired.append(True))
+    def test_caps_on_blocks_ctrl_backspace_too(self, qapp):
+        """En F1 Ctrl+⌫ sólo borraría una palabra — también es editar."""
+        le = self._edit(qapp, caps=True)
         ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Backspace,
                        Qt.KeyboardModifier.ControlModifier, '\b')
         le.keyPressEvent(ev)
-        assert le.text() == 'hola'          # nunca borra un carácter
-        if hasattr(le, 'deleteLineToZero'):
-            assert fired, 'Ctrl+⌫ quedó comido por el bloqueo de scriptio continua'
+        assert le.text() == 'hola'
 
 
-def test_caps_on_backspace_at_start_does_not_join_lines(qapp):
-    """En F2, ⌫ en la columna 0 pega la línea con la anterior. Con Caps, tampoco."""
+def test_caps_on_still_erases_in_the_doc_editor(qapp):
+    """F2/F3 es el lugar donde se edita: Caps no lo toca."""
     app = FakeApp(True)
     le = DocEdit(app)
     le._keep_app = app
     le.setText('hola')
-    le.setCursorPosition(0)
-    joined = []
-    le.backspaceAtStart.connect(lambda: joined.append(True))
+    le.setCursorPosition(4)
     _type(le, Qt.Key.Key_Backspace, '\b')
-    assert not joined
-    assert le.text() == 'hola'
+    assert le.text() == 'hol'
