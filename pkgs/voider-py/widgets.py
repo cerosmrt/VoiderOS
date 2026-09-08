@@ -25,6 +25,25 @@ def neutralize_caps(editor, event):
     return False
 
 
+def caps_blocks_backspace(editor, event, allow_ctrl=False):
+    """Scriptio continua is writing without going back. While Caps is on, the line
+    can only be typed forward or released to the void — Backspace erases nothing.
+    Returns True if it swallowed the key.
+
+    `allow_ctrl=True` lets Ctrl+⌫ through: in the F2/F3 editor that combo isn't
+    editing, it sends the whole line down the trash cascade. In the F1 entry it
+    would only delete a word, so there it stays blocked too."""
+    if event.key() != Qt.Key.Key_Backspace:
+        return False
+    if allow_ctrl and (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+        return False
+    caps = getattr(editor.window(), '_capslock_on', None)
+    if not (caps and caps()):
+        return False
+    event.accept()
+    return True
+
+
 def hide_scrollbars(widget):
     """Hide both scrollbars on a scroll-area widget. Content still scrolls via
     the wheel and keys — only the bars go invisible."""
@@ -93,6 +112,10 @@ class CustomLineEdit(QLineEdit):
         # Caps Lock only toggles scriptio-continua (spacebar voids) — never
         # uppercase. While it's on, letters type in their normal case.
         if neutralize_caps(self, event):
+            return
+
+        # …y no se borra: la línea se escribe hacia adelante o se suelta.
+        if caps_blocks_backspace(self, event):
             return
 
         # Atajos con Ctrl
