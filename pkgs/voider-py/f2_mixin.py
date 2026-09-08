@@ -8,18 +8,34 @@ from PyQt6.QtCore import Qt
 from line_ring import LineRing
 
 
+# Signos que ya cierran una oración: si un fragmento termina con uno de estos,
+# no se le agrega nada. Son los mismos que reconoce el reformat al repartir.
+SENTENCE_ENDERS = '.?!…'
+
+
 def split_on_spaces(text):
-    """Devolverle los saltos de línea a un texto de scriptio continua fundido.
+    """Devolverle los saltos de línea —y la puntuación— a un texto de scriptio
+    continua fundido.
 
     En scriptio continua la barra espaciadora suelta la línea al void, así que
     dentro de una línea el espacio no separa palabras: ES el salto de línea que
     se perdió. La regla, textual: «convierte los espacios en puntos y los puntos
-    en linebreaks» — o sea, corta por espacio y por punto.
+    en linebreaks».
 
-    Los signos que cierran de otro modo (? ! …) quedan pegados a su fragmento,
-    que es donde el escritor los puso.
+    El punto QUEDA, y esa es la parte que importa. Sin puntuación, el próximo
+    viaje a F9 vuelve a fundir todo: F9 pega las líneas con un espacio al abrir
+    y al salir reparte por oraciones, y sin puntos no hay oraciones que repartir.
+    Con un punto al final de cada línea el texto sobrevive al viaje.
+
+    Un fragmento que ya cierra por su cuenta (? ! …) se deja intacto. Uno que
+    termina en coma se queda con su coma y encima el punto ('back,.'): antes
+    feo que comerle un carácter a lo que escribió.
+
+    Sin espacios que partir la función igual puntúa — así se puede correr sobre
+    líneas que ya se separaron pero quedaron sin punto.
     """
-    return [p for p in re.split(r'[\s.]+', text.strip()) if p]
+    pieces = [p for p in re.split(r'[\s.]+', text.strip()) if p]
+    return [p if p[-1] in SENTENCE_ENDERS else p + '.' for p in pieces]
 
 
 class F2Mixin:
@@ -558,10 +574,11 @@ class F2Mixin:
         if not targets:
             return
 
-        # Si no hay nada que partir, no se escribe un paso de undo vacío ni un
-        # .bak que pisaría uno bueno.
-        if not any(len(split_on_spaces(lines[i])) > 1 for i in targets):
-            print("↩ No hay espacios que convertir en líneas.")
+        # Si no cambia nada, no se escribe un paso de undo vacío ni un .bak que
+        # pisaría uno bueno. "Cambiar" incluye sólo agregarle el punto a una
+        # línea que ya está sola: es lo que la hace sobrevivir a F9.
+        if all(split_on_spaces(lines[i]) == [lines[i]] for i in targets):
+            print("↩ Nada que partir ni que puntuar.")
             return
 
         if self._para_focus:
