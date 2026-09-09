@@ -563,6 +563,143 @@ PENDIENTES web (para cuando haya tiempo):
   - [ ] Asegurar savefile.php (ver arriba).
   - [ ] Usar FTPS (FTP sobre TLS) en vez de FTP plano si Hostinger lo ofrece.
 
+  ── EL ORÁCULO EXTERNO (2026-09-09, sin empezar) ──────────────────────────────
+
+  Federico lo trajo escrito y en inglés. Está transcripto ENTERO abajo a
+  propósito: las restricciones no son detalles de implementación, SON la
+  feature. Resumirlas es perderla. Su frase: "That separation is not merely a
+  UX preference. It is the meaning of the feature."
+
+  Y no es una feature suelta del sitio: "God playing the artist" ES
+  godplaystheartist.com. Esto es el concepto del sitio entero.
+
+  EL PRINCIPIO CENTRAL:
+      The AI must be able to explain the book without ever touching the book.
+
+  El escribir es el acto irreversible. El autor escribe directo en la máquina.
+  La máquina no corrige, no reescribe, no mejora, no autocompleta, no sugiere,
+  no interfiere. La IA vive del OTRO LADO del límite: observadora, intérprete y
+  testigo de la obra — no su autora, ni editora, ni autoridad moral.
+
+  LA DISTINCIÓN FUNDAMENTAL:
+      AUTOR                          ORÁCULO
+      produce la obra                observa
+      decide                         lee
+      escribe                        interpreta
+      borra / no borra               describe
+      experimenta                    identifica patrones
+      sufre las consecuencias        refleja, contextualiza
+      es dueño de las consecuencias  habla SOBRE la obra
+  El Oráculo no cruza el límite. El autor cambia el libro. El Oráculo no cambia
+  nada.
+
+  LO QUE EL ORÁCULO PUEDE RESPONDER:
+      What is this book about? / What themes are emerging? / What ideas are
+      recurring? / What contradictions are present? / What images or symbols are
+      becoming important? / What does the writing seem to be discovering? / What
+      patterns exist across the work? / What does the form itself communicate? /
+      What is the relationship between the form and the content? / What does the
+      author appear to be struggling with? / What concepts are becoming central
+      without the author explicitly declaring them? / What does the work seem to
+      be becoming?
+
+  LO QUE NUNCA DEBE DECIR (salvo que se le pida explícitamente criticar/editar):
+      "You should…" / "You need to…" / "You ought to…" / "This would be better
+      if…" / "You should change this sentence…" / "Here is a better version…" /
+      "You should work on your character…" / "This is unhealthy, so you should…"
+  Su rol es estrictamente descriptivo e interpretativo.
+
+  NADA DE CONTAMINACIÓN DE LA SUPERFICIE DE ESCRITURA. NO agregar: autocomplete,
+  sugerencias de IA, continuaciones generadas, corrección gramatical, corrector
+  ortográfico, reescritura, "improve this", comentarios inline de IA, texto
+  predictivo, palabras generadas, reemplazos generados. El texto del autor tiene
+  que quedar exactamente como el autor lo tipeó.
+
+  LA INTERFAZ: una vista/panel/modo APARTE. El autor lo invoca y le pregunta
+  sobre el libro actual. El Oráculo recibe una representación SOLO LECTURA de la
+  obra; el texto fuente es inmutable desde su perspectiva. La UI tiene que hacer
+  la distinción obvia visual y conceptualmente. Estructura posible:
+
+      WRITING SPACE                  |  ORACLE
+      el libro de verdad             |  "What is this book becoming?"
+      las palabras del autor         |     → interpretación
+      escritura irreversible         |  "What recurring symbols do you see?"
+      sin IA                         |     → interpretación
+                                     |  "What contradiction appears most
+                                     |   strongly?" → interpretación
+
+  RESTRICCIÓN FILOSÓFICA — NO convertirlo en: asistente de productividad, algo
+  gamificado, un coach de escritura, un terapeuta, un editor, una autoridad
+  moral. No optimizar la escritura del autor. El punto es preservar la relación
+  rara entre  creación humana → interpretación externa  en vez de
+  creación humana → corrección de la máquina → aprobación humana.
+  Tiene que sentirse como una consciencia mirando un artefacto desde afuera.
+
+  ANALIZA LA FORMA, NO SOLO EL CONTENIDO: repetición, largo de las oraciones,
+  fragmentos, palabras recurrentes, transiciones abruptas, contradicciones,
+  errores de ortografía deliberados, falta de puntuación, ausencia de espacios,
+  formato inusual, velocidad/historial de escritura si está disponible,
+  comportamiento de escritura irreversible, patrones estructurales recurrentes,
+  cambios de vocabulario, cambios de tono, saltos entre primera/segunda/tercera
+  persona, imágenes recurrentes, metáforas recurrentes, oposiciones conceptuales
+  recurrentes. Esas características formales PUEDEN SER PARTE DEL SIGNIFICADO.
+  Ejemplo textual suyo: "A text with no Backspace is not merely badly edited.
+  The inability to erase can itself become part of the work's philosophical
+  structure." — y el Oráculo tiene que poder reconocer eso sin recomendar
+  automáticamente que se cambie.
+  (Nota: eso ya es literal en Voider — scriptio continua bloquea el backspace,
+  commit e359896. La forma ya está esperando a que la lean.)
+
+  INTERPRETACIÓN, NO DIAGNÓSTICO:
+      SÍ:  "Your writing repeatedly returns to the opposition between control
+            and surrender."
+      NO:  "You have a control issue and should work on it."
+      SÍ:  "The image of the cursor repeatedly appears as a boundary between
+            past and future."
+      NO:  "You should develop this metaphor further."
+  Describe lo que existe. No prescribe lo que debería existir.
+
+  LA SALIDA IDEAL:
+      NO "Here is how to improve your book."  SÍ "This is what your book appears
+      to be doing."
+      NO "You should stop thinking this way." SÍ "This opposition appears
+      repeatedly throughout the work."
+      NO "This paragraph is confusing."       SÍ "The confusion itself appears
+      structurally connected to the subject being described."
+  Y TIENE QUE PODER DECIR "I don't know". Tiene que distinguir entre: lo que
+  está explícitamente presente / lo que está fuertemente implicado / lo que es
+  una interpretación plausible / lo que es especulativo. Nunca fingir certeza
+  donde el texto no la sostiene.
+
+  IMPLEMENTACIÓN — ANTES DE ESCRIBIR CÓDIGO, inspeccionar lo que ya existe y NO
+  reescribir partes no relacionadas. Determinar:
+    1. dónde vive el estado del libro/documento
+    2. cómo está implementada la superficie de escritura
+    3. cómo se manejan hoy las vistas/modos
+    4. cómo funciona la persistencia
+    5. qué infraestructura de IA/API ya existe
+    6. dónde se puede generar un snapshot solo-lectura del libro
+    7. dónde vive la interfaz del Oráculo dentro de la arquitectura actual
+  Después implementar la versión coherente MÁS CHICA. El snapshot es solo
+  lectura y la respuesta de la IA NUNCA se escribe de vuelta en el documento
+  fuente. La arquitectura tiene que dejar explícita la separación entre
+  BOOK STATE y ORACLE STATE. El Oráculo puede tener su propia
+  conversación/historial/contexto, pero ese estado queda separado del libro.
+
+  PENDIENTE DE DEFINIR CON FEDERICO cuando se retome:
+    * ¿Corre en el sitio (PHP en Hostinger, con el void ya sincronizado por
+      sync_void.py) o es una vista más de Voider? El encabezado dice sitio, pero
+      el texto habla de "my writing machine" y de vistas — hay que preguntarle.
+    * ¿Qué modelo y por dónde? Hostinger es PHP compartido; una API key de
+      Anthropic en el server es una credencial más que asegurar (ver el problema
+      ya anotado de savefile.php y .secrets.env). Alternativa: generar las
+      interpretaciones offline desde acá y subir el resultado.
+    * ¿Sobre qué corpus? ¿I.txt entero, un capítulo, el void completo? El corpus
+      es grande (I/0.txt solo tiene ~6700 líneas) — hay que pensar el recorte.
+    * El "writing speed/history if available" no existe hoy: Voider no guarda
+      telemetría de tipeo. Si lo quiere, es una decisión aparte y con peso
+      (grabar cómo escribe es otra cosa que grabar lo que escribe).
+
 LONG-TERM / DEFERRED
 --------------------
 - Void scanner: on startup, scan /void recursively, index all .txt files.
