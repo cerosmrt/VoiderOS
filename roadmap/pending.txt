@@ -565,10 +565,25 @@ PENDIENTES web (para cuando haya tiempo):
 
   ── EL ORÁCULO EXTERNO (2026-09-09, sin empezar) ──────────────────────────────
 
-  Federico lo trajo escrito y en inglés. Está transcripto ENTERO abajo a
-  propósito: las restricciones no son detalles de implementación, SON la
-  feature. Resumirlas es perderla. Su frase: "That separation is not merely a
-  UX preference. It is the meaning of the feature."
+  CÓMO SE RETOMA: esto NO se empieza a construir solo. Federico lo dijo
+  explícitamente el 2026-09-09: cuando toque hacerlo, se retoma CON ÉL y se le
+  pregunta. Primero inspeccionar lo que ya existe, después traerle las preguntas
+  de abajo una por una, y recién con sus respuestas escribir código. Traer un
+  Oráculo ya construido y pedirle que lo apruebe sería justo la relación que la
+  feature existe para evitar.
+
+  DE DÓNDE SALIÓ ESTE TEXTO: lo escribió una IA (ChatGPT), no Federico. Él lo
+  pegó tal cual y dijo, textual, "porque lo escribio la ia y ni idea". O sea:
+  NO es su diseño decidido, es una propuesta que todavía no leyó en detalle.
+  Tratarlo como punto de partida para conversar, nunca como especificación
+  cerrada — puede haber partes que no quiera, o que contradigan cómo funciona
+  Voider. Lo que SÍ es suyo es la intuición de fondo y el nombre del sitio.
+
+  Está transcripto ENTERO abajo a propósito: si alguna de estas restricciones
+  sobrevive a la conversación con él, es porque ahí está la feature — resumirlas
+  de antemano sería decidir por él cuáles importan. La frase del texto original:
+  "That separation is not merely a UX preference. It is the meaning of the
+  feature."
 
   Y no es una feature suelta del sitio: "God playing the artist" ES
   godplaystheartist.com. Esto es el concepto del sitio entero.
