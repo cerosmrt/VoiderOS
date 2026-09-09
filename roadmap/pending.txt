@@ -9,6 +9,25 @@ ACTIVE — ready to implement next
 
 BUGS
 ----
+- EL INPUT DE F2 NO SE TRANSPARENTA (2026-09-09). Con el fondo bajado, todo se
+  transparenta menos el renglón que estás editando en F2: queda un rectángulo
+  negro sólido en el medio. Es un cabo suelto del cambio de opacidad (b9457b0).
+  Causa, ya ubicada: new_interface.py:430 _apply_editor_style() escribe
+  "background-color: black" a pelo en el QLineEdit del CircularView — las dos
+  ramas, la roja y la blanca. Esa hoja de estilo es opaca y pisa el fondo de la
+  ventana. Los otros editores tienen "background: transparent" (el entry de F1
+  en __init__ y las barras de búsqueda), por eso ésos sí se transparentan.
+  Arreglo: que las dos ramas usen "background: transparent" y tomen el color de
+  texto de widgets.ink_color(), igual que ya hace CircularView.paintEvent.
+  Ojo con dos cosas al hacerlo:
+    * el editor se pinta ENCIMA del texto que dibuja CircularView.paintEvent en
+      la misma línea. Si el fondo se vuelve transparente, puede verse el texto
+      del paintEvent por debajo del que estás editando (doble). Hay que mirar si
+      paintEvent ya saltea la línea activa cuando edit_mode está prendido.
+    * selection-color: black asume fondo claro en la selección; revisar que se
+      siga leyendo con el fondo transparente.
+  Hay que verlo con los ojos, no sólo con tests.
+
 - SHIFT+TAB EN F2 SIGUE SIN ANDAR (2026-09-09). Debería traer una línea al azar
   de los libros del working set (F7). Ya intenté un arreglo y NO alcanzó, así
   que lo de abajo es lo que queda por descartar, no lo que hay que repetir.
