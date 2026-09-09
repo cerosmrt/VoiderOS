@@ -9,6 +9,48 @@ ACTIVE — ready to implement next
 
 BUGS
 ----
+- SHIFT+TAB EN F2 SIGUE SIN ANDAR (2026-09-09). Debería traer una línea al azar
+  de los libros del working set (F7). Ya intenté un arreglo y NO alcanzó, así
+  que lo de abajo es lo que queda por descartar, no lo que hay que repetir.
+  Lo que YA está verificado y no es la causa:
+    * el working set está sano: 6 libros en ~/void/O/.working_set.json, los 6
+      con archivo existente, y se lee una línea al azar sin problema.
+    * la cadena está cableada: circular_view.CustomLineEdit.event() emite
+      altTabPressed, new_interface.py la conecta a _doc_insert_ws_line, y ése
+      llama a _random_line_from_ws.
+    * el nivel Qt anda: hay tests (tests/test_shift_tab_ws.py) que mandan
+      Key_Backtab, Key_Backtab sin Shift, y Key_Tab+Shift, y las tres emiten
+      altTabPressed. El commit 0a62445 agregó justamente el caso Key_Tab+Shift.
+  Lo que hay que mirar, en este orden:
+    1. ¿Se reinició proto-voider después del commit? Si probó con el proceso
+       viejo estaba corriendo el código anterior. Es lo más barato de descartar.
+    2. QUÉ IMPRIME LA TERMINAL al apretar Shift+Tab. Si dice "↩ No working set
+       books to pull from", el problema es self.o_dir en la app corriendo (no
+       apunta a ~/void/O) y no la tecla. Si no imprime NADA, el evento no está
+       llegando al editor.
+    3. Si no llega: ¿lo agarra Hyprland antes? Revisar binds del compositor.
+       También puede estar consumiéndolo el QShortcut de la ventana o el
+       keyPressEvent de KeyRouterMixin antes que el editor con foco.
+    4. Instrumentar de verdad: un print en CustomLineEdit.event() con
+       e.key() y e.modifiers(), y ver qué llega realmente en esa máquina. Es lo
+       que faltó hacer la primera vez — diagnostiqué por deducción y no por
+       observación.
+
+- LA OPACIDAD NO BAJA A 0 (2026-09-09). Federico la quiere hasta 0; hoy frena
+  en 25% el fondo y 20% la tinta (OPACITY_MIN / INK_MIN en new_interface.py).
+  Los pisos los puse yo, no los pidió él, y ya dijo que los quiere sacar.
+  Cambio en sí: trivial, poner los dos en 0.0 y ajustar tests/test_opacity.py.
+  Lo que hay que resolver ANTES de hacerlo, porque es una trampa real: los dos
+  valores se persisten en config. Con los dos en 0 la ventana queda invisible
+  Y SIGUE INVISIBLE DESPUÉS DE REINICIAR. Las teclas funcionan a ciegas
+  (Ctrl++ / Ctrl+Shift++ siguen respondiendo aunque no se vea nada), pero hay
+  que saberlo. Opciones a proponerle:
+    * una tecla de pánico que devuelva los dos a 1.0 (Ctrl+Shift+0, por decir);
+    * o no persistir el 0 — guardar un mínimo visible aunque en la sesión llegue
+      a 0, así un reinicio siempre devuelve la ventana;
+    * o directamente sacar los pisos y confiar en que se acuerda de Ctrl++.
+  Es su decisión, no mía: ya le puse un límite que no pidió una vez.
+
 - F9 FUNDE EL TEXTO SIN PUNTUACIÓN (2026-09-08). Entrar a F9 y volver sobre un
   texto escrito en scriptio continua colapsa la sesión entera en UNA línea.
   Medido en I/0.txt: 8225 líneas → 2850, y los puntos separadores 563 → 302.
@@ -23,8 +65,11 @@ BUGS
   OJO: arreglar sólo el guardado NO alcanza — el editor ya recibió el texto
   fundido al abrir. Hay que sacar las dos.
   Federico decidió (2026-09-08) NO tocar F9 por ahora y atacarlo desde el dato,
-  con Ctrl+Shift+E (ya implementado, commit 483630d). O sea: el antídoto existe,
-  la cura no. Cada viaje a F9 sobre texto sin puntuación lo vuelve a fundir.
+  con Ctrl+Shift+E (commit ce30349). Ese comando puntúa: deja un punto al final
+  de cada línea, y con eso el texto SÍ sobrevive al viaje (verificado: 91 líneas
+  puntuadas van a F9 y vuelven 91 idénticas; sin puntuar vuelve 1). O sea que el
+  agujero que queda es sólo el texto que todavía no pasó por Ctrl+Shift+E: F9
+  sigue fundiendo cualquier cosa sin puntuación.
   Opciones evaluadas cuando se retome:
     A (recomendada) — F9 deja de transformar de los dos lados: muestra las
       líneas del archivo como están y escribe lo que se ve. Ida y vuelta byte a
@@ -42,12 +87,18 @@ BUGS
 
 - I/0.txt SIGUE FUNDIDO (2026-09-08). El daño está en el archivo, sin revertir
   — Federico eligió recuperarlo a mano con Ctrl+Shift+E en vez de restaurar.
-  La versión buena está en el snapshot de /void 1289099 ("snapshot 2026-09-08
-  09:31:36"): `git -C ~/void show 1289099:I/0.txt`. Verificado que la
-  recuperación sería SIN PÉRDIDA — secuencia de palabras idéntica, cero palabras
-  en el archivo actual que no estén en el snapshot; la única diferencia son los
-  saltos de línea y los puntos. El .bak de I/0.txt NO sirve: es de las 09:42,
-  escrito por el propio reformat, ya fundido.
+  La versión con los saltos intactos está en el snapshot de /void 1289099
+  ("snapshot 2026-09-08 09:31:36"): `git -C ~/void show 1289099:I/0.txt`.
+  OJO — restaurarlo YA NO ES INOCUO. A las 09:31 era una recuperación sin
+  pérdida, pero después de esa hora Federico borró a mano la basura del OCR del
+  Jeet Kune Do (páginas, encabezados "TAO OF JEET KUNE DO", etc. — está en
+  I/trash.txt, commit a9afa73). Restaurar del snapshot le devolvería toda esa
+  basura. Si alguna vez hace falta, hay que restaurar y volver a limpiar, o
+  sacar del snapshot sólo los párrafos que interesen.
+  El .bak de I/0.txt NO sirve: es de las 09:42, escrito por el propio reformat,
+  ya fundido.
+  Al 2026-09-09 Federico ya recuperó la mayor parte a mano con Ctrl+Shift+E
+  (el archivo pasó de 2850 a 6673 líneas).
   Hay DOS clases de línea fundida y Ctrl+Shift+E sólo arregla una:
     * scriptio continua (líneas 97, 91, 93 — palabras pegadas, el espacio ES el
       salto). Ctrl+Shift+E las devuelve exactas. Cero puntos adentro.
