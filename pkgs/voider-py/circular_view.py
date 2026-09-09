@@ -293,7 +293,7 @@ class CustomLineEdit(QLineEdit):
     splitAtCursor = pyqtSignal(int)
     wordSwapLeft = pyqtSignal()
     wordSwapRight = pyqtSignal()
-    deleteLineToZero = pyqtSignal()
+    deleteLine = pyqtSignal()
     deleteAtEnd = pyqtSignal()
     tabPressed = pyqtSignal()
     altTabPressed = pyqtSignal()   # Alt+Tab: insert from working set
@@ -323,7 +323,14 @@ class CustomLineEdit(QLineEdit):
         # here at the event level and treat Tab as the random-jump key (like '*').
         if e.type() == QEvent.Type.KeyPress and e.key() in (
                 Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
-            if e.key() == Qt.Key.Key_Backtab:
+            # Shift+Tab llega de dos formas segun el layout y el compositor: como
+            # Key_Backtab, o como Key_Tab con el Shift todavia puesto. Las dos
+            # significan lo mismo — traer una linea del working set. Mirar solo
+            # Key_Backtab hacia que en el segundo caso cayera en el Tab normal y
+            # trajera un fragmento de I/, que parecia "no hace nada".
+            shifted = (e.key() == Qt.Key.Key_Backtab
+                       or bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier))
+            if shifted:
                 self.altTabPressed.emit()
             else:
                 self.tabPressed.emit()
@@ -399,14 +406,14 @@ class CustomLineEdit(QLineEdit):
             event.accept()
         elif key == Qt.Key.Key_Delete and ctrl:
             if self.cursorPosition() == 0:
-                self.deleteLineToZero.emit()
+                self.deleteLine.emit()
             self.ctrlDeletePressed.emit()
             event.accept()
         elif key == Qt.Key.Key_Delete and mods == Qt.KeyboardModifier.NoModifier and self.cursorPosition() == len(self.text()) and not self.hasSelectedText():
             self.deleteAtEnd.emit()
             event.accept()
         elif key == Qt.Key.Key_Backspace and ctrl and self.cursorPosition() == len(self.text()):
-            self.deleteLineToZero.emit()
+            self.deleteLine.emit()
             event.accept()
         elif key == Qt.Key.Key_Left and mods == Qt.KeyboardModifier.AltModifier:
             self.wordSwapLeft.emit()

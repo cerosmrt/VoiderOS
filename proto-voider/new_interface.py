@@ -586,7 +586,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                 self.circular_view.editor.splitAtCursor.connect(self._doc_split_line)
                 self.circular_view.editor.wordSwapLeft.connect(lambda: self._swap_words(-1))
                 self.circular_view.editor.wordSwapRight.connect(lambda: self._swap_words(1))
-                self.circular_view.editor.deleteLineToZero.connect(self._delete_line_to_zero)
+                self.circular_view.editor.deleteLine.connect(self._delete_line_to_trash)
                 self.circular_view.editor.deleteAtEnd.connect(self._doc_join_next)
                 self.circular_view.editor.tabPressed.connect(self._doc_tab)
                 self.circular_view.editor.altTabPressed.connect(self._doc_insert_ws_line)

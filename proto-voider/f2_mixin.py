@@ -660,9 +660,16 @@ class F2Mixin:
             idx = (idx - 1) % n
         return 0
 
-    def _delete_line_to_zero(self):
-        """Ctrl+Delete / Ctrl+Backspace in F2 — three-level cascade:
-        other file → 0.txt;  0.txt → trash.txt;  trash.txt → permanent."""
+    def _delete_line_to_trash(self):
+        """Ctrl+Delete / Ctrl+Backspace en F2 — el tacho, que va y vuelve:
+
+            cualquier archivo (0.txt incluido)  → trash.txt
+            trash.txt                           → 0.txt
+
+        Antes esto era una cascada de tres niveles que terminaba en borrado
+        permanente. Ya no: ningún camino termina en la nada. Una línea siempre
+        queda escrita en algún lado, y desde la basura vuelve al scratch.
+        """
         lines = self.line_ring.lines
         n = len(lines)
         cur = self.line_ring.index
@@ -674,28 +681,17 @@ class F2Mixin:
 
         trash_file = getattr(self, '_trash_file',
                              os.path.join(self.void_dir, 'I', 'trash.txt'))
-        on_scratch = os.path.abspath(self.current_file_path) == os.path.abspath(self.f1_file)
-        on_trash   = os.path.abspath(self.current_file_path) == os.path.abspath(trash_file)
+        on_trash = os.path.abspath(self.current_file_path) == os.path.abspath(trash_file)
 
-        if on_trash:
-            print(f"🗑️ Deleted permanently: {line[:60]}")
-        elif on_scratch:
-            try:
-                os.makedirs(os.path.dirname(trash_file), exist_ok=True)
-                with open(trash_file, 'a', encoding='utf-8') as f:
-                    f.write(line + '\n')
-                print(f"🗑️ → trash.txt: {line[:60]}")
-            except Exception as e:
-                print(f"❌ Delete to trash error: {e}")
-                return
-        else:
-            try:
-                with open(self.f1_file, 'a', encoding='utf-8') as f:
-                    f.write(line + '\n')
-                print(f"♻️ → 0.txt: {line[:60]}")
-            except Exception as e:
-                print(f"❌ Delete to 0.txt error: {e}")
-                return
+        dest, arrow = (self.f1_file, '♻️ → 0.txt') if on_trash else (trash_file, '🗑️ → trash.txt')
+        try:
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            with open(dest, 'a', encoding='utf-8') as f:
+                f.write(line + '\n')
+            print(f"{arrow}: {line[:60]}")
+        except Exception as e:
+            print(f"❌ {os.path.basename(dest)}: {e}")
+            return   # si no se pudo escribir el destino, la línea NO se saca de acá
 
         self.line_ring.lines = new_lines
         self.line_ring.index = new_index

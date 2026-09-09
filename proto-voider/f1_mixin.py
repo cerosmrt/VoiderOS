@@ -192,7 +192,7 @@ class F1Mixin:
             self.scratch_view.editor.textEdited.connect(self._scratch_live_save)
             self.scratch_view.editor.upPressed.connect(lambda: self._scratch_navigate(-1))
             self.scratch_view.editor.downPressed.connect(lambda: self._scratch_navigate(1))
-            self.scratch_view.editor.deleteLineToZero.connect(self._scratch_delete_line)
+            self.scratch_view.editor.deleteLine.connect(self._scratch_delete_line)
             self.scratch_view.editor.tabPressed.connect(self._f1_tab_toggle)
             self.stack.addWidget(self.scratch_view)
         else:

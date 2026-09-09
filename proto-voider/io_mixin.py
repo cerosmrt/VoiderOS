@@ -1225,6 +1225,28 @@ class IoMixin:
 
     # ── Book directory / file pickers ─────────────────────────────────────────
 
+    def open_trash(self):
+        """Ctrl+Shift+X: abrir la basura en F2.
+
+        trash.txt no es nada especial — es un archivo en I/ — asi que abrirlo es
+        apuntar F2 ahi, lo mismo que Ctrl+F2 eligiendolo a mano pero sin dialogo.
+        Adentro, Ctrl+Delete sobre una linea la devuelve a 0.txt.
+
+        Si todavia no tiraste nada el archivo no existe: se crea vacio en vez de
+        fallar, para que la tecla siempre haga lo mismo.
+        """
+        path = getattr(self, '_trash_file',
+                       os.path.join(self.void_dir, 'I', 'trash.txt'))
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            if not os.path.exists(path):
+                open(path, 'w', encoding='utf-8').close()
+        except OSError as e:
+            print(f"❌ trash.txt: {e}")
+            return
+        self._set_f2_file(path)
+        self.switch_to_view(1)
+
     def pick_active_file(self):
         """Ctrl+F2: pick any .txt file → sets active file + book folder."""
         path, _ = QFileDialog.getOpenFileName(

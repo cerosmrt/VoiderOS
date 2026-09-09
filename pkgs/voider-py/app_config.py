@@ -55,6 +55,7 @@ DEFAULT_CONFIG = {
         "export_doc": "Ctrl+S",
         "reformat_file": "Ctrl+Shift+F",
         "split_spaces": "Ctrl+Shift+E",
+        "open_trash": "Ctrl+Shift+X",
         "shuffle_zero": "Ctrl+Shift+R",
         "dispatch": "Ctrl+Shift+D",
         "split_chapter": "Ctrl+Shift+S",

@@ -126,6 +126,10 @@ class KeyRouterMixin:
             self.pick_book_directory(); event.accept(); return
         if self._matches(key, mods, 'pick_dir'):
             self.change_void_directory(); event.accept(); return
+        # La basura: un archivo mas, abierto en F2. Ctrl+Delete adentro devuelve
+        # la linea a 0.txt.
+        if self._matches(key, mods, 'open_trash'):
+            self.open_trash(); event.accept(); return
 
         # Print (Ctrl+P) and Export/Save as (Ctrl+S)
         if self._matches(key, mods, 'print_doc') and self.current_view == 2:
@@ -266,7 +270,7 @@ class KeyRouterMixin:
             at_start = editor.cursorPosition() == 0
             at_end = editor.cursorPosition() == len(editor.text())
             if (key == Qt.Key.Key_Delete and at_start) or (key == Qt.Key.Key_Backspace and at_end):
-                self._delete_line_to_zero()
+                self._delete_line_to_trash()
                 event.accept()
         elif mods == Qt.KeyboardModifier.ControlModifier and key == Qt.Key.Key_F:
             self._open_f2_search(); event.accept()

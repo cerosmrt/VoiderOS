@@ -53,6 +53,8 @@ HELP = [
     ("Ctrl+Shift+R",      "Randomise all lines in 0.txt"),
     ("Ctrl+Shift+D",      "Dispatch: route /name paragraphs to files"),
     ("Ctrl+Shift+E",      "Each space → a period + a line break (survives F9)"),
+    ("Ctrl+Delete",       "Send line to trash.txt (from trash: back to 0.txt)"),
+    ("Ctrl+Shift+X",      "Open the trash"),
     ("",                  ""),
     ("HYPRLAND",          None),
     ("Super+J",           "CRT scanlines panel"),
