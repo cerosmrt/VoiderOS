@@ -107,3 +107,13 @@ def test_sin_hyprland_no_se_rompe():
     import inspect
     src = inspect.getsource(App._apply_opacity)
     assert "except" in src and "pass" in src
+
+
+def test_se_le_pide_a_hyprland_que_no_bluree():
+    """Contra de haber hecho la ventana translúcida: Hyprland trae el blur
+    prendido de fábrica y sólo actúa donde una ventana deja pasar lo de atrás.
+    Con la superficie opaca no tenía nada que blurear; al volverla translúcida
+    el fondo se veía borroso. La gracia de la transparencia es ver lo de atrás
+    nítido."""
+    import inspect
+    assert "noblur" in inspect.getsource(App._apply_opacity)

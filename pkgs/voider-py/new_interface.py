@@ -1026,13 +1026,21 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         ultimo es lo que se le dice aca: alphaoverride 1 y alpha 1, o sea "no
         toques nada, ya esta pintado".
 
+        Y noblur, que es la contra de haber hecho la ventana translucida.
+        Hyprland trae el blur prendido de fabrica (decoration:blur:enabled = 1,
+        no lo configura nadie en nix/) y solo actua donde una ventana deja pasar
+        lo de atras. Mientras la superficie era opaca no tenia nada que blurear;
+        al volverla translucida le dimos justo lo que su regla esperaba, y el
+        fondo se veia borroso. La gracia de la transparencia es ver lo de atras
+        nitido, asi que se le dice que a esta ventana no la toque.
+
         setWindowOpacity(1.0) por la misma razon: en X11 si funciona, y ahi
         atenuaria la ventana entera, que es justo lo que dejamos de querer.
         """
         self.setWindowOpacity(1.0)
         self._repaint_surfaces()
         try:
-            for prop, val in (('alphaoverride', '1'), ('alpha', '1')):
+            for prop, val in (('alphaoverride', '1'), ('alpha', '1'), ('noblur', '1')):
                 subprocess.run(
                     ['hyprctl', 'dispatch', 'setprop', 'title:^(Voider)$', prop, val],
                     capture_output=True, timeout=2,
