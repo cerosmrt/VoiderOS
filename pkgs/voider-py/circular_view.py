@@ -183,8 +183,11 @@ class CircularView(QWidget):
         painter = QPainter(self)
         if not painter.isActive():
             return
-        painter.fillRect(self.rect(), Qt.GlobalColor.black)
-        painter.setPen(Qt.GlobalColor.white)
+        # El fondo lo pinta la ventana, una sola vez, con el alpha del eje FONDO.
+        # Si lo pintaramos tambien aca los dos alphas se multiplicarian y bajar la
+        # opacidad se notaria la mitad.
+        from widgets import ink_color
+        painter.setPen(ink_color(self))
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         fm = QFontMetrics(self.font())
 

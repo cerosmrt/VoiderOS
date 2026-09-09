@@ -25,6 +25,31 @@ def neutralize_caps(editor, event):
     return False
 
 
+def surface_alphas(widget):
+    """Los dos ejes de transparencia, leidos de la ventana: (fondo, tinta).
+
+    Viven en la ventana y no en cada vista porque son una sola decision del
+    usuario (Ctrl+± y Ctrl+Shift+±). Con getattr y default 1.0 para que un
+    widget suelto —un test, una vista huerfana— siga pintando opaco.
+    """
+    win = widget.window()
+    return (getattr(win, 'opacity', 1.0), getattr(win, 'ink_opacity', 1.0))
+
+
+def ink_color(widget):
+    """El blanco del circulo y las letras, con el alpha del eje TINTA."""
+    from PyQt6.QtGui import QColor
+    _, ink = surface_alphas(widget)
+    return QColor(255, 255, 255, int(round(max(0.0, min(1.0, ink)) * 255)))
+
+
+def bg_color(widget):
+    """El negro del fondo, con el alpha del eje FONDO."""
+    from PyQt6.QtGui import QColor
+    bg, _ = surface_alphas(widget)
+    return QColor(0, 0, 0, int(round(max(0.0, min(1.0, bg)) * 255)))
+
+
 def caps_blocks_backspace(editor, event):
     """Scriptio continua is writing without going back. While Caps is on, the F1
     line can only be typed forward or released to the void — Backspace erases

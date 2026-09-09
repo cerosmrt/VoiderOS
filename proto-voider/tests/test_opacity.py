@@ -1,12 +1,14 @@
-"""Ctrl+± cambia la opacidad de la ventana.
+"""Opacidad en dos ejes.
 
-La función existía pero podía no responder: `Ctrl++` no matchea en teclados
-donde `+` es Shift+`=` (como el layout GB de esta máquina). Ahí apretar Ctrl y +
-manda Ctrl+Shift+=, y sólo bajar la opacidad funcionaba. Por eso se registran
-las tres formas.
+Antes había uno solo: le pedíamos a Hyprland que bajara el alpha de TODA la
+ventana, así que al atenuar el fondo se atenuaba también el texto. Ahora la
+transparencia la pintamos nosotros y son dos valores independientes:
 
-Y no bajaba con piso: llegaba a 0.0, o sea ventana invisible — y las teclas para
-volver a subirla también invisibles.
+    Ctrl+ + / -         el FONDO (el negro). El blanco no se toca.
+    Ctrl+Shift+ + / -   la TINTA (el círculo y las letras).
+
+Los dos con piso: ni una ventana invisible ni un texto invisible, porque las
+teclas para recuperarlos también serían invisibles.
 """
 import pytest
 
@@ -15,59 +17,93 @@ pytest.importorskip("PyQt6")
 from new_interface import FullscreenCircleApp as App
 
 
-def test_no_se_puede_desaparecer_la_ventana():
-    """Una ventana que no se ve es una ventana que no se puede recuperar."""
+# ── los pisos ────────────────────────────────────────────────────────────────
+
+def test_no_se_puede_desaparecer_el_fondo():
     assert App._clamp_opacity(0.0) >= App.OPACITY_MIN
     assert App._clamp_opacity(-5) >= App.OPACITY_MIN
 
 
-def test_no_pasa_de_opaco():
+def test_no_se_puede_desaparecer_la_tinta():
+    """Un texto invisible no se puede volver a subir: no lo ves para saber dónde."""
+    assert App._clamp_ink(0.0) >= App.INK_MIN
+    assert App._clamp_ink(-5) >= App.INK_MIN
+
+
+def test_ninguno_pasa_de_opaco():
     assert App._clamp_opacity(1.5) == 1.0
-    assert App._clamp_opacity(1.0) == 1.0
+    assert App._clamp_ink(1.5) == 1.0
 
 
 def test_los_valores_del_medio_pasan_intactos():
     assert App._clamp_opacity(0.6) == pytest.approx(0.6)
+    assert App._clamp_ink(0.6) == pytest.approx(0.6)
 
 
-def test_el_piso_deja_ver_lo_suficiente():
-    """Si el piso fuera muy bajo no serviría de nada como salvavidas."""
-    assert App.OPACITY_MIN >= 0.15, "demasiado transparente para recuperarla"
-    assert App.OPACITY_MIN <= 0.5, "demasiado alto, no deja atenuar de verdad"
+def test_los_pisos_son_razonables():
+    assert 0.0 <= App.OPACITY_MIN <= 0.5, "el fondo tiene que poder atenuarse de verdad"
+    assert 0.1 <= App.INK_MIN <= 0.5, "la tinta tiene que seguir siendo legible"
 
 
-def test_se_registran_las_variantes_de_teclado_para_subir():
-    """El bug real: en layout GB, '+' es Shift+'=' y Ctrl++ no matchea."""
+# ── el color que sale de cada eje ────────────────────────────────────────────
+
+def test_el_fondo_es_negro_con_el_alpha_del_fondo():
+    c = App._bg_color(0.5)
+    assert (c.red(), c.green(), c.blue()) == (0, 0, 0)
+    assert c.alpha() == 128          # 0.5 * 255 = 127.5, redondeado
+
+
+def test_la_tinta_es_blanca_con_el_alpha_de_la_tinta():
+    c = App._ink_color(1.0)
+    assert (c.red(), c.green(), c.blue()) == (255, 255, 255)
+    assert c.alpha() == 255
+    assert App._ink_color(0.5).alpha() == 128
+
+
+def test_bajar_el_fondo_no_toca_la_tinta():
+    """El pedido entero: atenuar el negro dejando el blanco intacto."""
+    assert App._ink_color(1.0).alpha() == 255
+    assert App._bg_color(0.3).alpha() < 255
+
+
+# ── las teclas ───────────────────────────────────────────────────────────────
+
+def test_se_registran_las_variantes_de_teclado_para_el_fondo():
+    """En layout GB '+' es Shift+'=' y Ctrl++ solo no matchea."""
     import inspect
     src = inspect.getsource(App._setup_opacity_shortcuts)
-    assert "Ctrl+=" in src, "sin esta variante, subir la opacidad no responde"
+    assert "Ctrl+=" in src
     assert "Ctrl++" in src
     assert "Ctrl+-" in src
 
 
-def test_se_le_pide_a_hyprland_no_solo_a_qt():
-    """Qt no puede en Wayland: imprime "This plugin does not support setting
-    window opacity" y no pasa nada. La opacidad la decide el compositor.
+def test_la_tinta_tiene_su_propio_par_de_teclas():
+    import inspect
+    src = inspect.getsource(App._setup_opacity_shortcuts)
+    assert "_change_ink" in src, "Ctrl+Shift+± no está cableado a la tinta"
+    assert "ShiftModifier" in src, "la tinta se registra con Shift explícito"
 
-    Se sigue llamando setWindowOpacity porque es lo correcto donde SÍ funciona
-    (X11), pero además hay que pedírselo a Hyprland.
-    """
+
+# ── ya no se le pide al compositor que atenúe todo ───────────────────────────
+
+def test_hyprland_ya_no_atenua_la_ventana_entera():
+    """Ese era el bug: el compositor bajaba el alpha de todo, texto incluido.
+    Ahora se le pide lo contrario — que NO toque nada — y el alpha lo pintamos."""
     import inspect
     src = inspect.getsource(App._apply_opacity)
-    assert "hyprctl" in src, "sin esto no pasa nada en Wayland"
-    assert "setWindowOpacity" in src, "no hay que perder el camino que sí anda en X11"
+    assert "alphaoverride" in src, "sin esto Hyprland multiplica por su regla global"
+    assert "'1'" in src or '"1"' in src, "hay que fijarle alpha 1 y pintar nosotros"
 
 
-def test_usa_alphaoverride():
-    """Sin alphaoverride, Hyprland multiplica nuestro alpha por su regla global
-    y el efecto casi no se nota."""
+def test_la_ventana_es_translucida_de_verdad():
+    """Sin WA_TranslucentBackground el alpha que pintamos no se ve: Qt pide un
+    visual sin canal alfa y el compositor no tiene qué componer."""
     import inspect
-    assert "alphaoverride" in inspect.getsource(App._apply_opacity)
+    src = inspect.getsource(App.__init__)
+    assert "WA_TranslucentBackground" in src
 
 
 def test_sin_hyprland_no_se_rompe():
-    """En otro escritorio, o en una VM, hyprctl no existe. Eso no es un error:
-    la opacidad es un accesorio y no puede impedir escribir."""
     import inspect
     src = inspect.getsource(App._apply_opacity)
     assert "except" in src and "pass" in src

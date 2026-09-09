@@ -4,7 +4,7 @@ import subprocess
 import sys
 
 from PyQt6.QtWidgets import QApplication, QMainWindow, QStackedWidget, QFileDialog, QLineEdit, QTextBrowser
-from PyQt6.QtGui import QFont, QCursor, QShortcut, QKeySequence
+from PyQt6.QtGui import QFont, QCursor, QShortcut, QKeySequence, QColor
 from PyQt6.QtCore import Qt, QTimer, QEvent
 
 import app_config as _app_config
@@ -130,9 +130,12 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._tts_timer.setInterval(50)
         self._tts_timer.timeout.connect(self._tts_poll)
 
+        # Los dos ejes de transparencia. Se aplican al final del __init__, cuando
+        # los widgets ya existen: ahora el alpha se pinta, no se le pide a la
+        # ventana, asi que hay que tener algo que pintar.
         self.opacity = self._clamp_opacity(self.config.get("opacity", 1.0))
+        self.ink_opacity = self._clamp_ink(self.config.get("ink_opacity", 1.0))
         self._setup_opacity_shortcuts()
-        self._apply_opacity(self.opacity)
         self.txt_files = []
         self.current_file_index = 0
         self.current_view = 0  # 0=F1, 1=F2, 2=F3(book), 3=F4(vault)
@@ -150,6 +153,10 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         # Window setup
         self.setWindowTitle("Voider")
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        # Translucida de verdad: pide un visual con canal alfa. Sin esto el
+        # rgba() que pintamos abajo se aplasta contra negro opaco y bajar la
+        # opacidad del fondo no se ve.
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setStyleSheet("background-color: black; color: white;")
 
         # Entry (F1)
@@ -329,6 +336,9 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self.init_ui()
         self._restore_startup_view()
         self.entry.clear()
+        # Recien aca: la transparencia se pinta, asi que necesita las vistas
+        # armadas. Ademas le dice a Hyprland que no vuelva a atenuar por su lado.
+        self._apply_opacity(self.opacity)
 
     # ── Directory picker ──────────────────────────────────────────────────────
 
@@ -834,6 +844,30 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         width = max(1, min(w, h) - 90)
         return w // 2 - width // 2, y, width
 
+    def _clip_entry_to_circle(self, x, y, ew, eh, w, h):
+        """Recortar el renglon de F1 al circulo, de verdad.
+
+        Antes esto lo hacia EdgeFade pintando negro opaco por fuera del circulo:
+        tapaba lo que sobresalia. Funcionaba mientras el fondo fuera negro solido
+        — con el fondo transparente ese negro deja de tapar, y la letra grande
+        vuelve a desparramarse. Una mascara si recorta: lo que queda afuera del
+        circulo directamente no se dibuja, con cualquier opacidad.
+
+        En F2/F3/F4 no hay circulo, asi que la mascara se saca.
+        """
+        from PyQt6.QtGui import QRegion
+        if self.current_view != 0:
+            self.entry.clearMask()
+            return
+        r = min(w, h) // 2 - EdgeFade.CIRCLE_INSET
+        if r <= 0 or ew <= 0 or eh <= 0:
+            self.entry.clearMask()
+            return
+        # El circulo, pasado a coordenadas del entry.
+        cx, cy = w // 2 - x, h // 2 - y
+        self.entry.setMask(QRegion(cx - r, cy - r, r * 2, r * 2,
+                                   QRegion.RegionType.Ellipse))
+
     def _reposition_entry(self):
         w = self.width()
         h = self.height()
@@ -844,6 +878,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             w, h, entry_height, getattr(self, '_typewriter_mode', False))
         self.entry.setFixedWidth(entry_width)
         self.entry.move(x, y)
+        self._clip_entry_to_circle(x, y, entry_width, entry_height, w, h)
         # La capa del degradado se calza EXACTAMENTE sobre el renglon, y solo
         # tiene sentido en typewriter: en modo clasico el texto va centrado y no
         # corre hacia el borde, asi que no hay nada que apagar.
@@ -900,12 +935,25 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
     # no se puede recuperar: las teclas para volver a subirla tambien serian
     # invisibles. Es el mismo piso que usa la version Rust.
     OPACITY_MIN = 0.25
+    # Y la tinta tampoco baja a cero, por lo mismo: un texto invisible no se
+    # puede volver a subir porque no ves donde esta para saber que sigue ahi.
+    INK_MIN = 0.2
+
+    @staticmethod
+    def _bg_color(alpha):
+        """El negro del fondo, con el alpha del eje FONDO."""
+        return QColor(0, 0, 0, int(round(max(0.0, min(1.0, alpha)) * 255)))
+
+    @staticmethod
+    def _ink_color(alpha):
+        """El blanco del circulo y las letras, con el alpha del eje TINTA."""
+        return QColor(255, 255, 255, int(round(max(0.0, min(1.0, alpha)) * 255)))
 
     def _setup_opacity_shortcuts(self):
-        # Ctrl y '+' se escriben distinto segun el teclado: en layouts donde '+'
-        # es Shift+'=', apretar Ctrl y + manda Ctrl+Shift+=, que "Ctrl++" no
-        # matchea. Por eso se registran las tres formas — es el motivo tipico de
-        # que subir la opacidad "no haga nada" mientras bajarla si funciona.
+        # FONDO — Ctrl y '+' se escriben distinto segun el teclado: en layouts
+        # donde '+' es Shift+'=', apretar Ctrl y + manda Ctrl+Shift+=, que
+        # "Ctrl++" no matchea. Por eso se registran las tres formas: es el motivo
+        # tipico de que subir la opacidad "no haga nada" mientras bajarla si.
         for seq in ("Ctrl++", "Ctrl+=", "Ctrl+Shift+="):
             sc = QShortcut(QKeySequence(seq), self)
             sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
@@ -915,31 +963,76 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
             sc.activated.connect(lambda: self._change_opacity(-0.1))
 
+        # TINTA — se arma la combinacion a mano en vez de parsear "Ctrl+Shift++",
+        # que el parser de Qt lee mal. Key_Plus/Key_Minus son las del numerico,
+        # que es donde no hay ambiguedad de Shift.
+        mods = (Qt.KeyboardModifier.ControlModifier
+                | Qt.KeyboardModifier.ShiftModifier)
+        for key, delta in ((Qt.Key.Key_Plus, 0.1), (Qt.Key.Key_Minus, -0.1)):
+            sc = QShortcut(QKeySequence(mods | key), self)
+            sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
+            sc.activated.connect(lambda d=delta: self._change_ink(d))
+
     def _change_opacity(self, delta):
         self.opacity = self._clamp_opacity(self.opacity + delta)
         self._apply_opacity(self.opacity)
         # Se guarda, asi la ventana vuelve como la dejaste.
         self.config['opacity'] = self.opacity
         _save_config(self.config)
-        print(f"◐ Opacidad {int(self.opacity * 100)}%")
+        print(f"◐ Fondo {int(self.opacity * 100)}%")
+
+    def _change_ink(self, delta):
+        """Ctrl+Shift+± : el circulo y las letras, sin tocar el fondo."""
+        self.ink_opacity = self._clamp_ink(self.ink_opacity + delta)
+        self._repaint_surfaces()
+        self.config['ink_opacity'] = self.ink_opacity
+        _save_config(self.config)
+        print(f"◑ Tinta {int(self.ink_opacity * 100)}%")
+
+    def _repaint_surfaces(self):
+        """Volver a pintar todo lo que depende de los dos alphas.
+
+        El fondo es el negro que pintamos nosotros (hoja de estilo de la ventana
+        y los fillRect de las vistas); la tinta es el blanco del circulo y del
+        texto. Los dos viven en pintura propia, no en la opacidad de ventana:
+        por eso se pueden mover por separado.
+        """
+        bg, ink = self._bg_color(self.opacity), self._ink_color(self.ink_opacity)
+        self.setStyleSheet(
+            f"background-color: rgba({bg.red()},{bg.green()},{bg.blue()},{bg.alpha()});"
+            f" color: rgba({ink.red()},{ink.green()},{ink.blue()},{ink.alpha()});"
+        )
+        # Defensivo a proposito: esto se llama tambien desde el __init__, cuando
+        # varias de estas vistas todavia no existen.
+        for name in ('normal_view', '_edge_fade', 'circular_view', 'book_view',
+                     'scratch_view', 'o_reader_view', 'o_browser_view'):
+            w = getattr(self, name, None)
+            if w is not None:
+                w.update()
+        self.update()
 
     def _apply_opacity(self, value):
-        """Aplicar la opacidad a la ventana.
+        """Aplicar la transparencia del FONDO.
 
-        Qt no puede hacerlo en Wayland: setWindowOpacity imprime "This plugin
-        does not support setting window opacity" y no pasa nada. La opacidad de
-        una ventana la decide el compositor, no la aplicacion.
+        Antes esto le pedia a Hyprland que bajara el alpha de toda la ventana, y
+        por eso al atenuar el fondo se atenuaba tambien el texto: el compositor
+        no distingue el negro del blanco, ve una sola superficie.
 
-        Asi que se le pide a Hyprland, que es quien manda. alphaoverride le dice
-        que use nuestro valor en vez de sus propias reglas; sin eso, alpha queda
-        multiplicado por la regla global y el efecto casi no se nota.
+        Ahora el alpha lo pintamos nosotros, pixel por pixel — el fondo sale
+        rgba(0,0,0,a) y el blanco sale entero. Para que eso llegue a la pantalla
+        hacen falta dos cosas: la ventana translucida de verdad (el
+        WA_TranslucentBackground del __init__, que pide un visual con canal alfa)
+        y que el compositor NO vuelva a multiplicar por su propia regla. Eso
+        ultimo es lo que se le dice aca: alphaoverride 1 y alpha 1, o sea "no
+        toques nada, ya esta pintado".
 
-        Se sigue llamando a setWindowOpacity igual: es lo correcto donde SI
-        funciona (X11, y otros compositores), y donde no, es inofensivo.
+        setWindowOpacity(1.0) por la misma razon: en X11 si funciona, y ahi
+        atenuaria la ventana entera, que es justo lo que dejamos de querer.
         """
-        self.setWindowOpacity(value)
+        self.setWindowOpacity(1.0)
+        self._repaint_surfaces()
         try:
-            for prop, val in (('alphaoverride', '1'), ('alpha', f'{value:.2f}')):
+            for prop, val in (('alphaoverride', '1'), ('alpha', '1')):
                 subprocess.run(
                     ['hyprctl', 'dispatch', 'setprop', 'title:^(Voider)$', prop, val],
                     capture_output=True, timeout=2,
@@ -950,6 +1043,10 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
     @classmethod
     def _clamp_opacity(cls, value):
         return max(cls.OPACITY_MIN, min(1.0, value))
+
+    @classmethod
+    def _clamp_ink(cls, value):
+        return max(cls.INK_MIN, min(1.0, value))
 
     # ── Void key ─────────────────────────────────────────────────────────────
 

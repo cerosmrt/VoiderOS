@@ -10,7 +10,8 @@ class NormalView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent_app = parent
-        self.setStyleSheet("background: black;")
+        # El fondo lo pinta la ventana, con el alpha del eje FONDO.
+        self.setStyleSheet("background: transparent;")
 
     def paintEvent(self, event):
         if not self.parent_app:
@@ -85,22 +86,29 @@ class EdgeFade(QWidget):
         if not painter.isActive():
             return
 
+        # El negro con el que se apaga es el MISMO negro del fondo, con su alpha.
+        # Antes era opaco a secas, y eso convertía esta capa en una pared: cubre
+        # toda la vista, así que con el fondo transparente F1 habría seguido
+        # siendo un rectángulo negro. Fundir contra el fondo sólo puede usar el
+        # color del fondo.
+        from widgets import bg_color
+        negro = bg_color(self)
+        transparente = QColor(negro.red(), negro.green(), negro.blue(), 0)
+
         # 1. El degradado, sólo sobre el renglón.
         if self._entry_rect:
             x, y, w, h = self._entry_rect
             if w > 0 and h > 0:
                 grad = QLinearGradient(float(x), 0.0, float(x + w), 0.0)
-                grad.setColorAt(0.0, QColor(0, 0, 0, 255))
-                grad.setColorAt(self.FADE_START, QColor(0, 0, 0, 0))
-                grad.setColorAt(1.0, QColor(0, 0, 0, 0))
+                grad.setColorAt(0.0, negro)
+                grad.setColorAt(self.FADE_START, transparente)
+                grad.setColorAt(1.0, transparente)
                 painter.fillRect(QRect(x, y, w, h), grad)
 
-        # 2. Todo lo que queda AFUERA del círculo, en negro. El renglón es un
-        # rectángulo y el círculo es redondo: arriba y abajo del centro el
-        # círculo se angosta, así que las puntas del renglón caen afuera. Con la
-        # letra grande eso se ve como letras desbordando el círculo. Tapar el
-        # exterior lo recorta de verdad, a cualquier tamaño de fuente, en vez de
-        # confiar en que el degradado llegue a tiempo.
+        # 2. Lo que queda AFUERA del círculo. Ya no es esto lo que recorta el
+        # texto —de eso se encarga la máscara elíptica sobre el entry, que
+        # funciona con cualquier opacidad—, pero se sigue pintando para que el
+        # afuera del círculo tenga el mismo fondo que el adentro.
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         cx0, cy0 = self.width() / 2.0, self.height() / 2.0
         r0 = min(self.width(), self.height()) / 2.0 - self.CIRCLE_INSET
@@ -109,10 +117,11 @@ class EdgeFade(QWidget):
             afuera.addRect(QRectF(self.rect()))
             adentro = QPainterPath()
             adentro.addEllipse(cx0 - r0, cy0 - r0, r0 * 2, r0 * 2)
-            painter.fillPath(afuera.subtracted(adentro), QColor(0, 0, 0, 255))
+            painter.fillPath(afuera.subtracted(adentro), negro)
 
         # 3. El círculo ENCIMA, para que el degradado no le coma el trazo.
-        painter.setPen(QPen(QColor("white"), self.CIRCLE_PEN))
+        from widgets import ink_color
+        painter.setPen(QPen(ink_color(self), self.CIRCLE_PEN))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         cx, cy = self.width() // 2, self.height() // 2
         r = min(self.width(), self.height()) // 2 - self.CIRCLE_INSET
