@@ -49,6 +49,31 @@ ACTIVE — ready to implement next
   A DEFINIR CON ÉL: ¿PNG con las esquinas transparentes, o cuadrado con el
   afuera en negro? ¿Misma tecla F12 o una aparte, dejando F12 como está?
 
+- VACIAR LA BASURA (2026-09-10). Falta el último paso del tacho: hoy se puede
+  tirar (Ctrl+Delete en F2) y recuperar (Ctrl+Delete adentro de trash.txt), pero
+  no vaciar. Federico lo pidió así, textual: "maybe control + supr on f3? like
+  other chapters? but instead of going to somewhere they get deleted. Next time
+  I ctrl + supr a line or a chapter, it gets send to trash again, if it doesnt
+  exist, it creates it."
+  O sea: Ctrl+Delete sobre trash.txt en F3 se comporta como sobre cualquier otro
+  capítulo, pero SIN escala — no manda las líneas a ningún lado, las borra. Y la
+  basura se regenera sola la próxima vez que se tire algo.
+  Dónde engancha, ya ubicado: f3_mixin.py:359 _book_send_to_zero() es el
+  Ctrl+Delete de F3. Ya tiene tres ramas (sobre un punto borra el separador;
+  sobre el portal '0' saca sólo el marcador y no toca 0.txt; sobre un título
+  manda las líneas a 0.txt y borra el archivo). Falta una cuarta rama: si el
+  capítulo es trash.txt, borrar el archivo SIN mandar las líneas a 0.txt —
+  mandarlas sería justo lo contrario de vaciar.
+  La regeneración ya está resuelta y no hay que tocarla: _delete_line_to_trash
+  (f2_mixin.py) hace makedirs + open en modo append, así que si trash.txt no
+  existe lo crea; y open_trash (io_mixin.py) lo crea vacío si no está. O sea que
+  borrar el archivo es seguro: la próxima línea tirada lo levanta de nuevo.
+  A DEFINIR CON ÉL: ¿pide confirmación antes? Es la ÚNICA operación de todo
+  Voider que borra de verdad y sin vuelta — el resto del sistema está construido
+  para que nada se pierda por apretar una tecla. Un QMessageBox como el de
+  Ctrl+B sería coherente. Y aparte: ¿conviene que la basura se commitee a git
+  antes de vaciarse, para que ni siquiera esto sea irreversible?
+
 (el resto: elegir de abajo)
 
 BUGS
