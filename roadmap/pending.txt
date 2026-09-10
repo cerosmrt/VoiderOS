@@ -5,7 +5,51 @@ state what's about to be done and get confirmation before touching files.
 
 ACTIVE — ready to implement next
 ---------------------------------
-(none queued — pick from below)
+
+- VOIDER COMO CAPA: pasar el foco a lo de atrás sin cambiar de ventana
+  (2026-09-10). Con la transparencia andando (b9457b0 + 2464374), Federico
+  quiere usar Voider ENCIMA de lo que esté trabajando y poder alternar: a veces
+  el teclado y el mouse van a Voider, a veces atraviesan a la ventana de abajo,
+  SIN alt-tabear ni cambiar de workspace. El círculo queda flotando sobre el
+  navegador / el editor / lo que sea.
+  Lo que ya existe y sirve:
+    * la ventana ya es translúcida de verdad y sin blur.
+    * ipc.py ya tiene socket Unix con hub/cliente y un protocolo de una línea
+      ("SAVED:<path>\n"). Es el lugar natural para meter un "TOGGLE:passthrough".
+  El camino técnico, a confirmar:
+    * el passthrough en sí: Qt.WindowType.WindowTransparentForInput en la
+      ventana. En Wayland eso se traduce a set_input_region vacío, o sea que el
+      compositor manda clicks Y teclas a lo de abajo. Es por ventana, no por
+      widget (WA_TransparentForMouseEvents es lo otro, y no alcanza).
+    * EL PROBLEMA REAL ES VOLVER: con el input transparente Voider ya no recibe
+      teclas, así que la tecla para desactivarlo NO puede vivir adentro de
+      Voider. Tiene que ser un bind de Hyprland (dev.nix ya tiene el bloque
+      voider.extraHyprlandBinds, ahí van Super+P y Super+O) que dispare un
+      cliente chico que le mande el toggle por el socket de ipc.py. Sin eso,
+      prender el modo capa deja a Voider inalcanzable hasta matarlo.
+    * ojo con hyprctl setprop nofocus: quita el foco pero NO deja pasar el
+      mouse. Los dos ejes son distintos y probablemente haga falta el de Qt.
+  A DEFINIR CON ÉL: ¿un solo toggle (todo o nada), o dos —mouse pasa / teclado
+  pasa— por separado? ¿Y qué tecla de Hyprland?
+
+- SCREENSHOT DE LO QUE HAY ADENTRO DEL CÍRCULO (2026-09-10). Hoy F12
+  (io_mixin.py:1480 take_screenshot) hace screen.grabWindow(0): la pantalla
+  ENTERA, sin recorte. Federico quiere capturar sólo lo que se ve dentro del
+  círculo — y como la ventana es transparente, eso incluye lo que está DETRÁS
+  de Voider, no sólo lo que Voider dibuja. O sea: es captura de pantalla
+  recortada, no render del widget.
+  Camino: calcular el círculo en coordenadas de pantalla (mismo cálculo que
+  _clip_entry_to_circle y EdgeFade.CIRCLE_INSET: r = min(w,h)//2 - 35, centrado
+  en la ventana), capturar el cuadrado que lo contiene, y aplicarle una máscara
+  circular con canal alfa para que las esquinas queden transparentes en el PNG.
+  Ojo: grabWindow(0) en Wayland puede devolver negro según el compositor —
+  conviene verificar si la captura actual funciona de verdad en Hyprland antes
+  de construirle el recorte encima. La versión Rust usa grim para esto, que es
+  el camino nativo de Wayland y acepta una región (grim -g).
+  A DEFINIR CON ÉL: ¿PNG con las esquinas transparentes, o cuadrado con el
+  afuera en negro? ¿Misma tecla F12 o una aparte, dejando F12 como está?
+
+(el resto: elegir de abajo)
 
 BUGS
 ----
