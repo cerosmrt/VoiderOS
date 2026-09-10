@@ -130,11 +130,15 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._tts_timer.setInterval(50)
         self._tts_timer.timeout.connect(self._tts_poll)
 
-        # Los dos ejes de transparencia. Se aplican al final del __init__, cuando
-        # los widgets ya existen: ahora el alpha se pinta, no se le pide a la
-        # ventana, asi que hay que tener algo que pintar.
-        self.opacity = self._clamp_opacity(self.config.get("opacity", 1.0))
-        self.ink_opacity = self._clamp_ink(self.config.get("ink_opacity", 1.0))
+        # Los dos ejes de transparencia. Arrancan SIEMPRE opacos: la
+        # transparencia es de la sesion, no del archivo. Antes se guardaban y
+        # volvian como los dejaste, lo que ademas hacia que un 0 sobreviviera al
+        # reinicio y Voider arrancara invisible.
+        # Se aplican al final del __init__, cuando los widgets ya existen: el
+        # alpha se pinta, no se le pide a la ventana, asi que hay que tener algo
+        # que pintar.
+        self.opacity = 1.0
+        self.ink_opacity = 1.0
         self._setup_opacity_shortcuts()
         self.txt_files = []
         self.current_file_index = 0
@@ -985,21 +989,35 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
             sc.activated.connect(lambda d=delta: self._change_ink(d))
 
+    @staticmethod
+    def _step_value(value, delta, clamp):
+        """Un paso de opacidad que cae en una decima redonda.
+
+        Sumar 0.1 en flotante no da decimas: 0.7 + 0.1 = 0.7999999999999999. Ese
+        ruido se acumula paso a paso, se guarda asi en config.json, y al
+        imprimirlo truncado sale 89% en vez de 90%. Redondear cada paso corta el
+        problema en la raiz en vez de maquillarlo solo al mostrarlo.
+        """
+        return clamp(round(value + delta, 2))
+
+    @staticmethod
+    def _as_pct(value):
+        """El porcentaje que se muestra. round y no int: int TRUNCA, y con
+        0.8999999 mostraba 89."""
+        return int(round(value * 100))
+
     def _change_opacity(self, delta):
-        self.opacity = self._clamp_opacity(self.opacity + delta)
+        # No se persiste: cada arranque empieza opaco. Ademas config.json esta
+        # committeado, y guardar cada paso lo llenaria de ruido en git.
+        self.opacity = self._step_value(self.opacity, delta, self._clamp_opacity)
         self._apply_opacity(self.opacity)
-        # Se guarda, asi la ventana vuelve como la dejaste.
-        self.config['opacity'] = self.opacity
-        _save_config(self.config)
-        print(f"◐ Fondo {int(self.opacity * 100)}%")
+        print(f"◐ Fondo {self._as_pct(self.opacity)}%")
 
     def _change_ink(self, delta):
         """Ctrl+Shift+± : el circulo y las letras, sin tocar el fondo."""
-        self.ink_opacity = self._clamp_ink(self.ink_opacity + delta)
+        self.ink_opacity = self._step_value(self.ink_opacity, delta, self._clamp_ink)
         self._repaint_surfaces()
-        self.config['ink_opacity'] = self.ink_opacity
-        _save_config(self.config)
-        print(f"◑ Tinta {int(self.ink_opacity * 100)}%")
+        print(f"◑ Tinta {self._as_pct(self.ink_opacity)}%")
 
     def _repaint_surfaces(self):
         """Volver a pintar todo lo que depende de los dos alphas.

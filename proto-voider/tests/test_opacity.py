@@ -129,3 +129,70 @@ def test_se_le_pide_a_hyprland_que_no_bluree():
     nítido."""
     import inspect
     assert "noblur" in inspect.getsource(App._apply_opacity)
+
+
+# ── los pasos son redondos ───────────────────────────────────────────────────
+# "por que hace esto y no va de diez en deiz y chau?" — porque 0.7 + 0.1 en
+# flotante da 0.7999999999999999, y ese ruido se acumula, se imprime truncado
+# (int(0.8999*100) = 89) y encima se guarda así en config.json.
+
+def test_los_pasos_caen_en_decimas_exactas():
+    v = 0.0
+    vistos = []
+    for _ in range(10):
+        v = App._step_value(v, 0.1, App._clamp_opacity)
+        vistos.append(v)
+    assert vistos == [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+
+
+def test_bajar_tambien_cae_en_decimas_exactas():
+    v = 1.0
+    vistos = []
+    for _ in range(10):
+        v = App._step_value(v, -0.1, App._clamp_opacity)
+        vistos.append(v)
+    assert vistos == [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0]
+
+
+def test_el_porcentaje_que_se_imprime_no_se_saltea_numeros():
+    """Lo que él vio: 89% y 99% en vez de 90% y 100%."""
+    v = 0.0
+    pct = []
+    for _ in range(10):
+        v = App._step_value(v, 0.1, App._clamp_opacity)
+        pct.append(App._as_pct(v))
+    assert pct == [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+
+
+def test_ir_y_volver_devuelve_el_mismo_valor():
+    """Sin esto el ruido se acumula y nunca se vuelve al punto de partida."""
+    v = 0.5
+    for _ in range(20):
+        v = App._step_value(v, 0.1, App._clamp_opacity)
+    for _ in range(20):
+        v = App._step_value(v, -0.1, App._clamp_opacity)
+    assert v == 0.0
+
+
+# ── la transparencia es de la sesión, no del archivo ─────────────────────────
+# "tambien deberia arrancar al 100 cuando abro el programa". Antes se guardaba
+# en config y volvía como la dejaste — lo que además hacía que un 0 sobreviviera
+# al reinicio y Voider arrancara invisible. Ahora cada arranque empieza opaco.
+
+def test_arranca_opaco_aunque_el_config_diga_otra_cosa():
+    import inspect
+    src = inspect.getsource(App.__init__)
+    assert "self.opacity = 1.0" in src, "el fondo tiene que arrancar en 1.0 fijo"
+    assert "self.ink_opacity = 1.0" in src
+    assert 'config.get("opacity"' not in src, "no se lee del config"
+    assert 'config.get("ink_opacity"' not in src
+
+
+def test_no_se_guardan_en_el_config():
+    """Si no se leen, guardarlos sólo ensucia config.json (y es un archivo
+    committeado: cada cambio de opacidad sería ruido en git)."""
+    import inspect
+    for m in (App._change_opacity, App._change_ink):
+        src = inspect.getsource(m)
+        assert "config[" not in src, f"{m.__name__} sigue escribiendo el config"
+        assert "_save_config" not in src
