@@ -533,29 +533,57 @@ class F5678Mixin:
             self.o_reader_view.update()
 
     def _reader_harvest_line(self):
-        """Ctrl+Delete en F6: sacar la linea del libro y dejarla en 0.txt.
+        """Ctrl+Delete en F6: sacar del libro y dejar en 0.txt.
 
         Es el punto de la funcion: usar un libro de inspiracion quedandote con
         lo que te sirve. Se appendea al scratch y se va del libro.
 
-        Si no se pudo escribir en 0.txt, la linea NO se saca del libro — mismo
+        El alcance lo decide donde estas parado, igual que en todo el resto de
+        Voider: sobre una linea, esa linea; sobre un punto, EL PARRAFO ENTERO
+        que ese punto abre — lo mismo que hacen Ctrl+C, Alt+Shift+→ y
+        Ctrl+Shift+E. El punto se va con su parrafo, y no quedan dos puntos
+        pegados donde estaba.
+
+        Si no se pudo escribir en 0.txt, no se saca nada del libro — mismo
         criterio que el tacho: primero que aterrice en algun lado, despues se
         suelta.
         """
         ring = self.o_reader_ring
         if not self.o_reader_file or len(ring.lines) <= 1:
             return
-        line = ring.current()
-        if line == '.' or not line.strip():
-            return                      # los puntos son estructura, no texto
+
+        idx = ring.index
+        n = len(ring.lines)
+        if ring.current() == '.':
+            # El parrafo que abre este punto, sin cruzar al siguiente.
+            fin = idx + 1
+            while fin < n and ring.lines[fin] != '.':
+                fin += 1
+            quitar = list(range(idx, fin))          # el punto y su contenido
+            cosecha = [ring.lines[i] for i in range(idx + 1, fin)
+                       if ring.lines[i].strip()]
+        else:
+            quitar = [idx]
+            cosecha = [ring.current()] if ring.current().strip() else []
+        if not cosecha:
+            return                                  # parrafo vacio: nada que sacar
+
         try:
             with open(self.f1_file, 'a', encoding='utf-8') as f:
-                f.write(line + '\n')
+                f.write('\n'.join(cosecha) + '\n')
         except Exception as e:
             print(f"⚠️ No se pudo escribir en 0.txt: {e}")
             return
-        idx = ring.index
-        ring.lines.pop(idx)
+
+        fuera = set(quitar)
+        quedan = self._f5_collapse_dots(
+            [l for i, l in enumerate(ring.lines) if i not in fuera])
+        # _f5_collapse_dots tambien se come el punto de arriba — para F5 esta
+        # bien porque reconstruye el anillo desde los parrafos, pero aca el
+        # primer punto es estructural y hay que devolverlo.
+        if not quedan or quedan[0].strip() != '.':
+            quedan.insert(0, '.')
+        ring.lines = quedan
         n = len(ring.lines)
         ring.index = min(idx, n - 1)
         # Nunca dejar el cursor sobre un punto: ahi el editor queda bloqueado.
@@ -573,7 +601,10 @@ class F5678Mixin:
             self.o_reader_view.update()
         if os.path.abspath(self.current_file_path) == os.path.abspath(self.f1_file):
             self.load_doc_lines()
-        print(f"🌾 → 0.txt: {line[:60]}")
+        if len(cosecha) == 1:
+            print(f"🌾 → 0.txt: {cosecha[0][:60]}")
+        else:
+            print(f"🌾 → 0.txt: párrafo de {len(cosecha)} líneas — {cosecha[0][:45]}…")
 
     def _reader_random_line(self):
         """* in F6: jump to a random non-dot line in the current O/ book."""
