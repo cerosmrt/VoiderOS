@@ -174,7 +174,17 @@ class KeyRouterMixin:
         elif self.current_view == 4:
             self._handle_f5_keys(key, mods, event)
         elif self.current_view in (5, 6, 7):
-            if key == Qt.Key.Key_Escape:
+            # F6 edita el libro igual que F2 edita un capitulo: mover la linea
+            # con Alt, saltar de parrafo con PageUp/Down.
+            if self.current_view == 5 and self._matches(key, mods, 'swap_up'):
+                self._reader_move_line(-1); event.accept()
+            elif self.current_view == 5 and self._matches(key, mods, 'swap_down'):
+                self._reader_move_line(1); event.accept()
+            elif self.current_view == 5 and self._matches(key, mods, 'para_prev'):
+                self._reader_para_nav(-1); event.accept()
+            elif self.current_view == 5 and self._matches(key, mods, 'para_next'):
+                self._reader_para_nav(1); event.accept()
+            elif key == Qt.Key.Key_Escape:
                 self.switch_to_view(0); event.accept()
             elif self._matches(key, mods, 'quit'):
                 self._show_lock_screen(); event.accept()

@@ -509,6 +509,126 @@ class F5678Mixin:
     #    pierde. Editar un libro lo convierte en documento de Voider, y eso es lo
     #    que se decidio que pase.
 
+    # Estas son versiones propias del lector, no las de F2. Decision explicita:
+    # los manejadores de F2 tocan los capitulos de Federico y no vale
+    # arriesgarlos por esto. Aca ademas salen mas simples — F6 no tiene foco de
+    # parrafo, que es la mitad del ruido de los originales.
+
+    def _reader_refresh_editor(self):
+        """Volver a mostrar la linea actual en el renglon del lector."""
+        v = self.o_reader_view
+        if not v:
+            return
+        cur = self.o_reader_ring.current()
+        v._offset = 0.0
+        v.editor.setText(cur if cur != '.' else '')
+        v.editor.setReadOnly(cur == '.')
+        v.editor.setCursorPosition(0)
+        v.update()
+
+    def _reader_split_line(self, pos):
+        """Enter en F6: partir la linea en dos por donde esta el cursor.
+
+        En F6 Enter parte SIEMPRE — decision suya. Para salir del lector esta
+        F1, como se sale de cualquier otra vista.
+        """
+        ring = self.o_reader_ring
+        if not self.o_reader_file or ring.current() == '.':
+            return
+        cur = ring.index
+        texto = ring.lines[cur]
+        ring.lines[cur] = texto[:pos]
+        ring.lines.insert(cur + 1, texto[pos:])
+        ring.index = cur + 1
+        self._reader_save()
+        self._reader_refresh_editor()
+
+    def _reader_join_prev(self):
+        """Backspace al principio: unir con la linea de arriba.
+
+        Nunca a traves de un punto: eso borraria un limite de parrafo sin que lo
+        hayas pedido.
+        """
+        ring = self.o_reader_ring
+        n = len(ring.lines)
+        if not self.o_reader_file or n < 2:
+            return
+        cur = ring.index
+        prev = (cur - 1) % n
+        if ring.lines[prev] == '.' or ring.lines[cur] == '.':
+            return
+        ring.lines[prev] = ring.lines[prev] + ring.lines[cur]
+        ring.lines.pop(cur)
+        ring.index = prev
+        self._reader_save()
+        self._reader_refresh_editor()
+
+    def _reader_join_next(self):
+        """Delete al final: unir con la linea de abajo. Tampoco cruza puntos."""
+        ring = self.o_reader_ring
+        n = len(ring.lines)
+        if not self.o_reader_file or n < 2:
+            return
+        cur = ring.index
+        nxt = (cur + 1) % n
+        if ring.lines[nxt] == '.' or ring.lines[cur] == '.':
+            return
+        ring.lines[cur] = ring.lines[cur] + ring.lines[nxt]
+        ring.lines.pop(nxt)
+        self._reader_save()
+        self._reader_refresh_editor()
+
+    def _reader_move_line(self, delta):
+        """Alt+arriba/abajo: mover la linea misma, no el cursor."""
+        ring = self.o_reader_ring
+        n = len(ring.lines)
+        if not self.o_reader_file or n < 2 or ring.current() == '.':
+            return
+        cur = ring.index
+        otro = cur + delta
+        if not (0 <= otro < n) or ring.lines[otro] == '.':
+            return
+        ring.lines[cur], ring.lines[otro] = ring.lines[otro], ring.lines[cur]
+        ring.index = otro
+        self._reader_save()
+        self._reader_refresh_editor()
+
+    def _reader_para_nav(self, delta):
+        """PageUp/PageDown: al punto anterior o siguiente."""
+        ring = self.o_reader_ring
+        n = len(ring.lines)
+        if n < 2:
+            return
+        i = (ring.index + delta) % n
+        for _ in range(n):
+            if ring.lines[i] == '.':
+                ring.index = i
+                break
+            i = (i + delta) % n
+        self._reader_refresh_editor()
+        self._ws_save_position()
+
+    def _reader_smart_copy(self):
+        """Ctrl+C sin seleccion: la linea, o el parrafo entero sobre un punto.
+
+        Mismo alcance que en F2 y que Ctrl+Delete aca: el punto es el selector.
+        """
+        from PyQt6.QtWidgets import QApplication
+        ring = self.o_reader_ring
+        if not ring.lines:
+            return
+        if ring.current() == '.':
+            n, i, para = len(ring.lines), ring.index + 1, []
+            while i < n and ring.lines[i] != '.':
+                para.append(ring.lines[i])
+                i += 1
+            texto = '\n'.join(para)
+        else:
+            texto = ring.current()
+        if texto:
+            QApplication.clipboard().setText(texto)
+            print(f"📋 Copiado {len(texto)} char(s) del libro")
+
     def _reader_save(self, undo_key=None):
         """Escribir el ring del lector al libro de O/, atomico."""
         if not self.o_reader_file:

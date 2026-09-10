@@ -924,11 +924,20 @@ class F2Mixin:
         self.circular_view.update()
         print(f"🔁 Rebase | '{ring.current()[:50]}'")
 
-    def _swap_words(self, direction):
+    def _swap_words(self, direction, editor=None, ring=None, save=None):
         """Alt+Left/Right: swap word(s) at cursor or selection within the current line.
         Trailing sentence-ending punctuation (.!?…) stays fixed at the end.
-        direction: -1=left, +1=right. Wraps circularly."""
-        editor = self.circular_view.editor
+        direction: -1=left, +1=right. Wraps circularly.
+
+        Los tres ultimos parametros son opcionales y por defecto son los de F2,
+        asi que las llamadas de siempre se comportan exactamente igual. Existen
+        para que F6 pueda usar ESTA implementacion en vez de una copia: son 80
+        lineas de logica delicada, y duplicarlas significa arreglar un bug en un
+        lado y no en el otro.
+        """
+        editor = editor if editor is not None else self.circular_view.editor
+        ring = ring if ring is not None else self.line_ring
+        save = save if save is not None else self.auto_save_circular
         text = editor.text()
         if not text.strip():
             return
@@ -1015,9 +1024,12 @@ class F2Mixin:
         else:
             editor.setCursorPosition(sel_start)
 
-        self.line_ring.lines[self.line_ring.index] = new_text
-        self.auto_save_circular()
-        self.circular_view.update()
+        ring.lines[ring.index] = new_text
+        save()
+        # getattr: llamado desde F6 no hay vista de F2 que refrescar.
+        vista = getattr(self, 'circular_view', None)
+        if vista is not None:
+            vista.update()
 
     def _f2_search_show_center(self):
         """Highlight center of display ring; surroundings dimmed. Search bar keeps focus."""

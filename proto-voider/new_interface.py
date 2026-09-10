@@ -699,7 +699,22 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                 self.o_reader_view = CircularView(self.o_reader_ring, self)
                 self.o_reader_view.setFont(self._app_font)
                 self.o_reader_view.editor.returnPressed.disconnect()
-                self.o_reader_view.editor.returnPressed.connect(lambda: self.switch_to_view(0))
+                # Enter parte la linea, siempre. Para salir del lector esta F1,
+                # como se sale de cualquier otra vista.
+                self.o_reader_view.editor.returnPressed.connect(
+                    lambda: self._reader_split_line(0))
+                self.o_reader_view.editor.splitAtCursor.connect(self._reader_split_line)
+                self.o_reader_view.editor.backspaceAtStart.connect(self._reader_join_prev)
+                self.o_reader_view.editor.deleteAtEnd.connect(self._reader_join_next)
+                self.o_reader_view.editor.copyContext.connect(self._reader_smart_copy)
+                self.o_reader_view.editor.wordSwapLeft.connect(
+                    lambda: self._swap_words(-1, editor=self.o_reader_view.editor,
+                                             ring=self.o_reader_ring,
+                                             save=self._reader_save))
+                self.o_reader_view.editor.wordSwapRight.connect(
+                    lambda: self._swap_words(1, editor=self.o_reader_view.editor,
+                                             ring=self.o_reader_ring,
+                                             save=self._reader_save))
                 self.o_reader_view.editor.upPressed.connect(lambda: self._reader_navigate(-1))
                 self.o_reader_view.editor.downPressed.connect(lambda: self._reader_navigate(1))
                 self.o_reader_view.editor.tabPressed.connect(self._reader_random_line)
