@@ -357,7 +357,22 @@ class F3Mixin:
         self._book_spawn_new_below()
 
     def _book_send_to_zero(self):
-        """Ctrl+Delete in F3: on dot → delete separator; on title → send lines to 0.txt and delete file."""
+        """Ctrl+Delete in F3: on dot → delete separator; on title → send lines to
+        0.txt and delete file.
+
+        Sobre trash.txt es distinto: la basura se VACIA. Mandarle las lineas a
+        0.txt seria justo lo contrario — volverian todas. Asi que ahi se borra
+        sin escala, que es el ultimo paso del tacho (tirar en F2, recuperar
+        adentro de la basura, vaciar aca).
+
+        Sin dialogo de confirmacion, decision suya: la basura se abre y se lee
+        antes de vaciarla, asi que la revision ya es la confirmacion, y esas
+        lineas ya fueron descartadas a proposito una vez. Igual no es
+        irreversible — el undo de F3 guarda el archivo antes de borrarlo.
+
+        Y no hace falta recrearla: _delete_line_to_trash hace makedirs + append,
+        asi que la proxima linea que tires la levanta sola.
+        """
         if self._book_pending_new:
             return
         if self.book_ring.current() == '.':
@@ -395,7 +410,10 @@ class F3Mixin:
         except Exception as e:
             print(f"⚠️ Cannot read {fpath}: {e}")
             return
-        if lines:
+        trash_file = getattr(self, '_trash_file',
+                             os.path.join(self.void_dir, 'I', 'trash.txt'))
+        emptying = os.path.abspath(fpath) == os.path.abspath(trash_file)
+        if lines and not emptying:
             try:
                 with open(self.f1_file, 'a', encoding='utf-8') as f:
                     f.write('\n.\n')
@@ -426,7 +444,10 @@ class F3Mixin:
             self.load_doc_lines()
         self.book_view._offset = 0.0
         self._book_show_editor()
-        print(f"🗑️ {len(lines)} lines from {fname} → 0.txt, file deleted")
+        if emptying:
+            print(f"🗑️ Basura vaciada: {len(lines)} línea(s). Ctrl+Z la devuelve.")
+        else:
+            print(f"🗑️ {len(lines)} lines from {fname} → 0.txt, file deleted")
 
     def _book_insert_separator(self):
         """Tab in F3: insert a group separator dot above the current position."""
