@@ -937,13 +937,19 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         super().leaveEvent(event)
         self._refocus_active_editor()
 
-    # Por debajo de esto no se baja. Una ventana que no se ve es una ventana que
-    # no se puede recuperar: las teclas para volver a subirla tambien serian
-    # invisibles. Es el mismo piso que usa la version Rust.
-    OPACITY_MIN = 0.25
-    # Y la tinta tampoco baja a cero, por lo mismo: un texto invisible no se
-    # puede volver a subir porque no ves donde esta para saber que sigue ahi.
-    INK_MIN = 0.2
+    # Los dos ejes bajan hasta 0: transparente del todo.
+    #
+    # Yo les habia puesto piso (25% el fondo, 20% la tinta) por miedo a que se
+    # perdiera la ventana. Federico lo pidio sacar dos veces y tiene razon: es su
+    # pantalla, y la ventana no se pierde. La transparencia no toca el foco — la
+    # ventana sigue enfocada y recibiendo teclas aunque no se vea —, asi que
+    # Ctrl++ y Ctrl+Shift++ la traen de vuelta a ciegas.
+    #
+    # Se persisten en config, o sea que un 0 sobrevive al reinicio: Voider puede
+    # arrancar invisible. Sigue siendo recuperable con las mismas teclas, y si
+    # alguna vez hace falta el valor esta escrito en texto plano en config.json.
+    OPACITY_MIN = 0.0
+    INK_MIN = 0.0
 
     @staticmethod
     def _bg_color(alpha):

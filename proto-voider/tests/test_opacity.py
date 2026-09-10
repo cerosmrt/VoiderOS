@@ -17,17 +17,25 @@ pytest.importorskip("PyQt6")
 from new_interface import FullscreenCircleApp as App
 
 
-# ── los pisos ────────────────────────────────────────────────────────────────
+# ── los límites ──────────────────────────────────────────────────────────────
+# Sin piso. Yo le había puesto 25% al fondo y 20% a la tinta por miedo a que se
+# perdiera la ventana; él lo pidió sacar dos veces: "no deberia haber limitede
+# trasnaprencia, que lleguie a 0". Es su pantalla. Y se recupera a ciegas: la
+# transparencia no toca el foco, así que Ctrl++ sigue respondiendo aunque no se
+# vea nada.
 
-def test_no_se_puede_desaparecer_el_fondo():
-    assert App._clamp_opacity(0.0) >= App.OPACITY_MIN
-    assert App._clamp_opacity(-5) >= App.OPACITY_MIN
+def test_el_fondo_llega_a_cero():
+    assert App._clamp_opacity(0.0) == 0.0
 
 
-def test_no_se_puede_desaparecer_la_tinta():
-    """Un texto invisible no se puede volver a subir: no lo ves para saber dónde."""
-    assert App._clamp_ink(0.0) >= App.INK_MIN
-    assert App._clamp_ink(-5) >= App.INK_MIN
+def test_la_tinta_llega_a_cero():
+    assert App._clamp_ink(0.0) == 0.0
+
+
+def test_no_se_baja_de_cero():
+    """0 ya es transparente del todo; más abajo no significa nada."""
+    assert App._clamp_opacity(-5) == 0.0
+    assert App._clamp_ink(-5) == 0.0
 
 
 def test_ninguno_pasa_de_opaco():
@@ -40,9 +48,13 @@ def test_los_valores_del_medio_pasan_intactos():
     assert App._clamp_ink(0.6) == pytest.approx(0.6)
 
 
-def test_los_pisos_son_razonables():
-    assert 0.0 <= App.OPACITY_MIN <= 0.5, "el fondo tiene que poder atenuarse de verdad"
-    assert 0.1 <= App.INK_MIN <= 0.5, "la tinta tiene que seguir siendo legible"
+def test_bajando_de_a_pasos_se_llega_exactamente_a_cero():
+    """Diez pasos de 0.1 desde 1.0 dan 2.7e-16 en flotante, no 0. Tiene que
+    terminar en 0 pelado, o "transparente del todo" no se alcanza nunca."""
+    v = 1.0
+    for _ in range(20):
+        v = App._clamp_opacity(v - 0.1)
+    assert v == 0.0
 
 
 # ── el color que sale de cada eje ────────────────────────────────────────────
