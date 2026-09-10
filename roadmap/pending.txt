@@ -6,6 +6,36 @@ state what's about to be done and get confirmation before touching files.
 ACTIVE — ready to implement next
 ---------------------------------
 
+- LA OPACIDAD NO APLICA EN FULLSCREEN (2026-09-10). Ctrl+± y Ctrl+Shift+±
+  funcionan con la ventana flotante/detached, pero en fullscreen no se ve nada:
+  la ventana queda opaca. Federico lo quiere andando en las dos.
+  Sospechoso principal, ya ubicado: Hyprland tiene una opción aparte,
+  `decoration:fullscreen_opacity`, que está en 1.000000 y NO la configura nadie
+  (`set: false`, o sea que es el default). Verificado con
+  `hyprctl getoption decoration:fullscreen_opacity`. Hyprland trata la opacidad
+  de una ventana fullscreen por un camino distinto al de las flotantes — igual
+  que pasó con el blur, que también era una regla del compositor y no nuestra.
+  Qué probar, en este orden (todo en vivo, sin tocar nix/, y reversible):
+    1. `hyprctl dispatch setprop title:^(Voider)$ fullscreenopacity 1` — si el
+       prop por ventana existe, es el mismo lugar donde ya mandamos
+       alphaoverride, alpha y noblur, en _apply_opacity (new_interface.py). Sería
+       una línea más en ese loop. VERIFICAR PRIMERO que el prop exista:
+       `hyprctl setprop` sin argumentos lista los válidos.
+    2. Si no existe como prop por ventana: `hyprctl keyword
+       decoration:fullscreen_opacity 1.0` es global y habría que ponerlo en la
+       config de Hyprland (nix/modules/voider.nix), o sea rebuild.
+    3. Ojo con una posibilidad distinta y más fea: que en fullscreen el
+       compositor directamente no renderice lo que hay detrás (optimización
+       normal — si una ventana tapa todo, no hay nada que componer). Si es eso,
+       ninguna opción de opacidad alcanza y habría que ir por el camino de la
+       capa (ver el ítem de VOIDER COMO CAPA, más abajo): una ventana de
+       layer-shell en el fondo se compone distinto que una fullscreen.
+       pkgs/voider-layer/ ya existe y hace exactamente eso — pinnear Voider al
+       fondo de Wayland. Puede ser que las dos cosas se resuelvan juntas.
+  Cómo distinguir 3 de 1 y 2 en un minuto: poner la ventana en fullscreen, bajar
+  el fondo a 0 y mirar si se ve el escritorio o negro. Negro liso = el
+  compositor no está componiendo nada atrás, y es el caso feo.
+
 - VOIDER COMO CAPA: pasar el foco a lo de atrás sin cambiar de ventana
   (2026-09-10). Con la transparencia andando (b9457b0 + 2464374), Federico
   quiere usar Voider ENCIMA de lo que esté trabajando y poder alternar: a veces
