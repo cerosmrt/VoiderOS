@@ -208,7 +208,9 @@ class TestApplyEditorStyle:
         app._apply_editor_style(editor, red=False)
         editor.setStyleSheet.assert_called_once()
         css = editor.setStyleSheet.call_args[0][0]
-        assert 'white' in css
+        # El mismo blanco, ahora escrito con alfa para que siga el eje TINTA.
+        assert '255, 255, 255' in css
+        assert 'background: transparent' in css
 
 
 # ── Focus dot index ───────────────────────────────────────────────────────────

@@ -177,6 +177,28 @@ class CircularView(QWidget):
         """
         return max(1, int(QFontMetrics(self.font()).height() * self.LINE_SPACING))
 
+    @staticmethod
+    def edit_alpha(i, on_dot, base_alpha, highlight_offsets, edit_mode=True):
+        """Cuánto se pinta la línea a `i` renglones del centro, en modo edición.
+
+        La regla que importa: en modo edición el WIDGET del editor ES la línea
+        del centro, así que paintEvent no la dibuja nunca. Antes esto valía sólo
+        cuando no estabas parado en un punto — sobre un punto la dibujaban los
+        dos y no se notaba porque el editor tenía fondo negro opaco. Al volverlo
+        transparente el punto se veía duplicado.
+
+        Del resto: parado en un punto, el párrafo que abre queda encendido y lo
+        demás se atenúa; parado en una línea, todo lo que no es el centro se
+        atenúa igual.
+        """
+        if not edit_mode:
+            return base_alpha
+        if i == 0:
+            return 0.0
+        if on_dot and i in highlight_offsets:
+            return base_alpha
+        return base_alpha * 0.3
+
     def paintEvent(self, event):
         if self.width() == 0 or self.height() == 0:
             return
@@ -235,12 +257,8 @@ class CircularView(QWidget):
                 abs_idx = (self.ring.index + i) % len(self.ring.lines)
                 alpha = base_alpha if abs_idx in self.focus_indices else base_alpha * 0.1
             elif self.edit_mode:
-                if i == 0 and not on_dot:
-                    alpha = 0.0  # editor widget renders center line; painting it too causes ghosting on long lines
-                elif on_dot and i in highlight_offsets:
-                    alpha = base_alpha
-                else:
-                    alpha = base_alpha * 0.3
+                alpha = self.edit_alpha(i, on_dot, base_alpha, highlight_offsets,
+                                        self.edit_mode)
             else:
                 alpha = base_alpha
 

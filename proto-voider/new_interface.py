@@ -428,29 +428,35 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self.switch_to_view(self._prev_view if hasattr(self, '_prev_view') else 0)
 
     def _apply_editor_style(self, editor, red=False):
-        """Apply red or white stylesheet to a circular view editor."""
-        if red:
-            editor.setStyleSheet("""
-                QLineEdit {
-                    background-color: black;
-                    color: rgb(255, 40, 40);
-                    border: none;
-                    qproperty-alignment: AlignCenter;
-                    selection-background-color: rgb(255, 40, 40);
-                    selection-color: black;
-                }
-            """)
-        else:
-            editor.setStyleSheet("""
-                QLineEdit {
-                    background-color: black;
-                    color: white;
-                    border: none;
-                    qproperty-alignment: AlignCenter;
-                    selection-background-color: white;
-                    selection-color: black;
-                }
-            """)
+        """La hoja de estilo del editor del CircularView: blanca, o roja sobre el
+        marcador ø.
+
+        El fondo va TRANSPARENTE. Antes era negro opaco y era el unico rectangulo
+        que no se transparentaba cuando bajabas el fondo — un cuadrado negro
+        justo en el medio. El fondo lo pinta la ventana, una sola vez.
+
+        Y el color sale del eje TINTA, para que Ctrl+Shift+± atenue tambien lo
+        que estas escribiendo. El rojo del ø tambien es tinta: es un marcador,
+        no decoracion, asi que se atenua con el resto.
+        """
+        # Se acota aca en vez de llamar a _clamp_ink para no atarse a la clase:
+        # esto tiene que andar sobre cualquier cosa que tenga ink_opacity.
+        ink = max(0.0, min(1.0, getattr(self, 'ink_opacity', 1.0)))
+        a = f"{ink:.3f}"
+        rgb = "255, 40, 40" if red else "255, 255, 255"
+        # Se recuerda para poder re-aplicarla cuando cambia la tinta sin tener
+        # que recalcular aca si estamos sobre el marcador.
+        editor._voider_red = red
+        editor.setStyleSheet(f"""
+            QLineEdit {{
+                background: transparent;
+                color: rgba({rgb}, {a});
+                border: none;
+                qproperty-alignment: AlignCenter;
+                selection-background-color: rgba({rgb}, {a});
+                selection-color: rgba(0, 0, 0, {a});
+            }}
+        """)
 
     # ── Views ─────────────────────────────────────────────────────────────────
 
@@ -1007,8 +1013,25 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         for name in ('normal_view', '_edge_fade', 'circular_view', 'book_view',
                      'scratch_view', 'o_reader_view', 'o_browser_view'):
             w = getattr(self, name, None)
-            if w is not None:
-                w.update()
+            if w is None:
+                continue
+            ed = getattr(w, 'editor', None)
+            if ed is not None:
+                # Con el rojo que ya tenia: el ø tiene que seguir siendo el ø.
+                self._apply_editor_style(ed, red=getattr(ed, '_voider_red', False))
+            w.update()
+        # El entry de F1 tiene hoja propia (no pasa por _apply_editor_style).
+        entry = getattr(self, 'entry', None)
+        if entry is not None:
+            entry.setStyleSheet(f"""
+                QLineEdit {{
+                    background: transparent;
+                    color: rgba(255, 255, 255, {ink.alphaF():.3f});
+                    border: none;
+                    selection-background-color: rgba(255, 255, 255, {ink.alphaF():.3f});
+                    selection-color: rgba(0, 0, 0, {ink.alphaF():.3f});
+                }}
+            """)
         self.update()
 
     def _apply_opacity(self, value):
