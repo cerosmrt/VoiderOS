@@ -25,6 +25,25 @@ def neutralize_caps(editor, event):
     return False
 
 
+def tab_intent(e):
+    """Que significa este evento de teclado: 'tab', 'shift-tab', o None.
+
+    Una sola fuente de verdad, compartida por el entry de F1 y el editor de
+    F2/F3. Existe porque Shift+Tab llega de DOS formas segun el layout y el
+    compositor: como Key_Backtab, o como Key_Tab con el Shift todavia puesto.
+    Mirar solo una de las dos fue el bug original — en un caso caia en la rama
+    del Tab normal y traia un fragmento de I/ en vez de uno del working set.
+    """
+    if e.type() != QEvent.Type.KeyPress:
+        return None
+    k = e.key()
+    if k not in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
+        return None
+    shifted = (k == Qt.Key.Key_Backtab
+               or bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier))
+    return 'shift-tab' if shifted else 'tab'
+
+
 def surface_alphas(widget):
     """Los dos ejes de transparencia, leidos de la ventana: (fondo, tinta).
 
@@ -93,10 +112,29 @@ class CustomLineEdit(QLineEdit):
     """QLineEdit personalizado con soporte para spacebar como tecla de void"""
     spacePressed = pyqtSignal()
     tabPressed = pyqtSignal()
-    
+    shiftTabPressed = pyqtSignal()   # Shift+Tab: reciclar del working set (F7)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent
+
+    def event(self, e):
+        """Agarrar Shift+Tab antes que Qt.
+
+        Qt resuelve Tab y Backtab ACA, en QWidget.event(), antes de llamar a
+        keyPressEvent: si hay otro widget al que pasarle el foco, se lo pasa y
+        el keyPressEvent nunca corre. Por eso Shift+Tab en F1 no hacia nada —
+        no era que estuviera roto, es que nunca llego a implementarse, y encima
+        keyPressEvent solo miraba Key_Tab.
+
+        Solo se intercepta el shift-tab: el Tab pelado se sigue manejando en
+        keyPressEvent, junto al '*', que es donde ya funcionaba.
+        """
+        if tab_intent(e) == 'shift-tab':
+            self.shiftTabPressed.emit()
+            e.accept()
+            return True
+        return super().event(e)
 
     def changeEvent(self, e):
         # Grow the line's height to fit the font so large sizes aren't clipped.

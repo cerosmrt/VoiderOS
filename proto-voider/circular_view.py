@@ -342,19 +342,15 @@ class CustomLineEdit(QLineEdit):
         # parent CircularView is Tab-focusable), so without this the editor's Tab
         # handler never fires and Tab just moves focus + selects the text. Catch it
         # here at the event level and treat Tab as the random-jump key (like '*').
-        if e.type() == QEvent.Type.KeyPress and e.key() in (
-                Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
-            # Shift+Tab llega de dos formas segun el layout y el compositor: como
-            # Key_Backtab, o como Key_Tab con el Shift todavia puesto. Las dos
-            # significan lo mismo — traer una linea del working set. Mirar solo
-            # Key_Backtab hacia que en el segundo caso cayera en el Tab normal y
-            # trajera un fragmento de I/, que parecia "no hace nada".
-            shifted = (e.key() == Qt.Key.Key_Backtab
-                       or bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier))
-            if shifted:
-                self.altTabPressed.emit()
-            else:
-                self.tabPressed.emit()
+        # Las dos codificaciones de Shift+Tab viven en widgets.tab_intent, una
+        # sola vez, compartidas con el entry de F1.
+        from widgets import tab_intent
+        kind = tab_intent(e)
+        if kind == 'shift-tab':
+            self.altTabPressed.emit()
+            return True
+        if kind == 'tab':
+            self.tabPressed.emit()
             return True
         return super().event(e)
 

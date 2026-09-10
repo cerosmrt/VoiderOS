@@ -30,6 +30,26 @@ class F1Mixin:
 
     # ── F1 focus writing on the active file ─────────────────────────────────────
 
+    def _f1_recycle_ws_line(self):
+        """Shift+Tab en F1: traer al renglón una línea al azar de los libros del
+        working set (F7).
+
+        Es el espejo de Tab, que trae una de I/. La misma idea de cut-up: es una
+        copia, el libro de origen no se toca, y la línea queda en el renglón para
+        que decidas — Enter la escribe, Esc la descarta.
+
+        Si no hay libros elegidos en F7 no se pisa lo que estabas escribiendo:
+        perder una línea a medio escribir por apretar una tecla que no tenía
+        nada que traer sería el peor de los intercambios.
+        """
+        line = self._random_line_from_ws()
+        if not line:
+            print("↩ No hay libros en el working set (F7) para reciclar.")
+            return
+        self.entry.setText(line)
+        self.entry.setCursorPosition(0)
+        print(f"♻️ Shift+Tab | del working set: '{line[:70]}'")
+
     def _f1_commit_line(self, text):
         """F1 Enter: write `text` into the current line of the ACTIVE file, then
         open a blank line just below and move to it (build forward). A '.'

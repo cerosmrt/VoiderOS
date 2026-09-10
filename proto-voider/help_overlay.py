@@ -28,6 +28,7 @@ HELP = [
     ("",                  ""),
     ("TAB  (contextual)", None),
     ("Tab  (F1)",         "Recycle random line from I/"),
+    ("Shift+Tab  (F1)",  "Recycle random line from the working set (O/)"),
     ("Tab  (F2 content)", "Insert random I/ fragment at cursor (selects, re-rolls)"),
     ("Shift+Tab  (F2)",  "Insert random working-set (O/) fragment"),
     ("Tab  (F2 dot)",     "Shuffle lines within paragraph"),

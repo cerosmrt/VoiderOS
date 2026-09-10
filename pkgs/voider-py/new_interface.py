@@ -185,6 +185,9 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self.entry.setAlignment(Qt.AlignmentFlag.AlignRight if self._typewriter_mode
                                 else Qt.AlignmentFlag.AlignCenter)
         self.entry.setFocus()
+        # Shift+Tab en F1: reciclar del working set, espejo del Tab que recicla
+        # de I/. En F2 esto ya existia; en F1 nunca se habia implementado.
+        self.entry.shiftTabPressed.connect(self._f1_recycle_ws_line)
 
         # Search bars (F2 and F3) — hidden by default, shown at bottom of screen
         _search_style = f"""
