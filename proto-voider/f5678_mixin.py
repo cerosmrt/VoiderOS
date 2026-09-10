@@ -739,15 +739,18 @@ class F5678Mixin:
         self.o_reader_view.update()
 
     def _reader_navigate(self, delta):
+        """Arriba/abajo en F6, parando tambien en los puntos.
+
+        Antes los salteaba: se movia hasta caer en una linea de contenido. Eso
+        dejaba el punto inalcanzable navegando, y con el punto se iba todo lo que
+        el punto habilita — cosechar el parrafo entero, copiarlo. En F2 el punto
+        es una posicion como cualquier otra, y parado ahi la vista resalta el
+        parrafo que abre. El renglon queda bloqueado, que es lo correcto: un
+        punto no se escribe.
+        """
         self._tts_cut()
         self.o_reader_ring.move(delta)
-        while self.o_reader_ring.current() == '.':
-            self.o_reader_ring.move(delta)
-        self.o_reader_view._offset = 0.0
-        cur = self.o_reader_ring.current()
-        self.o_reader_view.editor.setText(cur)
-        self.o_reader_view.editor.setCursorPosition(0)
-        self.o_reader_view.update()
+        self._reader_refresh_editor()
         # Persist on every move — proto's watcher can kill the process without a
         # clean closeEvent, so saving only on view-switch/close loses the position.
         self._ws_save_position()

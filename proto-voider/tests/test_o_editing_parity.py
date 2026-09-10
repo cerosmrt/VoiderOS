@@ -186,3 +186,42 @@ def test_pageup_jumps_back(qapp, tmp_path):
     a, book = _app(tmp_path, idx=4)
     a._reader_para_nav(-1)
     assert a.o_reader_ring.index == 3
+
+
+# ── pararse en un punto ──────────────────────────────────────────────────────
+# _reader_navigate salteaba los puntos: nunca podías pararte en uno, así que el
+# cosechado y el copiado de párrafo enteros eran inalcanzables navegando. En F2
+# el punto es una posición como cualquier otra — y estando ahí, el párrafo que
+# abre queda resaltado y el resto atenuado.
+
+def test_navigating_lands_on_the_dot(qapp, tmp_path):
+    a, book = _app(tmp_path, idx=2)      # última línea del primer párrafo
+    a._reader_navigate = types.MethodType(
+        __import__('new_interface').FullscreenCircleApp._reader_navigate, a)
+    a._reader_navigate(1)
+    assert a.o_reader_ring.current() == '.'
+
+
+def test_you_can_navigate_off_the_dot_again(qapp, tmp_path):
+    a, book = _app(tmp_path, idx=3)      # parado en el punto
+    a._reader_navigate = types.MethodType(
+        __import__('new_interface').FullscreenCircleApp._reader_navigate, a)
+    a._reader_navigate(1)
+    assert a.o_reader_ring.current() == 'otro parrafo.'
+
+
+def test_the_editor_locks_on_the_dot(qapp, tmp_path):
+    """Como en F2: sobre un punto no se escribe, pero se está parado ahí."""
+    a, book = _app(tmp_path, idx=3)
+    a._reader_refresh_editor()
+    assert a.o_reader_view.editor.isReadOnly()
+
+
+def test_the_view_highlights_the_paragraph_under_the_dot():
+    """El resaltado lo hace CircularView.edit_alpha, el mismo widget que F2:
+    parado en un punto, el párrafo que abre va entero y el resto atenuado."""
+    from circular_view import CircularView
+    hl = {0, 1, 2}
+    assert CircularView.edit_alpha(1, True, 1.0, hl) == 1.0     # dentro
+    assert CircularView.edit_alpha(2, True, 1.0, hl) == 1.0
+    assert CircularView.edit_alpha(5, True, 1.0, hl) == pytest.approx(0.3)  # fuera
