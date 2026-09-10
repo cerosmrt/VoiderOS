@@ -51,3 +51,42 @@ SESSION 2026-06-25
   app_config.py, io_mixin.py, f1_mixin.py, f2_mixin.py, f3_mixin.py, f4_mixin.py,
   f5678_mixin.py, tts_mixin.py, key_router_mixin.py. Zero behaviour change.
   All 340 tests pass. Promoted to pkgs/voider-py/.
+
+── 2026-09-08 / 09 / 10 ─────────────────────────────────────────────────────
+
+- SCRIPTIO CONTINUA SIN BACKSPACE (e359896). Con Caps prendido la línea sólo se
+  escribe hacia adelante o se suelta. SÓLO en el input de F1: F2/F3 es donde se
+  edita y ahí se borra siempre, con Caps o sin Caps.
+
+- Ctrl+Shift+E — DEVOLVERLE LOS SALTOS A UN TEXTO FUNDIDO (483630d, ce30349).
+  Cada espacio vuelve a ser un salto de línea Y queda un punto al final, que es
+  lo que hace que el texto sobreviva al viaje por F9. Sobre una línea actúa
+  sobre esa línea; sobre un punto, sobre todo el párrafo. Idempotente.
+
+- EL TACHO DE DOS VÍAS (0a62445, f7d849e). Cualquier archivo → trash.txt;
+  trash.txt → 0.txt. Ctrl+Shift+X lo abre. Ctrl+Delete sobre trash.txt en F3 lo
+  vacía, sin confirmación (la revisión previa ES la confirmación) pero con
+  Ctrl+Z para devolverlo. Se acabó el borrado permanente de la cascada vieja.
+
+- OPACIDAD EN DOS EJES (b9457b0, 2464374, c79ff45, fc4fa7b, 424a89a).
+  Ctrl+± el fondo, Ctrl+Shift+± la tinta (círculo y letras). El alpha lo pinta
+  Voider, no el compositor — antes se le pedía a Hyprland que atenuara toda la
+  ventana y por eso se iba el texto con el fondo. Sin piso: llega a 0. Arranca
+  siempre en 100 (es de la sesión, no del archivo). noblur, porque la ventana
+  translúcida despertaba el blur de Hyprland y borroneaba lo de atrás. El
+  recorte del renglón al círculo pasó a ser una máscara elíptica, que funciona
+  con cualquier opacidad.
+
+- SHIFT+TAB EN F1 (3ecf911). Recicla una línea de los libros del working set,
+  espejo del Tab que recicla de I/. En F2 ya andaba — nunca había estado
+  implementado en F1. Las dos codificaciones de la tecla viven ahora en
+  widgets.tab_intent, una sola vez.
+
+- LOS LIBROS DE O/ SE EDITAN (3a09035, b923cf8, 2a63dd0, a6b9870). F6 dejó de
+  ser de sólo lectura: se escribe sobre las líneas, Ctrl+Delete cosecha la línea
+  —o el párrafo entero, parado en un punto— a 0.txt y la saca del libro. Enter
+  parte, Backspace/Delete unen sin cruzar puntos, Alt+↑↓ mueve la línea, Alt+←→
+  la palabra, Ctrl+C copia contextual, PageUp/Down salta de párrafo. Es
+  DESTRUCTIVO y sin red: O/ está en .gitignore. Y el primer guardado reescribe
+  el libro en formato Voider — verificado que la secuencia de palabras queda
+  idéntica.

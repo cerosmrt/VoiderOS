@@ -49,103 +49,8 @@ ACTIVE — ready to implement next
   A DEFINIR CON ÉL: ¿PNG con las esquinas transparentes, o cuadrado con el
   afuera en negro? ¿Misma tecla F12 o una aparte, dejando F12 como está?
 
-- VACIAR LA BASURA (2026-09-10). Falta el último paso del tacho: hoy se puede
-  tirar (Ctrl+Delete en F2) y recuperar (Ctrl+Delete adentro de trash.txt), pero
-  no vaciar. Federico lo pidió así, textual: "maybe control + supr on f3? like
-  other chapters? but instead of going to somewhere they get deleted. Next time
-  I ctrl + supr a line or a chapter, it gets send to trash again, if it doesnt
-  exist, it creates it."
-  O sea: Ctrl+Delete sobre trash.txt en F3 se comporta como sobre cualquier otro
-  capítulo, pero SIN escala — no manda las líneas a ningún lado, las borra. Y la
-  basura se regenera sola la próxima vez que se tire algo.
-  Dónde engancha, ya ubicado: f3_mixin.py:359 _book_send_to_zero() es el
-  Ctrl+Delete de F3. Ya tiene tres ramas (sobre un punto borra el separador;
-  sobre el portal '0' saca sólo el marcador y no toca 0.txt; sobre un título
-  manda las líneas a 0.txt y borra el archivo). Falta una cuarta rama: si el
-  capítulo es trash.txt, borrar el archivo SIN mandar las líneas a 0.txt —
-  mandarlas sería justo lo contrario de vaciar.
-  La regeneración ya está resuelta y no hay que tocarla: _delete_line_to_trash
-  (f2_mixin.py) hace makedirs + open en modo append, así que si trash.txt no
-  existe lo crea; y open_trash (io_mixin.py) lo crea vacío si no está. O sea que
-  borrar el archivo es seguro: la próxima línea tirada lo levanta de nuevo.
-  DECIDIDO (2026-09-10): SIN confirmación y SIN commit previo a git. Le planteé
-  que sería la única operación de Voider que borra sin vuelta y contestó:
-  "creo que ya serian muchos pasos como para ver si quiero no algo. Trash ya
-  contiene lineas que fueron descartadas por algo. despues reviso la basura y la
-  borro".
-  O sea que el resguardo no es un diálogo: es que la basura se abre y se lee
-  antes (Ctrl+Shift+X), y recién ahí se vacía. La revisión ES la confirmación —
-  y las líneas que están ahí ya fueron descartadas una vez a propósito. Un
-  QMessageBox acá sería preguntar dos veces lo mismo.
-  Y si alguna vez quiere red de contención antes de vaciar, la pone él:
-  "de ultima al commit lo hago manual" — Ctrl+Shift+G ya commitea el void.
-  Con esto el ítem queda cerrado en diseño: listo para implementar.
-
-(el resto: elegir de abajo)
-
 BUGS
 ----
-- EL INPUT DE F2 NO SE TRANSPARENTA (2026-09-09). Con el fondo bajado, todo se
-  transparenta menos el renglón que estás editando en F2: queda un rectángulo
-  negro sólido en el medio. Es un cabo suelto del cambio de opacidad (b9457b0).
-  Causa, ya ubicada: new_interface.py:430 _apply_editor_style() escribe
-  "background-color: black" a pelo en el QLineEdit del CircularView — las dos
-  ramas, la roja y la blanca. Esa hoja de estilo es opaca y pisa el fondo de la
-  ventana. Los otros editores tienen "background: transparent" (el entry de F1
-  en __init__ y las barras de búsqueda), por eso ésos sí se transparentan.
-  Arreglo: que las dos ramas usen "background: transparent" y tomen el color de
-  texto de widgets.ink_color(), igual que ya hace CircularView.paintEvent.
-  Ojo con dos cosas al hacerlo:
-    * el editor se pinta ENCIMA del texto que dibuja CircularView.paintEvent en
-      la misma línea. Si el fondo se vuelve transparente, puede verse el texto
-      del paintEvent por debajo del que estás editando (doble). Hay que mirar si
-      paintEvent ya saltea la línea activa cuando edit_mode está prendido.
-    * selection-color: black asume fondo claro en la selección; revisar que se
-      siga leyendo con el fondo transparente.
-  Hay que verlo con los ojos, no sólo con tests.
-
-- SHIFT+TAB EN F2 SIGUE SIN ANDAR (2026-09-09). Debería traer una línea al azar
-  de los libros del working set (F7). Ya intenté un arreglo y NO alcanzó, así
-  que lo de abajo es lo que queda por descartar, no lo que hay que repetir.
-  Lo que YA está verificado y no es la causa:
-    * el working set está sano: 6 libros en ~/void/O/.working_set.json, los 6
-      con archivo existente, y se lee una línea al azar sin problema.
-    * la cadena está cableada: circular_view.CustomLineEdit.event() emite
-      altTabPressed, new_interface.py la conecta a _doc_insert_ws_line, y ése
-      llama a _random_line_from_ws.
-    * el nivel Qt anda: hay tests (tests/test_shift_tab_ws.py) que mandan
-      Key_Backtab, Key_Backtab sin Shift, y Key_Tab+Shift, y las tres emiten
-      altTabPressed. El commit 0a62445 agregó justamente el caso Key_Tab+Shift.
-  Lo que hay que mirar, en este orden:
-    1. ¿Se reinició proto-voider después del commit? Si probó con el proceso
-       viejo estaba corriendo el código anterior. Es lo más barato de descartar.
-    2. QUÉ IMPRIME LA TERMINAL al apretar Shift+Tab. Si dice "↩ No working set
-       books to pull from", el problema es self.o_dir en la app corriendo (no
-       apunta a ~/void/O) y no la tecla. Si no imprime NADA, el evento no está
-       llegando al editor.
-    3. Si no llega: ¿lo agarra Hyprland antes? Revisar binds del compositor.
-       También puede estar consumiéndolo el QShortcut de la ventana o el
-       keyPressEvent de KeyRouterMixin antes que el editor con foco.
-    4. Instrumentar de verdad: un print en CustomLineEdit.event() con
-       e.key() y e.modifiers(), y ver qué llega realmente en esa máquina. Es lo
-       que faltó hacer la primera vez — diagnostiqué por deducción y no por
-       observación.
-
-- LA OPACIDAD NO BAJA A 0 (2026-09-09). Federico la quiere hasta 0; hoy frena
-  en 25% el fondo y 20% la tinta (OPACITY_MIN / INK_MIN en new_interface.py).
-  Los pisos los puse yo, no los pidió él, y ya dijo que los quiere sacar.
-  Cambio en sí: trivial, poner los dos en 0.0 y ajustar tests/test_opacity.py.
-  Lo que hay que resolver ANTES de hacerlo, porque es una trampa real: los dos
-  valores se persisten en config. Con los dos en 0 la ventana queda invisible
-  Y SIGUE INVISIBLE DESPUÉS DE REINICIAR. Las teclas funcionan a ciegas
-  (Ctrl++ / Ctrl+Shift++ siguen respondiendo aunque no se vea nada), pero hay
-  que saberlo. Opciones a proponerle:
-    * una tecla de pánico que devuelva los dos a 1.0 (Ctrl+Shift+0, por decir);
-    * o no persistir el 0 — guardar un mínimo visible aunque en la sesión llegue
-      a 0, así un reinicio siempre devuelve la ventana;
-    * o directamente sacar los pisos y confiar en que se acuerda de Ctrl++.
-  Es su decisión, no mía: ya le puse un límite que no pidió una vez.
-
 - F9 FUNDE EL TEXTO SIN PUNTUACIÓN (2026-09-08). Entrar a F9 y volver sobre un
   texto escrito en scriptio continua colapsa la sesión entera en UNA línea.
   Medido en I/0.txt: 8225 líneas → 2850, y los puntos separadores 563 → 302.
@@ -288,11 +193,6 @@ WRITING / F2
   NOT the paragraph group that follows it. Expected: separator is removed from the
   ring / file, surrounding content untouched.
 
-- F6 (O/ circular reader) make editable: Ctrl+Delete on a line from an external
-  book moves that line to the user's own writing (appends to 0.txt the same way
-  that Enter does in F5 fork). Essentially "fork this single sentence into mine"
-  without leaving F6.
-
 - Tab in F2: behaviour was changed to insert-at-cursor (not replace).
   Original intent was replace + undo. If replace+undo is still wanted,
   needs undo stack first. Deferred until undo is scoped.
@@ -317,12 +217,6 @@ F1 TYPING / TYPEWRITER
   caret drawn ourselves (custom paint) for the blink-when-empty behaviour. It's a
   custom "teleprompter" line, a block in itself — build it fresh with the app open
   to tune the feel (right-half stays empty, caret centred, arrows scroll text).
-
-- SCRIPTIO CONTINUA: disable Backspace too. In scriptio-continua mode (Caps on),
-  the only two actions should be TYPE and SEND (spacebar voids the line) — no
-  editing. Backspace must NOT delete. So: while Caps is on in F1, swallow
-  Backspace (and probably Delete / arrow editing) so a line, once written, only
-  moves forward or gets voided. (Pairs with the Caps-neutralise already done.)
 
 EDITING / UNDO
 --------------
