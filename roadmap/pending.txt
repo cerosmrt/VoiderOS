@@ -68,11 +68,18 @@ ACTIVE — ready to implement next
   (f2_mixin.py) hace makedirs + open en modo append, así que si trash.txt no
   existe lo crea; y open_trash (io_mixin.py) lo crea vacío si no está. O sea que
   borrar el archivo es seguro: la próxima línea tirada lo levanta de nuevo.
-  A DEFINIR CON ÉL: ¿pide confirmación antes? Es la ÚNICA operación de todo
-  Voider que borra de verdad y sin vuelta — el resto del sistema está construido
-  para que nada se pierda por apretar una tecla. Un QMessageBox como el de
-  Ctrl+B sería coherente. Y aparte: ¿conviene que la basura se commitee a git
-  antes de vaciarse, para que ni siquiera esto sea irreversible?
+  DECIDIDO (2026-09-10): SIN confirmación y SIN commit previo a git. Le planteé
+  que sería la única operación de Voider que borra sin vuelta y contestó:
+  "creo que ya serian muchos pasos como para ver si quiero no algo. Trash ya
+  contiene lineas que fueron descartadas por algo. despues reviso la basura y la
+  borro".
+  O sea que el resguardo no es un diálogo: es que la basura se abre y se lee
+  antes (Ctrl+Shift+X), y recién ahí se vacía. La revisión ES la confirmación —
+  y las líneas que están ahí ya fueron descartadas una vez a propósito. Un
+  QMessageBox acá sería preguntar dos veces lo mismo.
+  Y si alguna vez quiere red de contención antes de vaciar, la pone él:
+  "de ultima al commit lo hago manual" — Ctrl+Shift+G ya commitea el void.
+  Con esto el ítem queda cerrado en diseño: listo para implementar.
 
 (el resto: elegir de abajo)
 
