@@ -480,11 +480,100 @@ class F5678Mixin:
                          center_y - view.editor.sizeHint().height() // 2)
         cur = self.o_reader_ring.current()
         view.editor.setText(cur if cur != '.' else '')
-        view.editor.setReadOnly(True)
+        # Los libros de O/ se editan, igual que un capitulo propio. Solo los
+        # puntos quedan bloqueados: son la estructura, no texto.
+        view.editor.setReadOnly(cur == '.')
         view.editor.setCursorPosition(0)
         view.editor.show()
         view.editor.setFocus()
         view.update()
+
+    # ── Editar un libro de O/ ────────────────────────────────────────────────
+    #
+    # Los libros de O/ no son de solo lectura: se leen desmontandolos. Lo que te
+    # sirve se lo sacas con Ctrl+Delete y queda en 0.txt; el libro se gasta.
+    #
+    # Dos cosas que hay que tener presentes al tocar esto:
+    #
+    # 1. ES DESTRUCTIVO Y NO HAY RED. O/ es un symlink a /mnt/data y esta en el
+    #    .gitignore — cero archivos trackeados. Todo el resto de Voider esta
+    #    construido sobre "nada se pierde"; aca no. Una linea que sale de un
+    #    libro no vuelve. Decision explicita de Federico, con el dato delante.
+    #
+    # 2. EL PRIMER GUARDADO REESCRIBE EL LIBRO. open_o_book no carga el archivo
+    #    tal cual: le aplica _strip_gutenberg_boilerplate y _reformat_raw_to_lines.
+    #    Asi que lo que se guarda es la version transformada — una oracion por
+    #    linea, sin los renglones cortados a lo ancho del original. Verificado
+    #    sobre tres libros de su working set que la secuencia de palabras queda
+    #    IDENTICA (91.184 palabras en el Blackwood's, las mismas): reacomoda, no
+    #    pierde. Editar un libro lo convierte en documento de Voider, y eso es lo
+    #    que se decidio que pase.
+
+    def _reader_save(self, undo_key=None):
+        """Escribir el ring del lector al libro de O/, atomico."""
+        if not self.o_reader_file:
+            return
+        self._undo_capture(self.o_reader_file, self.o_reader_ring.lines,
+                           key=undo_key)
+        self._atomic_write_lines(self.o_reader_file, self.o_reader_ring.lines)
+
+    def _reader_live_save(self, text):
+        """Cada tecla en F6 va al libro, igual que en F2 va al capitulo.
+
+        Un renglon en blanco se ignora: borrar todo lo que escribiste no puede
+        vaciar la linea del libro sin querer. Para sacarla esta Ctrl+Delete, que
+        ademas la guarda en 0.txt en vez de tirarla.
+        """
+        if not self.o_reader_file or not text.strip():
+            return
+        self.o_reader_ring.lines[self.o_reader_ring.index] = text
+        # Coalescer la rafaga de teclas de esta linea en un solo paso de undo.
+        self._reader_save(undo_key=('o_reader', self.o_reader_ring.index))
+        if self.o_reader_view:
+            self.o_reader_view.update()
+
+    def _reader_harvest_line(self):
+        """Ctrl+Delete en F6: sacar la linea del libro y dejarla en 0.txt.
+
+        Es el punto de la funcion: usar un libro de inspiracion quedandote con
+        lo que te sirve. Se appendea al scratch y se va del libro.
+
+        Si no se pudo escribir en 0.txt, la linea NO se saca del libro — mismo
+        criterio que el tacho: primero que aterrice en algun lado, despues se
+        suelta.
+        """
+        ring = self.o_reader_ring
+        if not self.o_reader_file or len(ring.lines) <= 1:
+            return
+        line = ring.current()
+        if line == '.' or not line.strip():
+            return                      # los puntos son estructura, no texto
+        try:
+            with open(self.f1_file, 'a', encoding='utf-8') as f:
+                f.write(line + '\n')
+        except Exception as e:
+            print(f"⚠️ No se pudo escribir en 0.txt: {e}")
+            return
+        idx = ring.index
+        ring.lines.pop(idx)
+        n = len(ring.lines)
+        ring.index = min(idx, n - 1)
+        # Nunca dejar el cursor sobre un punto: ahi el editor queda bloqueado.
+        for _ in range(n):
+            if ring.current() != '.':
+                break
+            ring.index = (ring.index + 1) % n
+        self._reader_save(undo_key=None)
+        self._ws_save_position()
+        if self.o_reader_view:
+            self.o_reader_view._offset = 0.0
+            self.o_reader_view.editor.setText(ring.current())
+            self.o_reader_view.editor.setCursorPosition(0)
+            self.o_reader_view.editor.setReadOnly(ring.current() == '.')
+            self.o_reader_view.update()
+        if os.path.abspath(self.current_file_path) == os.path.abspath(self.f1_file):
+            self.load_doc_lines()
+        print(f"🌾 → 0.txt: {line[:60]}")
 
     def _reader_random_line(self):
         """* in F6: jump to a random non-dot line in the current O/ book."""

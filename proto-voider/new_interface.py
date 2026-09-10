@@ -703,6 +703,10 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                 self.o_reader_view.editor.upPressed.connect(lambda: self._reader_navigate(-1))
                 self.o_reader_view.editor.downPressed.connect(lambda: self._reader_navigate(1))
                 self.o_reader_view.editor.tabPressed.connect(self._reader_random_line)
+                # Los libros de O/ se editan: cada tecla va al libro, y
+                # Ctrl+Delete saca la linea y la deja en 0.txt.
+                self.o_reader_view.editor.textEdited.connect(self._reader_live_save)
+                self.o_reader_view.editor.deleteLine.connect(self._reader_harvest_line)
                 self.stack.addWidget(self.o_reader_view)
             else:
                 self.o_reader_view.ring = self.o_reader_ring
