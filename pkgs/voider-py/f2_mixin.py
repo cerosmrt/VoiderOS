@@ -446,6 +446,19 @@ class F2Mixin:
         print(f"→ {len(lineas)} línea(s) a {os.path.splitext(fname)[0]}")
         return True
 
+    def _doc_alt_arrow(self, direction):
+        """Alt+flecha en F2: depende de donde estes parado.
+
+        Sobre un PUNTO abre el catalogo de capitulos para mandar el parrafo;
+        sobre una LINEA mueve la palabra, que es lo que hizo siempre. La
+        decision vive aca y no en el editor porque el editor no conoce el
+        anillo — no sabe si abajo del cursor hay un punto o una linea.
+        """
+        if self.line_ring.current() == '.':
+            self._doc_open_picker('left' if direction < 0 else 'right')
+        else:
+            self._swap_words(direction)
+
     def _doc_open_picker(self, side='right'):
         """Abrir el catalogo de capitulos en F2. `side` es de que lado sale."""
         lineas, _ = self._doc_send_scope()

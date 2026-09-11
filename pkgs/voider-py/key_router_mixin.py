@@ -252,18 +252,10 @@ class KeyRouterMixin:
                 self._f5_pick_filter_add(text); event.accept(); return
             event.accept(); return
 
-        # Alt+flecha abre el panel para mandar a otro capitulo. Sobre un PUNTO
-        # nomas: sobre una linea, Alt+flecha sigue moviendo la palabra, que es
-        # lo que hacia siempre. Alt+Shift+flecha lo abre desde donde sea — asi
-        # se puede mandar una linea suelta sin perder el desplazamiento de
-        # palabra. La flecha decide de que lado sale el panel.
-        if key in (K.Key_Left, K.Key_Right) and (mods & Alt):
-            lado = 'left' if key == K.Key_Left else 'right'
-            if mods & Shift:
-                self._doc_open_picker(lado); event.accept(); return
-            if self.line_ring.current() == '.':
-                self._doc_open_picker(lado); event.accept(); return
-            # en una linea: que siga hasta el editor, que mueve la palabra
+        # Alt+flecha y Alt+Shift+flecha NO se manejan aca: el editor tiene el
+        # foco y las acepta antes, asi que a este router no llegan nunca. Se
+        # resuelven por señal desde circular_view (sendLeft/sendRight) y en
+        # _doc_alt_arrow, que es donde se sabe que hay debajo del cursor.
 
         if self._matches(key, mods, 'swap_up'):
             if self.line_ring.current() == '.':

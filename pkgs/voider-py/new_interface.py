@@ -609,8 +609,13 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                 self.circular_view.editor.downPressed.connect(lambda: self._doc_navigate(1))
                 self.circular_view.editor.backspaceAtStart.connect(self._doc_join_prev)
                 self.circular_view.editor.splitAtCursor.connect(self._doc_split_line)
-                self.circular_view.editor.wordSwapLeft.connect(lambda: self._swap_words(-1))
-                self.circular_view.editor.wordSwapRight.connect(lambda: self._swap_words(1))
+                # Alt+flecha no va derecho a mover la palabra: _doc_alt_arrow
+                # decide segun donde este el cursor (punto → catalogo de
+                # capitulos; linea → la palabra, como siempre).
+                self.circular_view.editor.wordSwapLeft.connect(lambda: self._doc_alt_arrow(-1))
+                self.circular_view.editor.wordSwapRight.connect(lambda: self._doc_alt_arrow(1))
+                self.circular_view.editor.sendLeft.connect(lambda: self._doc_open_picker('left'))
+                self.circular_view.editor.sendRight.connect(lambda: self._doc_open_picker('right'))
                 self.circular_view.editor.deleteLine.connect(self._delete_line_to_trash)
                 self.circular_view.editor.deleteAtEnd.connect(self._doc_join_next)
                 self.circular_view.editor.tabPressed.connect(self._doc_tab)

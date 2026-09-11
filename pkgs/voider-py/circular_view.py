@@ -350,6 +350,8 @@ class CustomLineEdit(QLineEdit):
     splitAtCursor = pyqtSignal(int)
     wordSwapLeft = pyqtSignal()
     wordSwapRight = pyqtSignal()
+    sendLeft = pyqtSignal()    # Alt+Shift+←: catalogo de capitulos a la izquierda
+    sendRight = pyqtSignal()   # Alt+Shift+→: y a la derecha
     deleteLine = pyqtSignal()
     deleteAtEnd = pyqtSignal()
     tabPressed = pyqtSignal()
@@ -396,6 +398,15 @@ class CustomLineEdit(QLineEdit):
         mods = event.modifiers()
         ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
         shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+
+        # Con el catalogo de capitulos abierto, el editor se aparta entero: las
+        # flechas eligen, Escape cierra, Enter manda, y lo que escribas filtra en
+        # vez de editar la linea. Sin esto no llegaba nada — el editor tiene el
+        # foco y acepta casi todo, asi que el router de la ventana solo ve lo que
+        # este deja pasar. Es la misma causa por la que Alt+flecha no hacia nada.
+        if getattr(self.parent(), '_picker_open', False):
+            event.ignore()
+            return
 
         # Caps Lock never uppercases (same as F1) — letters type in normal case.
         from widgets import neutralize_caps
@@ -484,6 +495,16 @@ class CustomLineEdit(QLineEdit):
             event.accept()
         elif key == Qt.Key.Key_Backspace and ctrl and self.cursorPosition() == len(self.text()):
             self.deleteLine.emit()
+            event.accept()
+        elif key in (Qt.Key.Key_Left, Qt.Key.Key_Right) and (
+                mods == (Qt.KeyboardModifier.AltModifier
+                         | Qt.KeyboardModifier.ShiftModifier)):
+            # Alt+Shift+flecha: el catalogo de capitulos, del lado que apuntes.
+            # Con señal propia y no esperando que la tecla burbujee hasta la
+            # ventana: el editor tiene el foco y el router de arriba solo ve lo
+            # que este no acepta — que es justamente por lo que Alt+flecha a
+            # secas no llegaba nunca.
+            (self.sendLeft if key == Qt.Key.Key_Left else self.sendRight).emit()
             event.accept()
         elif key == Qt.Key.Key_Left and mods == Qt.KeyboardModifier.AltModifier:
             self.wordSwapLeft.emit()
