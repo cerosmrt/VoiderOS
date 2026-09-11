@@ -6,6 +6,36 @@ state what's about to be done and get confirmation before touching files.
 ACTIVE — ready to implement next
 ---------------------------------
 
+- ALT+FLECHA EN F2 ABRE EL PANEL Y MANDA EL PÁRRAFO (2026-09-11). Federico:
+  "alt flecha (tanto izquierda como derecha) deberian desplegar el panel (en la
+  direccion en la que apunto la flecha) y dejarme enviar el parrafo desde f2 a
+  otro documento". O sea: el panel sale por el lado al que apuntás, y desde ahí
+  elegís el documento destino.
+  Estado real, que sorprende: ESTO NO EXISTE EN EL PYTHON. Se implementó sólo en
+  el mirror de Rust, donde está como Alt+Shift+→ (ver pkgs/voider-rs/src/help.rs
+  línea 35 y app.rs: doc_send_scope / doc_open_picker / doc_send_to /
+  append_to_chapter). En Python, F2 no tiene forma de mandar un párrafo a otro
+  documento — lo más parecido vive en F5.
+  CHOQUE DE TECLAS, hay que resolverlo antes: hoy en F2 Alt+← y Alt+→ mueven la
+  PALABRA bajo el cursor (circular_view.py:435 y 438 → wordSwapLeft/Right →
+  _swap_words). Si Alt+flecha pasa a abrir el panel, se pierde eso. Opciones:
+    * mover el desplazamiento de palabra a otra combinación
+    * dejar Alt+flecha para la palabra y usar Alt+Shift+flecha para el panel,
+      que es lo que ya hace el Rust (y lo que él mismo eligió en su momento:
+      "alt + shift + flecha me gusta")
+    * que Alt+flecha abra el panel SÓLO cuando estás parado en un punto, y mueva
+      la palabra cuando estás en una línea — el punto ya es el selector de
+      alcance en todo lo demás
+  PREGUNTARLE cuál, porque las tres son razonables y la segunda contradice lo
+  que pidió ahora pero coincide con lo que pidió antes.
+  Qué se puede reusar: el picker de F5 ya existe y funciona — f5_reorder_mixin.py
+  líneas 225-280 (_f5_open_picker, _f5_pick_matches, _f5_close_picker) y el envío
+  en _f5_move_current_to. Lo que falta es abrirlo desde F2 y que el alcance salga
+  del ring de F2 (línea suelta, o párrafo entero si estás en un punto — la misma
+  regla que Ctrl+C, Ctrl+Shift+E y el Ctrl+Delete de F6).
+  Lo de "en la dirección en la que apunto" es nuevo: el picker de F5 abre siempre
+  a la derecha. Habría que poder abrirlo a la izquierda también.
+
 - MOVER EL JEET KUNE DO DE I/ A O/ (2026-09-11). Federico: "move bruce lee's to
   /O (ill keep one version and delete the other two)". Tiene sentido: I/ es su
   escritura, O/ es corpus ajeno, y el libro de Bruce Lee es corpus.
