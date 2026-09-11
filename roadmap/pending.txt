@@ -6,6 +6,35 @@ state what's about to be done and get confirmation before touching files.
 ACTIVE — ready to implement next
 ---------------------------------
 
+- SIMPLIFICAR LA CREACIÓN DE DOCUMENTOS EN F3 (2026-09-11). Hay un bug y él
+  propone rediseñar la interacción para poder debuggearla, que es lo correcto:
+  el estado actual es lo bastante enredado como para que sea difícil decir qué
+  está mal.
+  Lo que pide, textual: "enter al final del capitulo (caret al final) hace
+  linebreak y crea otro documento / caret al principio del capitulo y press
+  enter, entra en el capitulo". O sea que la POSICIÓN DEL CARET decide, igual
+  que ya pasa en F2 (ahí Enter al principio confirma y al medio parte la línea).
+  Es coherente con el resto y elimina una tecla aparte para crear.
+  Y el síntoma que quiere cazar: "hay algo raro que sucede cuando apreto ctrl
+  enter y que si no entro y me salgo se borra, cosas raras."
+  Dónde mirar — el estado sospechoso ya está ubicado. _book_pending_new es un
+  flag que marca "hay un renglón fantasma esperando que le pongas nombre", y
+  está consultado desde SEIS lugares distintos: key_router_mixin.py:308 y 316,
+  new_interface.py:251, 394, 498 y 1163, f3_mixin.py:178, 238, 267, 283 y 319.
+  Eso ya es demasiada superficie para un flag.
+  La pista más fuerte del "se borra": _book_materialize_pending (f3_mixin.py:276)
+  decide qué hacer con el fantasma según el texto tipeado, y si el texto quedó
+  VACÍO llama a _book_remove_entry — o sea que un fantasma sin nombre se borra
+  solo. Y Escape (key_router_mixin.py:308-318) hace lo mismo a mano: saca la
+  entrada del ring y de _library_lines. Si salís sin entrar, alguno de esos dos
+  caminos es el que se lo come. Hay que confirmar CUÁL antes de tocar.
+  Relacionado, ya anotado más abajo: "Rename-on-navigate (F3): editing a title
+  then navigating fires os.rename". Puede ser la misma maraña y conviene mirarlos
+  juntos.
+  Cómo encararlo: primero reproducir el bug con pasos exactos (él lo vio, yo no),
+  después reescribir la interacción como la pide, y recién ahí ver si el bug
+  sobrevive. Simplificar sin reproducir primero es arreglar a ciegas.
+
 - ALT+FLECHA EN F2 ABRE EL PANEL Y MANDA EL PÁRRAFO (2026-09-11). Federico:
   "alt flecha (tanto izquierda como derecha) deberian desplegar el panel (en la
   direccion en la que apunto la flecha) y dejarme enviar el parrafo desde f2 a
