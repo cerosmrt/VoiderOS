@@ -310,6 +310,12 @@ class CircularView(QWidget):
             else:
                 painter.drawText(draw_x, draw_y + line_ascent, text)
 
+        # El bucle de arriba deja el painter con la opacidad de la ULTIMA linea
+        # dibujada — la mas lejana al centro, que ronda el 1,6%. Todo lo que se
+        # pinte despues sale a esa opacidad y no se ve. Por eso se resetea aca,
+        # antes del titulo y del panel.
+        painter.setOpacity(1.0)
+
         # Optional pinned title at the top (F2 only; F3/F1 keep show_title False).
         if getattr(self, 'show_title', False) and getattr(self, 'title_text', ''):
             painter.setClipping(False)
