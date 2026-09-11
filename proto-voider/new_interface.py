@@ -148,6 +148,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._para_focus = False            # True when in paragraph focus mode
         self._doc_picker_open = False       # el catalogo de capitulos en F2
         self._doc_picker_side = 'right'
+        self._pick_include_self = False  # el panel de F2 lista el capitulo activo
         self._para_focus_content = []       # Ordered list of absolute ring indices for focused paragraph
 
         # Font / color from config

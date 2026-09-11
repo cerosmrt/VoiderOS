@@ -268,9 +268,25 @@ class F5ReorderMixin:
         separators, the '0' portal, or the source file itself."""
         flt = self._f5_pick_filter.strip().lower()
         src = os.path.basename(self.current_file_path or '')
+        # F2 pide que el capitulo ACTIVO aparezca, para que el panel pueda abrir
+        # parado ahi: confirmar sin moverse no hace nada (mandar a uno mismo ya
+        # era un no-op) y un Enter distraido deja de mandarte el parrafo al
+        # capitulo de al lado. F5 lo deja en False: alla el panel se abre con
+        # Right como gesto deliberado de enviar.
+        incluir_activo = getattr(self, '_pick_include_self', False)
         out = []
         for fname in self._library_lines:
-            if fname in ('.', '0.txt') or fname == src:
+            if fname == '.':
+                continue
+            es_activo = (fname == src)
+            if es_activo and not incluir_activo:
+                continue
+            # El scratch nunca es un destino ofrecido... salvo cuando es el
+            # archivo en el que estas. Ahi tiene que aparecer para que el panel
+            # pueda estacionar sobre el: 0.txt es donde Federico escribe, asi que
+            # sin esto el caso mas comun se quedaba sin el resguardo. Mandar de
+            # 0.txt a 0.txt ya es un no-op, no se gana un destino nuevo.
+            if fname == '0.txt' and not es_activo:
                 continue
             display = os.path.splitext(fname)[0]
             if flt in display.lower():

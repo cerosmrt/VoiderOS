@@ -188,11 +188,14 @@ def test_the_picker_does_not_open_with_nothing_to_send(tmp_path):
     assert not a._doc_picker_open
 
 
-def test_the_picker_never_offers_the_file_you_are_in(tmp_path):
+def test_the_picker_lists_the_file_you_are_in(tmp_path):
+    """Cambió a propósito: el activo aparece para que el panel pueda abrir
+    parado ahí, y confirmar sin moverse no mande nada. Ver
+    test_picker_parks_home.py. Acá el activo es 0.txt."""
     a, src, dst = _app(tmp_path, idx=1)
     a._doc_open_picker('right')
     nombres = [f for f, _ in a._f5_pick_matches()]
-    assert '0.txt' not in nombres
+    assert '0.txt' in nombres
     assert 'Destino.txt' in nombres
 
 

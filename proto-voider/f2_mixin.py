@@ -471,12 +471,18 @@ class F2Mixin:
             self._load_library()
         self._doc_picker_open = True
         self._doc_picker_side = side
+        # El capitulo donde ya estas aparece en la lista, y el panel abre parado
+        # ahi: asi cerrar sin querer no manda nada a ningun lado.
+        self._pick_include_self = True
         self._f5_pick_filter = ''
         self._f5_pick_match_idx = self._f5_pick_start_idx()
         self._doc_refresh_picker()
 
     def _doc_close_picker(self):
         self._doc_picker_open = False
+        # Se apaga al cerrar: si queda prendido, el panel de F5 hereda el activo
+        # en su lista y alla no corresponde.
+        self._pick_include_self = False
         self._doc_refresh_picker()
 
     def _doc_pick_confirm(self):
