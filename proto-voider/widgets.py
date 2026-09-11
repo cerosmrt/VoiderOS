@@ -25,8 +25,23 @@ def neutralize_caps(editor, event):
     return False
 
 
+def picker_shade(dist, ink):
+    """El color de una fila del panel, a `dist` filas de la elegida.
+
+    El elegido va a tinta plena y los vecinos bajan, pero con PISO: antes la
+    escala terminaba en 45 sobre 255 y el panel no se leia. Y multiplica por el
+    alpha de la tinta, asi Ctrl+Shift+± lo atenua junto con el circulo y las
+    letras en vez de dejarlo como una isla.
+    """
+    from PyQt6.QtGui import QColor
+    d = abs(dist)
+    f = 1.0 if d == 0 else max(0.55, 0.85 - d * 0.09)
+    return QColor(ink.red(), ink.green(), ink.blue(),
+                  int(round(ink.alpha() * f)))
+
+
 def draw_chapter_picker(painter, font, x, w, h, filter_str, matches, match_idx,
-                        is_new, target):
+                        is_new, target, ink=None):
     """El catalogo de capitulos: escribis para filtrar, flechas para elegir.
 
     Nacio en F5 y ahora lo usa tambien F2, asi que vive aca en vez de estar dos
@@ -41,11 +56,14 @@ def draw_chapter_picker(painter, font, x, w, h, filter_str, matches, match_idx,
     lh = int(sfm.height() * 1.9)
     cy = h // 2
 
+    if ink is None:
+        ink = QColor(255, 255, 255, 255)
+
     def elide(t, mw, m):
         return m.elidedText(t, Qt.TextElideMode.ElideRight, mw)
 
     painter.setFont(small)
-    painter.setPen(QColor(150, 150, 150))
+    painter.setPen(picker_shade(2, ink))
     prompt = (filter_str + '▏') if filter_str else 'escribí para filtrar…'
     painter.drawText(QRect(x + pad, pad, text_w, sfm.height() + 4),
                      Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
@@ -53,7 +71,7 @@ def draw_chapter_picker(painter, font, x, w, h, filter_str, matches, match_idx,
 
     if is_new and filter_str.strip():
         painter.setFont(font)
-        painter.setPen(QColor(235, 235, 235))
+        painter.setPen(picker_shade(0, ink))
         painter.drawText(QRect(x + pad, cy - fm.height() // 2, text_w, fm.height() + 4),
                          Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
                          elide('⏎ crear  ' + target, text_w, fm))
@@ -63,22 +81,18 @@ def draw_chapter_picker(painter, font, x, w, h, filter_str, matches, match_idx,
         first = max(0, cur - visible // 2)
         for j in range(first, min(len(matches), first + visible)):
             dist = j - cur
-            if dist == 0:
-                painter.setPen(QColor(235, 235, 235))
-            else:
-                a = max(45, 110 - abs(dist) * 22)
-                painter.setPen(QColor(a, a, a))
+            painter.setPen(picker_shade(dist, ink))
             painter.setFont(small)
             painter.drawText(QRect(x + pad, cy + dist * lh - sfm.ascent(), text_w, lh),
                              Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
                              elide(matches[j], text_w, sfm))
     else:
         painter.setFont(small)
-        painter.setPen(QColor(70, 70, 70))
+        painter.setPen(picker_shade(3, ink))
         painter.drawText(QRect(x, 0, w, h), Qt.AlignmentFlag.AlignCenter, 'ø')
 
     painter.setFont(small)
-    painter.setPen(QColor(70, 70, 70))
+    painter.setPen(picker_shade(4, ink))
     painter.drawText(QRect(x + pad, h - 34, text_w, 22),
                      Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
                      '→ enviar   ⏎ nuevo   ⇥ ciclar')

@@ -324,7 +324,7 @@ class CircularView(QWidget):
             draw_chapter_picker(painter, self.font(), px, pick_w, h,
                                 self._pick_filter, self._pick_matches,
                                 self._pick_match_idx, self._pick_is_new,
-                                self._pick_target)
+                                self._pick_target, ink_color(self))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
