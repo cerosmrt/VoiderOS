@@ -401,6 +401,17 @@ class CustomLineEdit(QLineEdit):
             return
 
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if ctrl:
+                # Ctrl+Enter NO es Enter. Esta rama no miraba el Ctrl, asi que
+                # Ctrl+Enter hacia lo mismo que Enter pelado — en F3, con el
+                # caret en 0 (que es donde queda siempre), te abria el capitulo
+                # sin que lo hubieras pedido. Decision de Federico: que no haga
+                # nada. ignore() y no accept() porque es la forma honesta de
+                # "nada aca": el evento sigue hasta el router de la ventana, que
+                # hoy no lo maneja en estas vistas, y deja la puerta abierta por
+                # si algun dia se le da un significado global.
+                event.ignore()
+                return
             if shift:
                 # Always fire on Shift+Enter regardless of cursor position. In F3
                 # the cursor sits at column 0, so requiring it at end-of-text meant
