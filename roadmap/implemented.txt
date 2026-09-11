@@ -90,3 +90,31 @@ SESSION 2026-06-25
   DESTRUCTIVO y sin red: O/ está en .gitignore. Y el primer guardado reescribe
   el libro en formato Voider — verificado que la secuencia de palabras queda
   idéntica.
+
+── 2026-09-11 ────────────────────────────────────────────────────────────────
+
+- Ctrl+Enter DEJA DE SER Enter (125744f, 1e06031). La rama que manejaba Return
+  en el editor no miraba el Ctrl, así que Ctrl+Enter hacía lo mismo que Enter y
+  en F3 te abría el capítulo sin pedirlo. Ahora CREA una entrada, sin mirar el
+  cursor — eso cubre el portal 0, donde el renglón es de sólo lectura y no hay
+  posición que interpretar.
+
+- LA ENTRADA NUEVA DE F3 YA NO SE COME UNA REAL (1e06031). El bug que Federico
+  venía notando: _book_materialize_pending usaba el índice del momento y no el
+  del fantasma, así que si algo movía el cursor (la búsqueda, el rebase, mover
+  un bloque) sacaba de la biblioteca la entrada que estuviera ahí — sin borrar
+  el archivo. De ahí "solo desaparece de la lista". Los tres caminos asientan
+  primero, y queda una red: con el índice movido el fantasma se descarta en vez
+  de pisar nada.
+
+- MANDAR UN PÁRRAFO A OTRO CAPÍTULO DESDE F2 (15cead0, 37cd2d1, 861bec3,
+  f8abe0d, b9bf4f5). Alt+←/→ sobre un punto abre el catálogo y manda el
+  párrafo; sobre una línea sigue moviendo la palabra. Alt+Shift+←/→ lo abre
+  desde donde sea. La flecha decide de qué lado sale. Reusa el panel de F5 (el
+  dibujo se compartió en widgets.draw_chapter_picker). Abre parado en el
+  capítulo activo, así confirmar sin moverse no manda nada.
+  Tres bugs encontrados en el camino, todos por probar en la app real y no sólo
+  en tests: las teclas nunca llegaban al router porque el editor las acepta
+  antes; la biblioteca no se cargaba si no habías pasado por F3; y el panel se
+  dibujaba al 1,6% de opacidad porque el bucle de líneas deja el painter
+  atenuado y nadie lo reseteaba.
