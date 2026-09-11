@@ -6,6 +6,31 @@ state what's about to be done and get confirmation before touching files.
 ACTIVE — ready to implement next
 ---------------------------------
 
+- MOVER EL JEET KUNE DO DE I/ A O/ (2026-09-11). Federico: "move bruce lee's to
+  /O (ill keep one version and delete the other two)". Tiene sentido: I/ es su
+  escritura, O/ es corpus ajeno, y el libro de Bruce Lee es corpus.
+  Lo que hay hoy en ~/void/I/ :
+    * JeetKunDo-clean english.txt   (352.769 bytes, 2026-09-08 10:02) — el OCR
+      limpiado a mano
+    * JeetKunDo-es.txt              (381.914 bytes, 2026-09-08 09:35) — la
+      traducción automática con scripts/traducir.py
+    * JeetKunDo.txt.bak             (353.121 bytes, 2026-09-04) — el .bak del
+      original crudo; el JeetKunDo.txt en sí ya lo borró
+  ÉL elige cuál queda: son sus textos y el criterio es suyo. Lo dijo explícito.
+  Lo que hay que hacer del lado del código cuando decida:
+    1. snapshot de /void ANTES de tocar nada (regla de CLAUDE.md).
+    2. mover el elegido a O/ — que es un symlink a /mnt/data/void_O, FUERA de
+       git. O sea que al moverlo sale del control de versiones: a partir de ahí
+       no hay snapshot que lo recupere. Y ahora que F6 es editable y destructivo,
+       en O/ ese archivo se puede consumir línea por línea.
+    3. sacar las dos entradas de la biblioteca: I.txt líneas 389 y 390 las
+       nombran ("JeetKunDo-clean english.txt" y "JeetKunDo-es.txt"). Si quedan
+       apuntando a archivos que ya no están, F3 va a mostrar entradas muertas.
+    4. borrar las otras dos y el .bak.
+  Nota: la traducción al español la hizo él para sacar conceptos, no por el
+  libro — "no me interesa el libro en si sino agarrar los conceptos". Vale
+  preguntarle si la que se queda es la española antes de asumir.
+
 - EL DEGRADADO DE F1 ES MÁS BAJO QUE LA LETRA (2026-09-11). En typewriter, el
   fundido a negro tapa el renglón pero NO las partes altas y bajas de las
   letras: las colas de las j y las q asoman sin apagar. Se ve claro con la letra
