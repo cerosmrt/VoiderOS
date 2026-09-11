@@ -41,6 +41,8 @@ HELP = [
     ("Ctrl+F3",           "Pick book folder"),
     ("Ctrl+F4",           "Change void directory"),
     ("Alt+↑/↓",          "Previous / next file (F1)"),
+    ("Alt+←/→  (F2 dot)", "Send this paragraph to a chapter (panel opens that side)"),
+    ("Alt+Shift+←/→ (F2)","Same, from anywhere — line or paragraph"),
     ("Ctrl+B",            "Backup vault to folder"),
     ("Ctrl+S",            "Export / save as PDF"),
     ("Ctrl+P",            "Print"),

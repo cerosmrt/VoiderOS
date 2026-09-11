@@ -26,6 +26,15 @@ class CircularView(QWidget):
         self.search_highlight_center = False # if True, full alpha at center, 30% elsewhere
         self.show_title = False              # pinned top title (F2 only, Ctrl+Shift+T)
         self.title_text = ''
+        # El catalogo de capitulos, para mandar desde F2 sin salir de F2. El
+        # mismo panel que usa F5; el dibujo vive en widgets.draw_chapter_picker.
+        self._picker_open = False
+        self._picker_side = 'right'
+        self._pick_filter = ''
+        self._pick_matches = []
+        self._pick_match_idx = 0
+        self._pick_is_new = False
+        self._pick_target = ''
         
         # Crear el editor
         self.editor = CustomLineEdit(self)
@@ -177,6 +186,18 @@ class CircularView(QWidget):
         """
         return max(1, int(QFontMetrics(self.font()).height() * self.LINE_SPACING))
 
+    def set_picker_state(self, is_open, filter_str, matches, match_idx, is_new,
+                         target, side='right'):
+        """Lo que la vista necesita saber del catalogo de capitulos."""
+        self._picker_open = is_open
+        self._picker_side = side
+        self._pick_filter = filter_str
+        self._pick_matches = list(matches)
+        self._pick_match_idx = match_idx
+        self._pick_is_new = is_new
+        self._pick_target = target
+        self.update()
+
     @staticmethod
     def edit_alpha(i, on_dot, base_alpha, highlight_offsets, edit_mode=True):
         """Cuánto se pinta la línea a `i` renglones del centro, en modo edición.
@@ -213,14 +234,19 @@ class CircularView(QWidget):
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         fm = QFontMetrics(self.font())
 
-        w = self.width()
         h = self.height()
         center_y = h // 2
+        # Con el panel de capitulos abierto el texto se corre al otro lado y le
+        # deja el 38%. La flecha con la que lo abriste decide de que lado sale.
+        full_w = self.width()
+        pick_w = int(full_w * 0.38) if self._picker_open else 0
+        left_pad = pick_w if (self._picker_open and self._picker_side == 'left') else 0
+        w = full_w - pick_w
         # Match the inline editor width (w - 100, no fixed cap) so a line looks the
         # same in and out of edit mode: shown in full when it fits the window, only
         # reaching the edge when it is genuinely too long.
         text_area_w = w - 100
-        margin = (w - text_area_w) // 2
+        margin = left_pad + (w - text_area_w) // 2
         painter.setClipRect(margin, 0, text_area_w, h)
 
         # When on a dot, find which offsets belong to its paragraph
@@ -289,6 +315,16 @@ class CircularView(QWidget):
             painter.setClipping(False)
             from widgets import draw_pinned_title
             draw_pinned_title(painter, self.font(), w, self.title_text)
+
+        # El catalogo de capitulos, del lado al que apuntaste con la flecha.
+        if self._picker_open:
+            painter.setClipping(False)
+            from widgets import draw_chapter_picker
+            px = 0 if self._picker_side == 'left' else full_w - pick_w
+            draw_chapter_picker(painter, self.font(), px, pick_w, h,
+                                self._pick_filter, self._pick_matches,
+                                self._pick_match_idx, self._pick_is_new,
+                                self._pick_target)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

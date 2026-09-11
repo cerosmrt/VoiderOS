@@ -208,53 +208,9 @@ class ReorderView(QWidget):
         return fm.elidedText(text, Qt.TextElideMode.ElideRight, max_w)
 
     def _draw_picker(self, painter, font, x, w, h):
-        """Right-side type-to-filter chapter picker (black & white)."""
-        small = QFont(font.family(), max(font.pointSize() - 2, 9))
-        fm = QFontMetrics(font)
-        sfm = QFontMetrics(small)
-        pad = 16
-        text_w = w - 2 * pad
-        lh = int(sfm.height() * 1.9)
-        cy = h // 2
-
-        painter.setFont(small)
-        painter.setPen(QColor(150, 150, 150))
-        prompt = (self._pick_filter + '▏') if self._pick_filter else 'escribí para filtrar…'
-        painter.drawText(QRect(x + pad, pad, text_w, sfm.height() + 4),
-                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
-                         self._elide(prompt, text_w, sfm))
-
-        if self._pick_is_new and self._pick_filter.strip():
-            painter.setFont(font)
-            painter.setPen(QColor(235, 235, 235))
-            label = self._elide('⏎ crear  ' + self._pick_target, text_w, fm)
-            painter.drawText(QRect(x + pad, cy - fm.height() // 2, text_w, fm.height() + 4),
-                             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
-                             label)
-        elif self._pick_matches:
-            names = self._pick_matches
-            cur = self._pick_match_idx % len(names)
-            visible = max(1, h // lh)
-            first = max(0, cur - visible // 2)
-            for j in range(first, min(len(names), first + visible)):
-                dist = j - cur
-                yj = cy + dist * lh
-                if dist == 0:
-                    painter.setPen(QColor(235, 235, 235))
-                else:
-                    a = max(45, 110 - abs(dist) * 22)
-                    painter.setPen(QColor(a, a, a))
-                painter.setFont(small)
-                painter.drawText(QRect(x + pad, yj - sfm.ascent(), text_w, lh),
-                                 Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
-                                 self._elide(names[j], text_w, sfm))
-        else:
-            painter.setFont(small)
-            painter.setPen(QColor(70, 70, 70))
-            painter.drawText(QRect(x, 0, w, h), Qt.AlignmentFlag.AlignCenter, 'ø')
-
-        painter.setFont(small)
-        painter.setPen(QColor(70, 70, 70))
-        painter.drawText(QRect(x + pad, h - 34, text_w, 22),
-                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
-                         '→ enviar   ⏎ nuevo   ⇥ ciclar')
+        """El catalogo de capitulos. El dibujo vive en widgets: lo comparte con
+        F2, que manda parrafos con el mismo panel."""
+        from widgets import draw_chapter_picker
+        draw_chapter_picker(painter, font, x, w, h, self._pick_filter,
+                            self._pick_matches, self._pick_match_idx,
+                            self._pick_is_new, self._pick_target)

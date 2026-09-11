@@ -292,22 +292,32 @@ class F5ReorderMixin:
                     'path': os.path.join(self.void_dir, 'I', fname), 'is_new': True}
         return None
 
+    def _pick_refresh(self):
+        """Redibujar el panel en la vista que lo tenga abierto.
+
+        El catalogo es uno solo y lo usan F5 y F2; lo que cambia es quien lo
+        dibuja. Los handlers de filtrado y ciclado se comparten tal cual."""
+        if getattr(self, '_doc_picker_open', False):
+            self._doc_refresh_picker()
+        else:
+            self._f5_refresh()
+
     def _f5_pick_filter_add(self, ch):
         self._f5_pick_filter += ch
         self._f5_pick_match_idx = 0
-        self._f5_refresh()
+        self._pick_refresh()
 
     def _f5_pick_filter_backspace(self):
         if self._f5_pick_filter:
             self._f5_pick_filter = self._f5_pick_filter[:-1]
             self._f5_pick_match_idx = 0
-            self._f5_refresh()
+            self._pick_refresh()
 
     def _f5_pick_cycle(self, delta):
         matches = self._f5_pick_matches()
         if matches:
             self._f5_pick_match_idx = (self._f5_pick_match_idx + delta) % len(matches)
-            self._f5_refresh()
+            self._pick_refresh()
 
     def _f5_new_chapter_insert_idx(self):
         """Where a chapter created from F5 goes: right below the active (origin)

@@ -232,7 +232,39 @@ class KeyRouterMixin:
             self._f1_show_current()
 
     def _handle_f2_keys(self, key, mods, event):
-        # Up/Down/Enter handled by circular_view.editor signals.
+        K, Alt = Qt.Key, Qt.KeyboardModifier.AltModifier
+        Ctrl, Shift = Qt.KeyboardModifier.ControlModifier, Qt.KeyboardModifier.ShiftModifier
+
+        # El catalogo de capitulos, cuando esta abierto, se come todas las teclas.
+        if getattr(self, '_doc_picker_open', False):
+            if key in (K.Key_Escape, K.Key_Left):
+                self._doc_close_picker(); event.accept(); return
+            if key in (K.Key_Return, K.Key_Enter, K.Key_Right):
+                self._doc_pick_confirm(); event.accept(); return
+            if key in (K.Key_Tab, K.Key_Down):
+                self._f5_pick_cycle(1); event.accept(); return
+            if key in (K.Key_Backtab, K.Key_Up):
+                self._f5_pick_cycle(-1); event.accept(); return
+            if key == K.Key_Backspace:
+                self._f5_pick_filter_backspace(); event.accept(); return
+            text = event.text()
+            if text and text.isprintable() and not (mods & (Ctrl | Alt)):
+                self._f5_pick_filter_add(text); event.accept(); return
+            event.accept(); return
+
+        # Alt+flecha abre el panel para mandar a otro capitulo. Sobre un PUNTO
+        # nomas: sobre una linea, Alt+flecha sigue moviendo la palabra, que es
+        # lo que hacia siempre. Alt+Shift+flecha lo abre desde donde sea — asi
+        # se puede mandar una linea suelta sin perder el desplazamiento de
+        # palabra. La flecha decide de que lado sale el panel.
+        if key in (K.Key_Left, K.Key_Right) and (mods & Alt):
+            lado = 'left' if key == K.Key_Left else 'right'
+            if mods & Shift:
+                self._doc_open_picker(lado); event.accept(); return
+            if self.line_ring.current() == '.':
+                self._doc_open_picker(lado); event.accept(); return
+            # en una linea: que siga hasta el editor, que mueve la palabra
+
         if self._matches(key, mods, 'swap_up'):
             if self.line_ring.current() == '.':
                 self.swap_paragraph_up()

@@ -362,6 +362,150 @@ class F2Mixin:
                 continue
         return None
 
+    # ── Mandar desde F2 a otro capitulo ──────────────────────────────────────
+    #
+    # Esto no existia en el Python — solo en el mirror de Rust. El panel de
+    # capitulos lo reusamos de F5 (_f5_pick_*): el filtrado, el orden de
+    # biblioteca y el crear-si-no-existe ya estaban resueltos ahi y no dependen
+    # de la vista. Los nombres siguen diciendo _f5_ porque ahi nacieron; el
+    # picker es uno solo y nunca hay dos abiertos a la vez.
+
+    def _doc_send_scope(self):
+        """Que se manda, segun donde estes parado: (lineas, indices_a_sacar).
+
+        Sobre una linea, esa linea. Sobre un punto, el parrafo entero que ese
+        punto abre — y el punto se va con el, porque un separador sin parrafo no
+        separa nada. Es la misma regla que Ctrl+C, Ctrl+Shift+E y el Ctrl+Delete
+        de F6: el punto es el selector de alcance.
+        """
+        ring = self.line_ring
+        n = len(ring.lines)
+        if not n:
+            return [], []
+        idx = ring.index
+        if ring.lines[idx] != '.':
+            linea = ring.lines[idx]
+            return ([linea], [idx]) if linea.strip() else ([], [])
+        fin = idx + 1
+        while fin < n and ring.lines[fin] != '.':
+            fin += 1
+        lineas = [ring.lines[i] for i in range(idx + 1, fin) if ring.lines[i].strip()]
+        if not lineas:
+            return [], []
+        return lineas, list(range(idx, fin))
+
+    def _doc_send_to(self, fname):
+        """MOVER el alcance actual al capitulo `fname`. True si se hizo.
+
+        Mover y no copiar, igual que en F5: el texto sale del archivo de origen.
+        Se appendea al destino detras de un punto, para que no se pegue con lo
+        que ya habia. Un snapshot de git y un solo paso de undo — se toca /void.
+
+        Si el destino no se puede escribir, el origen NO se toca: primero que
+        aterrice en algun lado, despues se suelta. Mismo criterio que el tacho.
+        """
+        lineas, quitar = self._doc_send_scope()
+        if not lineas:
+            return False
+        destino = self._library_path_cache.get(fname)
+        if not destino:
+            print(f"⚠️ No sé dónde está {fname}")
+            return False
+        if os.path.abspath(destino) == os.path.abspath(self.current_file_path):
+            return False                       # el mismo archivo: no tiene sentido
+
+        try:
+            with open(destino, 'r', encoding='utf-8', errors='replace') as f:
+                existente = [l.rstrip('\n') for l in f]
+        except FileNotFoundError:
+            existente = []
+        except Exception as e:
+            print(f"⚠️ No se pudo leer {fname}: {e}")
+            return False
+        while existente and not existente[-1].strip():
+            existente.pop()
+        combinado = (existente + ['.'] + lineas) if existente else (['.'] + lineas)
+
+        self._undo_begin()
+        self._git_snapshot_void('f2-send')
+        if not self._atomic_write_lines(destino, combinado):
+            return False                       # no aterrizo: el origen queda intacto
+
+        fuera = set(quitar)
+        quedan = self._f5_collapse_dots(
+            [l for i, l in enumerate(self.line_ring.lines) if i not in fuera])
+        # _f5_collapse_dots tambien se come el punto de arriba, que aca es
+        # estructural (mismo caso que en la cosecha de F6).
+        if not quedan or quedan[0].strip() != '.':
+            quedan.insert(0, '.')
+        self.line_ring.lines = quedan
+        if self.line_ring.index >= len(quedan):
+            self.line_ring.index = max(0, len(quedan) - 1)
+        self.auto_save_circular()
+        self._undo_commit(key=('f2send', fname))
+        print(f"→ {len(lineas)} línea(s) a {os.path.splitext(fname)[0]}")
+        return True
+
+    def _doc_open_picker(self, side='right'):
+        """Abrir el catalogo de capitulos en F2. `side` es de que lado sale."""
+        lineas, _ = self._doc_send_scope()
+        if not lineas:
+            print("↩ No hay nada que mandar desde acá.")
+            return
+        # La biblioteca se carga al entrar a F3, y a F2 se puede llegar sin haber
+        # pasado por ahi — entonces el catalogo saldria vacio. Se carga a pedido.
+        if not self._library_lines and hasattr(self, '_load_library'):
+            self._load_library()
+        self._doc_picker_open = True
+        self._doc_picker_side = side
+        self._f5_pick_filter = ''
+        self._f5_pick_match_idx = self._f5_pick_start_idx()
+        self._doc_refresh_picker()
+
+    def _doc_close_picker(self):
+        self._doc_picker_open = False
+        self._doc_refresh_picker()
+
+    def _doc_pick_confirm(self):
+        """Enter en el panel: mandar al capitulo elegido, creandolo si el nombre
+        que escribiste no existe todavia."""
+        if not getattr(self, '_doc_picker_open', False):
+            return
+        target = self._f5_pick_target()
+        if not target or not target['path']:
+            return
+        if target['is_new']:
+            path = target['path']
+            if not os.path.exists(path):
+                open(path, 'w', encoding='utf-8').close()
+            if target['fname'] not in self._library_lines:
+                ins = self._f5_new_chapter_insert_idx()
+                self._library_lines.insert(ins, target['fname'])
+                self.book_ring.lines.insert(ins, target['display'])
+                self._library_path_cache[target['fname']] = path
+                self._save_library()
+        self._doc_send_to(target['fname'])
+        self._doc_close_picker()
+        self._doc_refresh_editor()
+
+    def _doc_refresh_picker(self):
+        """Pasarle el estado del panel a la vista para que lo dibuje."""
+        view = getattr(self, 'circular_view', None)
+        if view is None or not hasattr(view, 'set_picker_state'):
+            return
+        abierto = getattr(self, '_doc_picker_open', False)
+        objetivo = self._f5_pick_target() if abierto else None
+        view.set_picker_state(
+            abierto,
+            getattr(self, '_f5_pick_filter', ''),
+            [d for _, d in self._f5_pick_matches()] if abierto else [],
+            getattr(self, '_f5_pick_match_idx', 0),
+            bool(objetivo and objetivo.get('is_new')),
+            (objetivo or {}).get('display', ''),
+            getattr(self, '_doc_picker_side', 'right'),
+        )
+        view.update()
+
     def _doc_insert_ws_line(self):
         """Alt+Tab in F2: insert/replace with a random line from the working set."""
         line = self._random_line_from_ws()
