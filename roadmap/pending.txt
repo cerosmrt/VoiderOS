@@ -6,6 +6,25 @@ state what's about to be done and get confirmation before touching files.
 ACTIVE — ready to implement next
 ---------------------------------
 
+- EL DEGRADADO DE F1 ES MÁS BAJO QUE LA LETRA (2026-09-11). En typewriter, el
+  fundido a negro tapa el renglón pero NO las partes altas y bajas de las
+  letras: las colas de las j y las q asoman sin apagar. Se ve claro con la letra
+  grande. Y como dice él, el problema de fondo es que depende del tamaño de
+  fuente — con otro tamaño vuelve a romperse de otra forma.
+  Dónde: views.py, EdgeFade.paintEvent, el paso 1. El degradado se pinta con
+  `painter.fillRect(QRect(x, y, w, h), grad)` donde (x,y,w,h) es el RECTÁNGULO
+  DEL ENTRY, que mide lo que mide el QLineEdit (su sizeHint). Los glifos se
+  salen de esa caja.
+  Arreglo propuesto por él y estoy de acuerdo: que el degradado cubra el CÍRCULO
+  ENTERO en vez del renglón. El degradado es horizontal (de negro en el borde
+  izquierdo a transparente hacia el centro), así que estirarlo verticalmente a
+  toda la vista no cambia el efecto — sólo deja de tener una altura que
+  adivinar. Con eso el tamaño de fuente deja de importar, que es el punto.
+  Ojo al hacerlo: set_entry_rect(0,0,0,0) es lo que hoy APAGA el degradado
+  cuando no estás en typewriter (ver _reposition_entry en new_interface.py). Si
+  el rect deja de ser el del entry, hace falta otra forma de decir "acá no hay
+  degradado" — un flag, o mantener el rect sólo para las X y usar toda la altura.
+
 - LA OPACIDAD NO APLICA EN FULLSCREEN (2026-09-10). Ctrl+± y Ctrl+Shift+±
   funcionan con la ventana flotante/detached, pero en fullscreen no se ve nada:
   la ventana queda opaca. Federico lo quiere andando en las dos.
