@@ -16,6 +16,7 @@ def _read(path):
 
 _METHODS = (
     '_f3_state', '_f3_undo_begin', '_f3_undo_file', '_f3_undo_commit',
+    '_book_pending_index',
     '_f3_restore', '_read_lines_or_none', '_undo_apply',
     '_save_library', '_atomic_write_lines', '_library_path',
     '_book_swap_entries', '_book_swap_up', '_book_swap_down', '_book_move_block',

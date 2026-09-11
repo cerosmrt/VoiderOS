@@ -643,6 +643,9 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                 self.book_view.editor.downPressed.connect(lambda: self._book_navigate(1))
                 self.book_view.editor.dotPressed.connect(self._book_insert_separator)
                 self.book_view.editor.shiftReturnPressed.connect(self._book_new_entry)
+                # Ctrl+Enter crea tambien, sin mirar el cursor — asi funciona
+                # parado en el portal 0, donde el renglon es de solo lectura.
+                self.book_view.editor.ctrlReturnPressed.connect(self._book_new_entry)
                 self.book_view.editor.ctrlDeletePressed.connect(self._book_send_to_zero)
                 self.book_view.editor.copyContext.connect(self._smart_copy)
                 self.book_view.editor.tabPressed.connect(self._book_tab)

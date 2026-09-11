@@ -320,6 +320,7 @@ class CustomLineEdit(QLineEdit):
     altTabPressed = pyqtSignal()   # Alt+Tab: insert from working set
     dotPressed = pyqtSignal()      # '.' key when intercept_period is True
     shiftReturnPressed = pyqtSignal()
+    ctrlReturnPressed = pyqtSignal()   # Ctrl+Enter: crear una entrada nueva (F3)
     ctrlDeletePressed = pyqtSignal()
     homePressed = pyqtSignal()     # Home when home_end_doc is True (doc-wide jump)
     endPressed = pyqtSignal()      # End when home_end_doc is True (doc-wide jump)
@@ -403,14 +404,19 @@ class CustomLineEdit(QLineEdit):
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             if ctrl:
                 # Ctrl+Enter NO es Enter. Esta rama no miraba el Ctrl, asi que
-                # Ctrl+Enter hacia lo mismo que Enter pelado — en F3, con el
-                # caret en 0 (que es donde queda siempre), te abria el capitulo
-                # sin que lo hubieras pedido. Decision de Federico: que no haga
-                # nada. ignore() y no accept() porque es la forma honesta de
-                # "nada aca": el evento sigue hasta el router de la ventana, que
-                # hoy no lo maneja en estas vistas, y deja la puerta abierta por
-                # si algun dia se le da un significado global.
-                event.ignore()
+                # hacia lo mismo que Enter pelado — en F3, con el caret en 0 (que
+                # es donde queda siempre), te abria el capitulo sin que lo
+                # hubieras pedido. Ese era el "algo raro" que Federico notaba.
+                #
+                # Ahora CREA, sin mirar donde esta el cursor. Eso resuelve ademas
+                # un caso que la logica del caret no cubre: parado en el portal 0
+                # el renglon es de solo lectura y no hay posicion que interpretar.
+                #
+                # Señal propia en vez de reusar las otras: solo F3 la conecta. En
+                # F2 y F6 "crear un capitulo" no significa nada, asi que ahi no
+                # pasa nada — decision de cableado, no una rama escondida aca.
+                self.ctrlReturnPressed.emit()
+                event.accept()
                 return
             if shift:
                 # Always fire on Shift+Enter regardless of cursor position. In F3

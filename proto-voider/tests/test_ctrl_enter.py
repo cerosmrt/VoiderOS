@@ -6,11 +6,16 @@ hacía exactamente lo mismo que Enter pelado — en F3, con el caret en 0 (que e
 donde queda siempre), te abría el capítulo sin que lo hubieras pedido. Ése era
 el "algo raro que sucede cuando apreto ctrl enter".
 
-Decisión suya: que no haga nada. Se implementa con event.ignore(), que es la
-forma honesta de "nada acá" — deja que el evento siga hasta el router de la
-ventana, igual que ya hace el entry de F1 con los combos de Ctrl. Hoy nadie lo
-maneja en F2/F3/F6, así que no pasa nada; y si algún día se le quiere dar un
-significado global, el camino ya está abierto.
+Decisión suya, en dos pasos: primero "que no haga nada", y después "que cree un
+capitulo siempre sin importar donde este el cursor". El segundo gana, y resuelve
+además un caso que la lógica del caret no cubre: parado en el portal 0 el
+renglón es de sólo lectura, así que no hay posición de cursor que interpretar.
+Ctrl+Enter crea, y listo.
+
+Se emite una señal propia (ctrlReturnPressed) en vez de reusar las otras. Sólo
+F3 la conecta: en F2 y F6 "crear un capítulo" no significa nada, así que ahí no
+pasa nada — y eso queda como una decisión de cableado, no como una rama
+escondida adentro del widget.
 
 El editor lo comparten F2, F3, F6 y la vista concatenada: el arreglo vale para
 los cuatro, que es lo correcto porque el aliasing era el mismo en todos.
@@ -38,6 +43,7 @@ def _edit(qapp, text='Capitulo', pos=0):
     le.returnPressed.connect(lambda: fired.append('abrir'))
     le.splitAtCursor.connect(lambda p: fired.append(f'partir@{p}'))
     le.shiftReturnPressed.connect(lambda: fired.append('nuevo'))
+    le.ctrlReturnPressed.connect(lambda: fired.append('crear'))
     return le, fired
 
 
@@ -47,34 +53,42 @@ def _press(le, key=Qt.Key.Key_Return, mods=Qt.KeyboardModifier.NoModifier):
     return ev
 
 
-# ── lo que Ctrl+Enter NO debe hacer ──────────────────────────────────────────
+# ââ Ctrl+Enter crea, y ninguna otra cosa ââââââââââââââââââââââââââââââ
 
 @pytest.mark.parametrize("key", [Qt.Key.Key_Return, Qt.Key.Key_Enter])
-def test_ctrl_enter_does_not_open(qapp, key):
+def test_ctrl_enter_creates(qapp, key):
     le, fired = _edit(qapp, pos=0)
     _press(le, key, Qt.KeyboardModifier.ControlModifier)
-    assert fired == [], 'Ctrl+Enter se está comportando como Enter'
+    assert fired == ['crear']
+
+
+def test_ctrl_enter_does_not_open(qapp):
+    le, fired = _edit(qapp, pos=0)
+    _press(le, mods=Qt.KeyboardModifier.ControlModifier)
+    assert 'abrir' not in fired, 'Ctrl+Enter se está comportando como Enter'
 
 
 def test_ctrl_enter_mid_name_does_not_split(qapp):
+    """Crea igual: la posición del cursor no entra en la decisión. Ésa es la
+    gracia — en el portal 0 el renglón es de sólo lectura y no hay posición."""
     le, fired = _edit(qapp, pos=4)
     _press(le, mods=Qt.KeyboardModifier.ControlModifier)
-    assert fired == []
+    assert fired == ['crear']
 
 
-def test_ctrl_shift_enter_does_not_create_either(qapp):
+def test_ctrl_shift_enter_also_creates(qapp):
     le, fired = _edit(qapp, pos=0)
     _press(le, mods=(Qt.KeyboardModifier.ControlModifier
                      | Qt.KeyboardModifier.ShiftModifier))
-    assert fired == []
+    assert fired == ['crear']
 
 
-def test_it_is_ignored_not_swallowed(qapp):
-    """ignore() y no accept(): el evento sigue hasta el router de la ventana, por
-    si algún día se le quiere dar un significado global."""
-    le, fired = _edit(qapp, pos=0)
-    ev = _press(le, mods=Qt.KeyboardModifier.ControlModifier)
-    assert not ev.isAccepted()
+def test_only_f3_wires_it():
+    """En F2 y F6 crear un capítulo no significa nada, así que no se conecta."""
+    import inspect
+    from new_interface import FullscreenCircleApp as App
+    src = inspect.getsource(App.switch_to_view)
+    assert src.count('ctrlReturnPressed') == 1, 'debería conectarse sólo en F3'
 
 
 # ── lo que Enter SÍ tiene que seguir haciendo ────────────────────────────────

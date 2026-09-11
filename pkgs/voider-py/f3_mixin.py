@@ -273,13 +273,49 @@ class F3Mixin:
             self._book_try_rename()
         self._book_spawn_new_below()
 
+    def _book_pending_index(self):
+        """Donde esta el renglon fantasma, o None si no hay.
+
+        El fantasma es la entrada con nombre VACIO — es el unico estado en que
+        _library_lines guarda un ''. Se busca en vez de recordar un indice porque
+        un indice guardado se desactualiza en cuanto se inserta o se saca algo
+        arriba; el '' se mueve solo con la lista.
+        """
+        if not getattr(self, '_book_pending_new', False):
+            return None
+        for i, name in enumerate(self._library_lines):
+            if name == '':
+                return i
+        return None
+
     def _book_materialize_pending(self):
         """Turn the pending-new placeholder into a real entry from its typed name:
         empty → remove; '.' → separator; '0' → portal; else → create the file.
         Clears _book_pending_new. Returns True if a real entry remains, else False.
-        Never dives into F2 — creation keeps you in the F3 list."""
-        text = self.book_view.editor.text().strip()
+        Never dives into F2 — creation keeps you in the F3 list.
+
+        LA RED: si el indice ya no apunta al fantasma, el fantasma se DESCARTA en
+        vez de escribir donde sea que estemos parados.
+
+        El bug era ese. Esta funcion usaba book_ring.index en el momento de
+        correr, no el indice del fantasma. Si algo movia el indice mientras habia
+        una entrada sin nombrar — la busqueda, el rebase, mover un bloque — esto
+        se comia la entrada REAL que estuviera ahi: la sacaba de la biblioteca
+        pero no borraba el archivo. De ahi el sintoma, textual: "solo desaparece
+        de la lista".
+        Descartar y no nombrar, porque con el indice movido el texto del renglon
+        ya es el de OTRA entrada: nombrarlo con eso seria inventar. Perder una
+        entrada que nunca tuvo nombre es recuperable; pisar una que si lo tiene,
+        no.
+        """
+        ph = self._book_pending_index()
         idx = self.book_ring.index
+        if ph is not None and ph != idx:
+            self._book_pending_new = False
+            self._book_remove_entry(ph)
+            print("↩ Entrada nueva descartada: el cursor se había movido.")
+            return False
+        text = self.book_view.editor.text().strip()
         self._book_pending_new = False
         if not text:
             self._book_remove_entry(idx)
@@ -618,6 +654,8 @@ class F3Mixin:
         """Alt+Up in F3: a dot moves its whole book up; a chapter swaps with its
         immediate neighbour (reorders within the book, or crosses into the book
         above when the neighbour is a separator)."""
+        # Asentar la entrada nueva antes de reordenar, por lo mismo que arriba.
+        self._book_settle_pending()
         self._book_try_rename()   # commit an edited title before reordering
         idx = self.book_ring.index
         lines = self.book_ring.lines
@@ -636,6 +674,8 @@ class F3Mixin:
     def _book_swap_down(self):
         """Alt+Down in F3: a dot moves its whole book down; a chapter swaps with
         its immediate neighbour."""
+        # Asentar la entrada nueva antes de reordenar, por lo mismo que arriba.
+        self._book_settle_pending()
         self._book_try_rename()   # commit an edited title before reordering
         idx = self.book_ring.index
         lines = self.book_ring.lines
@@ -709,6 +749,9 @@ class F3Mixin:
 
     def _book_rebase(self):
         """Ctrl+0 in F3: rotate ring so current title becomes first."""
+        # Asentar la entrada nueva ANTES de mover el indice: aca el texto del
+        # renglon todavia es el suyo, que es lo unico que la puede nombrar.
+        self._book_settle_pending()
         idx = self.book_ring.index
         if idx == 0:
             return
@@ -882,6 +925,10 @@ class F3Mixin:
     def _open_f3_search(self):
         if self._f3_search_active:
             return
+        # Asentar la entrada nueva ANTES de que la busqueda mueva el indice: aca
+        # el texto del renglon todavia es el suyo. Este era el camino que
+        # Federico estaba usando cuando la entrada le desaparecia de la lista.
+        self._book_settle_pending()
         self._f3_search_active = True
         self._f3_search_saved = self.book_ring.index
         display = [l for l in self.book_ring.lines if l != '.'] or ['.']
