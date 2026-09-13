@@ -1,14 +1,17 @@
-"""El panel de capítulos tiene que leerse.
+"""El panel: el elegido en blanco, el resto en gris.
 
-Federico: "look its there the nav but it looks so gray you can barely see it".
-Los grises estaban hardcodeados y eran oscuros — el más tenue, 45 sobre 255 —
-y además no seguían el eje de la TINTA, así que Ctrl+Shift+± no los tocaba
-mientras el resto de la interfaz sí.
+Primero los grises estaban hardcodeados y oscuros —el más tenue, 45 sobre 255—
+y el panel no se leía. Lo pasé a atenuar por ALPHA, que es como se atenúa el
+resto de la interfaz. Pero Federico lo miró y pidió otra cosa: "me gustaria que
+se vea asi con highlighted in white and the rest in gray".
 
-Ahora la escala sale de picker_shade(). Se atenúa por ALPHA y no bajando el
-gris, que es como se atenúa todo el resto de la interfaz (el anillo de F2 hace
-lo mismo con la distancia al centro). El color se mantiene: lo que baja es
-cuánto tapa. Y el elegido va a tinta plena, con piso legible para los vecinos.
+O sea DOS NIVELES, no un degradado: el elegido a tinta plena y todo lo demás en
+un gris parejo. Y se hace bajando el COLOR y no el alpha — así el texto queda
+opaco y nítido incluso sobre un fondo transparente, en vez de dejar pasar el
+escritorio a través de las letras.
+
+El alpha sigue siendo el del eje TINTA, para que Ctrl+Shift+± atenúe el panel
+junto con el círculo y las letras en vez de dejarlo como una isla.
 """
 import pytest
 
@@ -27,37 +30,40 @@ def test_the_selected_one_is_full_ink():
     assert c.alpha() == 255
 
 
-def test_the_neighbours_fade_but_stay_legible():
-    """El problema era justamente éste: se iban a casi invisibles."""
+def test_the_rest_is_grey():
+    """Gris de verdad, no blanco translúcido."""
     for d in (1, 2, 3, 5, 20):
-        a = picker_shade(d, BLANCO).alpha()
-        assert a >= 140, f'a {d} de distancia queda en alpha {a}, ilegible'
-
-
-def test_they_fade_at_all():
-    """Legibles, pero el elegido tiene que destacarse igual."""
-    assert picker_shade(1, BLANCO).alpha() < picker_shade(0, BLANCO).alpha()
-    assert picker_shade(3, BLANCO).alpha() <= picker_shade(1, BLANCO).alpha()
-
-
-def test_the_colour_never_changes_only_how_much_it_covers():
-    for d in (0, 1, 5):
         c = picker_shade(d, BLANCO)
-        assert (c.red(), c.green(), c.blue()) == (255, 255, 255)
+        assert c.red() < 200, f'a {d} sigue siendo casi blanco ({c.red()})'
+        assert c.red() > 90, f'a {d} queda demasiado oscuro ({c.red()})'
+
+
+def test_the_grey_is_uniform():
+    """Dos niveles, no un degradado: todo lo que no es el elegido va igual."""
+    valores = {picker_shade(d, BLANCO).red() for d in (1, 2, 3, 8, 30)}
+    assert len(valores) == 1, f'hay más de un gris: {valores}'
+
+
+def test_it_stays_opaque():
+    """Se baja el color, no el alpha: sobre un fondo transparente el texto no
+    tiene que dejar pasar el escritorio."""
+    for d in (0, 1, 7):
+        assert picker_shade(d, BLANCO).alpha() == 255
 
 
 def test_it_follows_the_ink_axis():
     """Ctrl+Shift+± tiene que atenuar el panel como atenúa todo lo demás."""
     tenue = QColor(255, 255, 255, 100)
     assert picker_shade(0, tenue).alpha() == 100
-    assert picker_shade(3, tenue).alpha() < 100
+    assert picker_shade(3, tenue).alpha() == 100
 
 
 def test_the_ink_colour_is_respected():
     rojo = QColor(255, 40, 40, 255)
-    c = picker_shade(0, rojo)
-    assert (c.red(), c.green(), c.blue()) == (255, 40, 40)
+    assert picker_shade(0, rojo).getRgb()[:3] == (255, 40, 40)
+    gris = picker_shade(2, rojo)
+    assert gris.red() < 255 and gris.green() < 40 or gris.green() == 0
 
 
 def test_distance_is_symmetric():
-    assert picker_shade(3, BLANCO).alpha() == picker_shade(-3, BLANCO).alpha()
+    assert picker_shade(3, BLANCO).red() == picker_shade(-3, BLANCO).red()

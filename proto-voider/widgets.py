@@ -25,19 +25,31 @@ def neutralize_caps(editor, event):
     return False
 
 
-def picker_shade(dist, ink):
-    """El color de una fila del panel, a `dist` filas de la elegida.
+# Cuanto se apaga el color de una fila que no es la elegida. 0.55 sobre blanco
+# da 140: gris claro, se lee bien y no compite con el elegido.
+PICKER_DIM = 0.55
 
-    El elegido va a tinta plena y los vecinos bajan, pero con PISO: antes la
-    escala terminaba en 45 sobre 255 y el panel no se leia. Y multiplica por el
-    alpha de la tinta, asi Ctrl+Shift+± lo atenua junto con el circulo y las
-    letras en vez de dejarlo como una isla.
+
+def picker_shade(dist, ink):
+    """El color de una fila del panel: el elegido a tinta plena, el resto gris.
+
+    DOS NIVELES, no un degradado — es lo que pidio Federico mirandolo: "el
+    elegido en blanco y el resto en gris". Un degradado por distancia daba una
+    diferencia demasiado sutil para ubicarse.
+
+    Se baja el COLOR y no el alpha. Con alpha el texto se vuelve translucido y
+    sobre un fondo transparente deja pasar el escritorio a traves de las letras;
+    bajando el color queda opaco y nitido. El alpha sigue siendo el de la tinta,
+    asi Ctrl+Shift+± atenua el panel junto con el circulo y las letras en vez de
+    dejarlo como una isla.
     """
     from PyQt6.QtGui import QColor
-    d = abs(dist)
-    f = 1.0 if d == 0 else max(0.55, 0.85 - d * 0.09)
-    return QColor(ink.red(), ink.green(), ink.blue(),
-                  int(round(ink.alpha() * f)))
+    if dist == 0:
+        return QColor(ink.red(), ink.green(), ink.blue(), ink.alpha())
+    return QColor(int(round(ink.red() * PICKER_DIM)),
+                  int(round(ink.green() * PICKER_DIM)),
+                  int(round(ink.blue() * PICKER_DIM)),
+                  ink.alpha())
 
 
 def draw_chapter_picker(painter, font, x, w, h, filter_str, matches, match_idx,
