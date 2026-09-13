@@ -50,6 +50,22 @@ def ring_alpha(distancia_px, media_altura, max_alpha=1.0):
     return max(0.0, min(max_alpha, a))
 
 
+# Cuanto se apaga lo que NO es la linea elegida. La curva del anillo sola no
+# alcanza para marcarla: a un renglon de distancia da 0.975, o sea que se ve
+# igual de blanca. Este factor es el que da el contraste, y es el mismo 0.3 que
+# F3 usa en edit_alpha.
+DIM_FACTOR = 0.3
+
+
+def row_alpha(distancia_px, media_altura):
+    """Cuanto se ve una fila del panel: la curva del anillo, y ademas apagada si
+    no es la elegida. Las dos cosas juntas — la curva desvanece hacia los
+    bordes, el factor marca cual es la elegida."""
+    if distancia_px == 0:
+        return 1.0
+    return ring_alpha(distancia_px, media_altura) * DIM_FACTOR
+
+
 def picker_line_height(font):
     """El salto entre renglones, derivado de la fuente. El mismo que F3."""
     from PyQt6.QtGui import QFontMetrics
@@ -97,7 +113,7 @@ def draw_chapter_picker(painter, font, x, w, h, filter_str, matches, match_idx,
         first = max(0, cur - visible // 2)
         for j in range(first, min(len(matches), first + visible)):
             dy = (j - cur) * lh
-            fila(matches[j], dy, ring_alpha(abs(dy), media_h))
+            fila(matches[j], dy, row_alpha(abs(dy), media_h))
     else:
         fila('ø', 0, 0.35)
 

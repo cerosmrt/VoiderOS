@@ -4,6 +4,12 @@ from PyQt6.QtWidgets import QWidget, QLineEdit
 from PyQt6.QtCore import Qt, QPropertyAnimation, pyqtProperty, QEasingCurve, pyqtSignal, QPoint, QEvent
 from PyQt6.QtGui import QPainter, QFontMetrics, QFont, QKeyEvent, QColor, QPen
 
+# Los numeros de la lista viven en widgets, compartidos con el panel de
+# capitulos, para que la lista y el panel no puedan divergir. widgets no importa
+# nada de aca, asi que no hay ciclo.
+from widgets import LINE_SPACING, DIM_FACTOR
+
+
 class CircularView(QWidget):
     line_saved = pyqtSignal()
     
@@ -168,14 +174,6 @@ class CircularView(QWidget):
         return ring_alpha(distance_from_center_px, self.height() / 2,
                           self.max_alpha)
 
-    # Proporcion entre el alto de la letra y el salto de linea. 1.31 es el
-    # numero que reproduce exactamente los 38px de antes con la fuente por
-    # defecto (22pt -> 29px de letra): para quien nunca toco el tamano, F2 se
-    # ve igual que siempre; para todos los demas, deja de romperse.
-    # El numero vive en widgets.LINE_SPACING, compartido con el panel de
-    # capitulos, para que el espaciado no pueda divergir entre los dos.
-    from widgets import LINE_SPACING
-
     @property
     def line_height(self):
         """Salto entre lineas, derivado de la fuente actual.
@@ -186,7 +184,7 @@ class CircularView(QWidget):
         en cada frame en vez de guardarse, asi un cambio de fuente en F10 se ve
         al instante sin que nadie tenga que acordarse de recalcular nada.
         """
-        return max(1, int(QFontMetrics(self.font()).height() * self.LINE_SPACING))
+        return max(1, int(QFontMetrics(self.font()).height() * LINE_SPACING))
 
     def set_picker_state(self, is_open, filter_str, matches, match_idx, is_new,
                          target, side='right'):
@@ -220,7 +218,7 @@ class CircularView(QWidget):
             return 0.0
         if on_dot and i in highlight_offsets:
             return base_alpha
-        return base_alpha * 0.3
+        return base_alpha * DIM_FACTOR
 
     def paintEvent(self, event):
         if self.width() == 0 or self.height() == 0:

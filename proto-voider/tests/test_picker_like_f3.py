@@ -87,10 +87,13 @@ def test_it_is_never_zero(qapp):
 # ── y el panel los usa ───────────────────────────────────────────────────────
 
 def test_the_picker_uses_the_shared_curve():
+    """row_alpha compone la curva del anillo con el factor de atenuación; las
+    dos piezas son las mismas que usa F3."""
     import inspect
-    from widgets import draw_chapter_picker
+    from widgets import draw_chapter_picker, row_alpha
     src = inspect.getsource(draw_chapter_picker)
-    assert 'ring_alpha' in src, 'el panel sigue con su propia atenuación'
+    assert 'row_alpha' in src, 'el panel sigue con su propia atenuación'
+    assert 'ring_alpha' in inspect.getsource(row_alpha)
     assert 'picker_line_height' in src, 'el panel sigue con su propio espaciado'
 
 
