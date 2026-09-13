@@ -25,31 +25,35 @@ def neutralize_caps(editor, event):
     return False
 
 
-# Cuanto se apaga el color de una fila que no es la elegida. 0.55 sobre blanco
-# da 140: gris claro, se lee bien y no compite con el elegido.
-PICKER_DIM = 0.55
+# Proporcion entre el alto de la letra y el salto de linea. Es el numero de
+# CircularView.LINE_SPACING, que vive aca para que el panel de capitulos y la
+# lista de F3 no puedan divergir.
+LINE_SPACING = 1.31
 
 
-def picker_shade(dist, ink):
-    """El color de una fila del panel: el elegido a tinta plena, el resto gris.
+def ring_alpha(distancia_px, media_altura, max_alpha=1.0):
+    """Cuanto se ve una linea a `distancia_px` del centro. La curva del anillo.
 
-    DOS NIVELES, no un degradado — es lo que pidio Federico mirandolo: "el
-    elegido en blanco y el resto en gris". Un degradado por distancia daba una
-    diferencia demasiado sutil para ubicarse.
+    Coseno y no una recta: cae despacio cerca del centro y rapido en los bordes,
+    que es lo que hace que F2/F3 se lean como un anillo y no como una lista.
+    Llega a cero en el borde de la ventana.
 
-    Se baja el COLOR y no el alpha. Con alpha el texto se vuelve translucido y
-    sobre un fondo transparente deja pasar el escritorio a traves de las letras;
-    bajando el color queda opaco y nitido. El alpha sigue siendo el de la tinta,
-    asi Ctrl+Shift+± atenua el panel junto con el circulo y las letras en vez de
-    dejarlo como una isla.
+    Vive aca porque la usan CircularView (F2/F3/F6) y el panel de capitulos.
+    Tenerla dos veces fue justo lo que hizo que el panel se viera distinto de
+    F3, que es lo que Federico marco.
     """
-    from PyQt6.QtGui import QColor
-    if dist == 0:
-        return QColor(ink.red(), ink.green(), ink.blue(), ink.alpha())
-    return QColor(int(round(ink.red() * PICKER_DIM)),
-                  int(round(ink.green() * PICKER_DIM)),
-                  int(round(ink.blue() * PICKER_DIM)),
-                  ink.alpha())
+    import math
+    if media_altura == 0:
+        return 1.0
+    t = distancia_px / media_altura
+    a = math.cos(t * math.pi / 2) if t < 1.0 else 0.0
+    return max(0.0, min(max_alpha, a))
+
+
+def picker_line_height(font):
+    """El salto entre renglones, derivado de la fuente. El mismo que F3."""
+    from PyQt6.QtGui import QFontMetrics
+    return max(1, int(QFontMetrics(font).height() * LINE_SPACING))
 
 
 def draw_chapter_picker(painter, font, x, w, h, filter_str, matches, match_idx,
@@ -61,53 +65,55 @@ def draw_chapter_picker(painter, font, x, w, h, filter_str, matches, match_idx,
     """
     from PyQt6.QtGui import QFont, QFontMetrics, QColor
     from PyQt6.QtCore import QRect
-    small = QFont(font.family(), max(font.pointSize() - 2, 9))
-    fm, sfm = QFontMetrics(font), QFontMetrics(small)
+    # Misma fuente, mismo espaciado y misma curva de atenuacion que F3. Antes el
+    # panel tenia los tres distintos —fuente dos puntos mas chica, espaciado 1.9
+    # y dos tonos planos— y por eso se veia como otra cosa al lado de la lista.
+    fm = QFontMetrics(font)
     pad = 16
     text_w = w - 2 * pad
-    lh = int(sfm.height() * 1.9)
+    lh = picker_line_height(font)
     cy = h // 2
+    media_h = h / 2.0
 
     if ink is None:
         ink = QColor(255, 255, 255, 255)
+    painter.setFont(font)
 
-    def elide(t, mw, m):
+    def elide(t, mw, m=fm):
         return m.elidedText(t, Qt.TextElideMode.ElideRight, mw)
 
-    painter.setFont(small)
-    painter.setPen(picker_shade(2, ink))
-    prompt = (filter_str + '▏') if filter_str else 'escribí para filtrar…'
-    painter.drawText(QRect(x + pad, pad, text_w, sfm.height() + 4),
-                     Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
-                     elide(prompt, text_w, sfm))
+    def fila(texto, dy, alpha):
+        painter.setOpacity(alpha)
+        painter.setPen(QColor(ink.red(), ink.green(), ink.blue(), ink.alpha()))
+        painter.drawText(QRect(x + pad, cy + dy - fm.ascent(), text_w, lh),
+                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+                         elide(texto, text_w))
 
     if is_new and filter_str.strip():
-        painter.setFont(font)
-        painter.setPen(picker_shade(0, ink))
-        painter.drawText(QRect(x + pad, cy - fm.height() // 2, text_w, fm.height() + 4),
-                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
-                         elide('⏎ crear  ' + target, text_w, fm))
+        fila('⏎ crear  ' + target, 0, 1.0)
     elif matches:
         cur = match_idx % len(matches)
         visible = max(1, h // lh)
         first = max(0, cur - visible // 2)
         for j in range(first, min(len(matches), first + visible)):
-            dist = j - cur
-            painter.setPen(picker_shade(dist, ink))
-            painter.setFont(small)
-            painter.drawText(QRect(x + pad, cy + dist * lh - sfm.ascent(), text_w, lh),
-                             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
-                             elide(matches[j], text_w, sfm))
+            dy = (j - cur) * lh
+            fila(matches[j], dy, ring_alpha(abs(dy), media_h))
     else:
-        painter.setFont(small)
-        painter.setPen(picker_shade(3, ink))
-        painter.drawText(QRect(x, 0, w, h), Qt.AlignmentFlag.AlignCenter, 'ø')
+        fila('ø', 0, 0.35)
 
-    painter.setFont(small)
-    painter.setPen(picker_shade(4, ink))
+    # El prompt de arriba y la ayuda de abajo estan en el borde, donde la curva
+    # del anillo ya da casi cero: se les pone un piso para que se lean.
+    painter.setOpacity(0.45)
+    painter.setPen(QColor(ink.red(), ink.green(), ink.blue(), ink.alpha()))
+    prompt = (filter_str + '▏') if filter_str else 'escribí para filtrar…'
+    painter.drawText(QRect(x + pad, pad, text_w, fm.height() + 4),
+                     Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+                     elide(prompt, text_w))
+    painter.setOpacity(0.30)
     painter.drawText(QRect(x + pad, h - 34, text_w, 22),
                      Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
                      '→ enviar   ⏎ nuevo   ⇥ ciclar')
+    painter.setOpacity(1.0)
 
 
 def tab_intent(e):

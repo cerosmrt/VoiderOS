@@ -161,18 +161,20 @@ class CircularView(QWidget):
         self.update()
 
     def calculate_alpha(self, distance_from_center_px):
-        half_h = self.height() / 2
-        if half_h == 0:
-            return 1.0
-        t = distance_from_center_px / half_h  # 0 at center, 1 at screen edge
-        alpha = math.cos(t * math.pi / 2) if t < 1.0 else 0.0
-        return max(0.0, min(self.max_alpha, alpha))
+        """La curva del anillo. Vive en widgets.ring_alpha porque el panel de
+        capitulos usa la misma: tenerla dos veces fue lo que hizo que el panel
+        se viera distinto de esta lista."""
+        from widgets import ring_alpha
+        return ring_alpha(distance_from_center_px, self.height() / 2,
+                          self.max_alpha)
 
     # Proporcion entre el alto de la letra y el salto de linea. 1.31 es el
     # numero que reproduce exactamente los 38px de antes con la fuente por
     # defecto (22pt -> 29px de letra): para quien nunca toco el tamano, F2 se
     # ve igual que siempre; para todos los demas, deja de romperse.
-    LINE_SPACING = 1.31
+    # El numero vive en widgets.LINE_SPACING, compartido con el panel de
+    # capitulos, para que el espaciado no pueda divergir entre los dos.
+    from widgets import LINE_SPACING
 
     @property
     def line_height(self):
