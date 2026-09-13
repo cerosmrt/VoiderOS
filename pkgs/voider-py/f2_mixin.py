@@ -514,11 +514,15 @@ class F2Mixin:
             return
         abierto = getattr(self, '_doc_picker_open', False)
         objetivo = self._f5_pick_target() if abierto else None
+        # Las filas que se dibujan NO son la lista de destinos: llevan los puntos
+        # separadores, que se ven pero no se eligen. _pick_display traduce cual
+        # queda resaltada.
+        filas, idx = self._pick_display() if abierto else ([], 0)
         view.set_picker_state(
             abierto,
             getattr(self, '_f5_pick_filter', ''),
-            [d for _, d in self._f5_pick_matches()] if abierto else [],
-            getattr(self, '_f5_pick_match_idx', 0),
+            filas,
+            idx,
             bool(objetivo and objetivo.get('is_new')),
             (objetivo or {}).get('display', ''),
             getattr(self, '_doc_picker_side', 'right'),

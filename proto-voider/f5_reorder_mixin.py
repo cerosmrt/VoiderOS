@@ -1,6 +1,11 @@
 import os
 
 
+# El separador que se dibuja en el panel donde la biblioteca tiene un punto.
+# No es un punto pelado: en una columna de titulos un '.' se pierde.
+PICK_SEP = '·'
+
+
 class F5ReorderMixin:
     """F5 — linear, read-only paragraph reorder over the active file.
 
@@ -292,6 +297,42 @@ class F5ReorderMixin:
             if flt in display.lower():
                 out.append((fname, display))
         return out
+
+    def _pick_display(self):
+        """Las filas a DIBUJAR y cual esta resaltada: (filas, indice).
+
+        La lista que se ve y la lista de destinos son dos cosas distintas. Un
+        punto se muestra —parte la biblioteca en libros y da referencia, que es
+        lo que pidio Federico: con 838 titulos corridos no hay donde agarrarse—
+        pero no se puede elegir: no es un capitulo, no hay adonde mandar.
+
+        Por eso _f5_pick_matches sigue siendo solo los destinos y esto traduce
+        el indice de destino al indice de fila. Con filtro los puntos no van: un
+        separador entre nada no separa nada.
+        """
+        destinos = self._f5_pick_matches()
+        if not destinos:
+            return [], 0
+        elegido = destinos[self._f5_pick_match_idx % len(destinos)][0]
+        if self._f5_pick_filter.strip():
+            nombres = [d for _, d in destinos]
+            return nombres, self._f5_pick_match_idx % len(destinos)
+
+        por_nombre = {f: d for f, d in destinos}
+        filas, idx = [], 0
+        for fname in self._library_lines:
+            if fname == '.':
+                if filas and filas[-1] != PICK_SEP:
+                    filas.append(PICK_SEP)
+                continue
+            if fname not in por_nombre:
+                continue                      # no es un destino: no se lista
+            if fname == elegido:
+                idx = len(filas)
+            filas.append(por_nombre[fname])
+        while filas and filas[-1] == PICK_SEP:
+            filas.pop()
+        return filas, idx
 
     def _f5_pick_target(self):
         """Resolve the destination: an existing match, else create-new from a
