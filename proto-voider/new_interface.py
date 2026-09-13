@@ -937,8 +937,14 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                 # El degradado direccional solo tiene sentido en typewriter: ahi
                 # el caret esta fijo y la linea corre hacia el borde. En clasico
                 # el texto va centrado, asi que se recorta pero no se apaga.
-                fade.set_entry_rect(x, y, entry_width, entry_height) if typewriter \
-                    else fade.set_entry_rect(0, 0, 0, 0)
+                if typewriter:
+                    # Solo el tramo horizontal: el alto lo pone la capa, que
+                    # cubre el circulo entero. Asi el tamano de fuente deja de
+                    # importar — antes se pasaba el alto del renglon y los
+                    # glifos altos se salian de esa caja sin apagarse.
+                    fade.set_fade_span(x, entry_width)
+                else:
+                    fade.clear_fade()
                 fade.show()
                 fade.raise_()   # despues del entry, o quedaria debajo
             else:

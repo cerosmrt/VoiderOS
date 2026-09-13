@@ -69,12 +69,31 @@ class EdgeFade(QWidget):
         # Que no se coma los clicks ni el foco: es una capa de pintura, nada más.
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._entry_rect = None      # el renglón a apagar, en coordenadas de la capa
+        self._fade_span = None       # (x, ancho) del tramo que se apaga, o None
         self.hide()
 
-    def set_entry_rect(self, x, y, w, h):
-        """Dónde está el renglón que hay que apagar."""
-        self._entry_rect = (x, y, w, h)
+    def set_fade_span(self, x, w):
+        """Entre qué x y qué x se apaga el texto. El ALTO no se pasa: el
+        degradado va de arriba a abajo de la vista, siempre.
+
+        Antes recibía el rectángulo entero del renglón y se pintaba sólo ahí.
+        Ese rectángulo mide lo que mide el QLineEdit, y los glifos altos —las
+        colas de las j, las mayúsculas grandes— se salen de su propia caja y
+        quedaban sin apagar. Peor: la altura dependía del tamaño de fuente, así
+        que con otro tamaño se rompía de otra forma.
+
+        Como el degradado es horizontal —negro contra el borde, transparente
+        hacia el centro— estirarlo en vertical no cambia el efecto. Sólo deja de
+        tener una altura que adivinar.
+        """
+        self._fade_span = (x, w) if w > 0 else None
+        self.update()
+
+    def clear_fade(self):
+        """Sin degradado. Fuera de typewriter el texto va centrado y no corre
+        hacia el borde, así que no hay nada que apagar — pero el recorte al
+        círculo y el trazo se siguen dibujando."""
+        self._fade_span = None
         self.update()
 
     def paintEvent(self, event):
@@ -95,15 +114,15 @@ class EdgeFade(QWidget):
         negro = bg_color(self)
         transparente = QColor(negro.red(), negro.green(), negro.blue(), 0)
 
-        # 1. El degradado, sólo sobre el renglón.
-        if self._entry_rect:
-            x, y, w, h = self._entry_rect
-            if w > 0 and h > 0:
-                grad = QLinearGradient(float(x), 0.0, float(x + w), 0.0)
-                grad.setColorAt(0.0, negro)
-                grad.setColorAt(self.FADE_START, transparente)
-                grad.setColorAt(1.0, transparente)
-                painter.fillRect(QRect(x, y, w, h), grad)
+        # 1. El degradado, de arriba a abajo de la vista. El alto del renglón no
+        # entra en la cuenta — ver set_fade_span.
+        if self._fade_span:
+            x, w = self._fade_span
+            grad = QLinearGradient(float(x), 0.0, float(x + w), 0.0)
+            grad.setColorAt(0.0, negro)
+            grad.setColorAt(self.FADE_START, transparente)
+            grad.setColorAt(1.0, transparente)
+            painter.fillRect(QRect(x, 0, w, self.height()), grad)
 
         # 2. Lo que queda AFUERA del círculo. Ya no es esto lo que recorta el
         # texto —de eso se encarga la máscara elíptica sobre el entry, que

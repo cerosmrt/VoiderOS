@@ -35,7 +35,7 @@ def _render(fondo="white", entry=True):
     if entry:
         # Un renglón como el de typewriter: del borde del círculo al centro.
         r = min(W, H) // 2 - EdgeFade.CIRCLE_INSET
-        w.set_entry_rect(W // 2 - r, H // 2 - 20, r, 40)
+        w.set_fade_span(W // 2 - r, r)
     pm = QPixmap(W, H)
     pm.fill(QColor(fondo))
     w.render(pm)
@@ -131,8 +131,10 @@ def test_la_esquina_del_renglon_no_desborda(qapp):
     w = EdgeFade()
     w.resize(W, H)
     r = min(W, H) // 2 - EdgeFade.CIRCLE_INSET
-    # Renglón de 160px de alto, como con fuente enorme.
-    w.set_entry_rect(W // 2 - r, H // 2 - 80, r, 160)
+    # El alto ya no se pasa: el degradado cubre el círculo entero, que es
+    # justo lo que arregla este caso — con fuente enorme los glifos se salían
+    # del rectángulo del renglón y quedaban sin apagar.
+    w.set_fade_span(W // 2 - r, r)
     pm = QPixmap(W, H)
     pm.fill(QColor("white"))
     w.render(pm)
