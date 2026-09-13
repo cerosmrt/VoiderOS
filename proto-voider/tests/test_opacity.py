@@ -196,3 +196,19 @@ def test_no_se_guardan_en_el_config():
         src = inspect.getsource(m)
         assert "config[" not in src, f"{m.__name__} sigue escribiendo el config"
         assert "_save_config" not in src
+
+
+# ── fullscreen ───────────────────────────────────────────────────────────────
+# Federico: la opacidad anda con la ventana flotante pero en fullscreen no.
+# Hyprland maneja el alpha de una ventana en fullscreen por un camino separado:
+# tiene props propios. Verificado en vivo contra una ventana real que
+# alphafullscreen y alphafullscreenoverride existen, y que un nombre inventado
+# devuelve "Prop not found" — o sea que la prueba distingue de verdad.
+
+def test_hyprland_tampoco_atenua_en_fullscreen():
+    """Mismo criterio que fuera de fullscreen: que el compositor no toque nada,
+    porque el alpha lo pintamos nosotros."""
+    import inspect
+    src = inspect.getsource(App._apply_opacity)
+    assert "alphafullscreen" in src, "en fullscreen Hyprland usa props aparte"
+    assert "alphafullscreenoverride" in src, "sin el override, multiplica por su regla"

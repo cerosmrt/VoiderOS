@@ -1126,7 +1126,15 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self.setWindowOpacity(1.0)
         self._repaint_surfaces()
         try:
-            for prop, val in (('alphaoverride', '1'), ('alpha', '1'), ('noblur', '1')):
+            # alphafullscreen* son los mismos dos props pero para cuando la
+            # ventana esta en fullscreen: Hyprland maneja ese caso por un camino
+            # separado, y sin esto la opacidad andaba flotando y no en pantalla
+            # completa. Verificado contra una ventana real que los dos existen
+            # (un nombre inventado devuelve "Prop not found").
+            for prop, val in (('alphaoverride', '1'), ('alpha', '1'),
+                              ('alphafullscreenoverride', '1'),
+                              ('alphafullscreen', '1'),
+                              ('noblur', '1')):
                 subprocess.run(
                     ['hyprctl', 'dispatch', 'setprop', 'title:^(Voider)$', prop, val],
                     capture_output=True, timeout=2,
