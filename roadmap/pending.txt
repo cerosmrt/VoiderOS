@@ -5,6 +5,62 @@ state what's about to be done and get confirmation before touching files.
 
 ACTIVE — ready to implement next
 ---------------------------------
+- /mnt/data (King's Stone, sda2, NTFS 894GB) SE MARCÓ SUCIO — O/ inaccesible
+  (2026-09-13/14). El corpus completo (~76.453 libros de Gutenberg, ~36GB)
+  vive ahí, no en el disco del sistema — no entra: el disco del sistema tiene
+  23GB libres. O/ es un symlink a /mnt/data/void_O; con el disco sin montar,
+  O/ resuelve pero está vacío. F6/F7/F8 no funcionan sin esto.
+  DIAGNÓSTICO (confirmado con el log del kernel, no es una sospecha):
+    ntfs3(sda2): volume is dirty and "force" flag is not set!
+    ntfs3(sda2): It is recommened to use chkdsk.
+  Reiniciar Linux NO alcanza — la marca de "sucio" vive en el disco, no en la
+  RAM. Se confirmó: reinició el 13/9 a las 09:24 y el montaje falló de nuevo,
+  mensaje idéntico.
+  CAUSA RAÍZ: no fue un desmontaje sucio de Linux — los tres montajes
+  registrados (11/9 09:47, 11/9 11:57 x2) cerraron limpios. Lo que sí hay: un
+  arranque el 11/9 a las 21:38:13 que MURIÓ A LOS 13 SEGUNDOS — el kernel llegó
+  a inicializar (955 líneas de log, RAM, virtualización) y el log se corta en
+  seco, sin apagado, sin error. No es un shutdown, es un corte (se fue la luz /
+  cuelgue duro / botón). Vale la pena que Federico se fije si se repite — un
+  corte aislado puede ser cualquier cosa, si se repite es fuente o batería.
+  Entre esa noche y el reinicio del 13/9 07:07 Linux no arrancó ni una vez, así
+  que en ese hueco Windows (con Fast Startup, que hiberna en vez de apagar)
+  dejó el NTFS marcado sucio.
+  SOLUCIÓN DECIDIDA (2026-09-14): Federico va a apagar la hibernación en
+  Windows — no es un parche, es la causa de fondo. Pasos:
+    1. Entrar a Windows UNA VEZ MÁS (necesario: hay que estar en Windows para
+       tocar su config de energía).
+    2. `powercfg /h off` en un cmd como administrador (apaga hibernación
+       entera, incluye Fast Startup, y de paso libera hiberfil.sys — varios GB).
+       Alternativa por UI: Panel de control → Opciones de energía → Elegir el
+       comportamiento de los botones → Cambiar la configuración actualmente no
+       disponible → destildar "Activar inicio rápido".
+    3. Apagar Windows NORMAL (ya no hiberna, así que cierra el NTFS limpio).
+    4. Volver a Linux — /mnt/data debería montar solo.
+  OJO: esto NO arregla la marca de sucio que YA está puesta — la previene de
+  acá en adelante. Si para cuando se lee esto sigue sin montar después de
+  hacer los 4 pasos, hay que limpiar la marca aparte. Opciones evaluadas y
+  descartadas por ahora (ninguna se corrió — las dos escriben en un disco en
+  estado raro y las dos necesitan sudo, así que no se ejecutan sin que
+  Federico esté mirando):
+    * `sudo ntfsfix -n /dev/sda2` — solo diagnóstico, no escribe. Sirve para
+      re-confirmar el estado sin arriesgar nada.
+    * `sudo ntfsfix -d /dev/sda2` — borra el flag de sucio desde Linux. No
+      repara nada: si Windows dejó algo a medio escribir, lo tapa en vez de
+      arreglarlo. Si se usa, hay que correr chkdsk desde Windows después.
+    * montar en solo lectura (`ro,force`) — devuelve los libros ya mismo sin
+      escribir nada, pero F6 (editable, cosecha líneas a 0.txt) fallaría al
+      escribir. Sirve como parche de un día si hace falta leer algo urgente.
+  AVISO PARA MÁS ADELANTE (no es para hoy): compartir un NTFS entre Windows y
+  Linux es frágil por diseño — esto puede volver a pasar. Si en algún momento
+  se quiere sacar el problema de raíz, la opción es mover el corpus a un disco
+  que sólo use Linux (ext4/btrfs). Ahí sí entraría sin problema de tamaño y
+  quedaría fuera de este tipo de fragilidad.
+  BLOQUEADO por esto: mover el Jeet Kune Do a O/ (ítem de arriba/abajo en esta
+  lista) — no tiene sentido moverlo a un directorio que hoy no existe.
+  Nota: I/0.txt tenía cambios sin commitear al momento de investigar esto;
+  se hizo snapshot de /void (commit 7f1701b) antes de tocar nada, así que la
+  escritura de Federico está a salvo pase lo que pase con el disco.
 
 - MOVER EL JEET KUNE DO DE I/ A O/ (2026-09-11). Federico: "move bruce lee's to
   /O (ill keep one version and delete the other two)". Tiene sentido: I/ es su
