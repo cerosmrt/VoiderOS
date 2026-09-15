@@ -1,4 +1,5 @@
 # widgets.py - Widgets reutilizables
+import os
 import random
 from PyQt6.QtWidgets import QLineEdit, QWidget
 from PyQt6.QtGui import QPainter, QPixmap, QImage
@@ -64,6 +65,19 @@ def row_alpha(distancia_px, media_altura):
     if distancia_px == 0:
         return 1.0
     return ring_alpha(distancia_px, media_altura) * DIM_FACTOR
+
+
+def chapter_title_header(fname):
+    """El encabezado de un capítulo: su nombre, en mayúsculas, entre rayas.
+
+    Nació en F3 (_book_open_concat, la vista concatenada que abre Enter sobre
+    un punto) para separar capítulos dentro de una lectura corrida. Ahora
+    también lo usa Ctrl+C: sin marca, un capítulo copiado era indistinguible
+    de cualquier otro bloque de texto pegado en cualquier lado — F9 incluido.
+    Un solo formato, un solo lugar.
+    """
+    stem = os.path.splitext(fname)[0].upper()
+    return f'── {stem} ──'
 
 
 def picker_line_height(font):

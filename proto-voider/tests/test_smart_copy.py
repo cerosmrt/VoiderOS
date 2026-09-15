@@ -48,6 +48,8 @@ def test_dot_with_no_following_paragraph_copies_nothing(qapp):
 
 
 def test_copy_whole_book_on_dot_in_f3(tmp_path, qapp):
+    """Cada capítulo copiado lleva su propio título — ver test_smart_copy_title.py
+    para el detalle del formato; acá sólo se confirma que el contenido sigue ahí."""
     app = _app(['.'], view=2)
     void = tmp_path
     (void / 'I').mkdir(exist_ok=True)
@@ -61,10 +63,14 @@ def test_copy_whole_book_on_dot_in_f3(tmp_path, qapp):
     app.book_ring = LineRing(['.', 'A', 'B'])
     app.book_ring.index = 0          # on the dot → whole book
     app._smart_copy()
-    assert QApplication.clipboard().text() == 'a1\na2\n.\nb1'
+    text = QApplication.clipboard().text()
+    assert 'a1\na2' in text and 'b1' in text
+    assert 'A' in text.splitlines()[0] and 'B' in text
 
 
 def test_copy_chapter_raw_in_f3(tmp_path, qapp):
+    """El título encabeza, pero el cuerpo del capítulo sigue viniendo tal cual
+    — ver test_smart_copy_title.py para el formato exacto del encabezado."""
     app = _app(['.'], view=2)
     void = tmp_path
     (void / 'I').mkdir(exist_ok=True)
@@ -76,4 +82,4 @@ def test_copy_chapter_raw_in_f3(tmp_path, qapp):
     app.book_ring = LineRing(['chap'])
     app.book_ring.index = 0
     app._smart_copy()
-    assert QApplication.clipboard().text() == 'line one\n.\nline two'
+    assert QApplication.clipboard().text().endswith('line one\n.\nline two')

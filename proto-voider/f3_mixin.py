@@ -547,9 +547,9 @@ class F3Mixin:
             fpath = self._library_path_cache.get(fname)
             if not fpath or not os.path.exists(fpath):
                 continue
-            stem = os.path.splitext(fname)[0].upper()
+            from widgets import chapter_title_header
             header_indices.add(len(lines))
-            lines.append(f'── {stem} ──')
+            lines.append(chapter_title_header(fname))
             try:
                 with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
                     for raw in f:

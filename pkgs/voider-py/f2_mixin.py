@@ -86,9 +86,12 @@ class F2Mixin:
                     if fn != '0.txt':
                         fp = self._library_path_cache.get(fn)
                         if fp and os.path.isfile(fp):
+                            from widgets import chapter_title_header
                             try:
                                 with open(fp, 'r', encoding='utf-8', errors='replace') as f:
-                                    parts.append(f.read().rstrip('\n'))
+                                    body = f.read().rstrip('\n')
+                                parts.append(chapter_title_header(fn) + '\n' + body
+                                            if body else chapter_title_header(fn))
                             except Exception as e:
                                 print(f"⚠️ Copy error: {e}")
                     i = (i + 1) % n
@@ -98,9 +101,12 @@ class F2Mixin:
                 if fname:
                     fpath = self._library_path_cache.get(fname)
                     if fpath and os.path.isfile(fpath):
+                        from widgets import chapter_title_header
                         try:
                             with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
-                                text = f.read().rstrip('\n')
+                                body = f.read().rstrip('\n')
+                            header = chapter_title_header(fname)
+                            text = header + '\n' + body if body else header
                         except Exception as e:
                             print(f"⚠️ Copy error: {e}")
         if text:
