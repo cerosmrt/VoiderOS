@@ -5,6 +5,39 @@ state what's about to be done and get confirmation before touching files.
 
 ACTIVE — ready to implement next
 ---------------------------------
+- ALT+SHIFT+↑/↓ NO DUPLICA SI LA BÚSQUEDA (Ctrl+F) ESTÁ ACTIVA (2026-09-15, sin
+  probar). Encontrado leyendo el código después de implementar, no en vivo —
+  BUG REAL, no hipotético. En key_router_mixin.py, ANTES de llegar a
+  _handle_f2_keys/_handle_f3_keys, hay dos bloques (líneas ~38 y ~51) que
+  interceptan Key_Up/Key_Down SIN mirar los modificadores, mientras
+  self._f2_search_active o self._f3_search_active están prendidos (navegan la
+  lista de resultados de la búsqueda). Como no chequean Alt/Shift, se comen
+  Alt+Shift+↑/↓ también — mientras estás buscando, duplicar no hace nada, la
+  tecla se la lleva la navegación de la búsqueda.
+  Arreglo probable: agregarle `and mods == Qt.KeyboardModifier.NoModifier` a
+  esos dos `if key == Qt.Key.Key_Up` / `Key_Down` (y sus `elif`), para que sólo
+  atrapen el Up/Down pelado y todo lo demás (Alt+Shift+↑/↓ incluido) siga de
+  largo hasta el router. Verificar en vivo con QKeyEvent real antes de darlo
+  por bueno — la app real ya mostró sorpresas parecidas esta semana (las teclas
+  del panel de capítulos tampoco llegaban al router hasta que se instrumentó).
+
+- ALT+SHIFT+↑/↓ SÓLO ESTÁ EN F2 Y F3 (2026-09-15, a propósito, no un bug).
+  Federico pidió "in f2 a line, in f3 a chapter" — no se extendió a F5 (que
+  comparte line_ring con F2 pero tiene su propio _handle_f5_keys, sin tocar) ni
+  a F6/F7. Si alguna vez quiere duplicar ahí también, _doc_duplicate ya hace
+  todo lo que hace falta para una línea — sería sólo cablear la tecla en el
+  handler que corresponda.
+
+- BOM (﻿) AL PRINCIPIO DE AL MENOS UN CAPÍTULO REAL (2026-09-15, hallazgo
+  de paso, no investigado). Copiando "1. La respuesta.txt" con Ctrl+C en F3
+  para probar el título nuevo, la segunda línea del clipboard salió
+  '﻿Nadie me enseñó...' — el archivo en disco tiene un byte-order-mark al
+  principio. No es algo que este trabajo haya tocado ni causado; puede ser
+  viejo (de algún editor/import anterior) y puede estar en más de un archivo.
+  No se investigó cuántos capítulos lo tienen ni si afecta algo (lectura,
+  reformat, búsqueda) — sólo se vio de refilón. Si aparece texto raro al
+  arrancar una línea en algún capítulo, este es un sospechoso para revisar.
+
 - /mnt/data (King's Stone, sda2, NTFS 894GB) SE MARCÓ SUCIO — O/ inaccesible
   (2026-09-13/14). El corpus completo (~76.453 libros de Gutenberg, ~36GB)
   vive ahí, no en el disco del sistema — no entra: el disco del sistema tiene
