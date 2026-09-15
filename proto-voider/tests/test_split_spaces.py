@@ -1,11 +1,20 @@
 """Ctrl+Shift+E en F2 — devolverle los saltos de línea a un texto de scriptio
 continua que quedó fundido en una sola línea.
 
-La regla es de Federico, textual: «convierte los espacios en puntos y los puntos
-en linebreaks». El punto QUEDA — no es un paso intermedio hacia el corte. Esa es
-la parte que importa: sin puntuación, el próximo viaje a F9 vuelve a fundir todo,
-porque F9 corta por oraciones y no hay oraciones que cortar. Con el punto al
-final de cada línea, el texto sobrevive al viaje.
+Ya NO le agrega puntuación. Federico: "remove dot adder in f2 when i press
+ctrl+shift+E. If i fix the line cojoiner of f9, there is no need of adding
+dots, just traducing spaces as linebreaks". El punto que este comando le
+agregaba a cada fragmento era un parche: existía sólo para que F9 (que unía
+TODO lo que hubiera entre dos puntos, sin mirar qué tenía cada línea) no
+volviera a fundir el texto. Con el arreglo del "cojoiner" de F9
+(reading_page.lines_to_paragraphs, ver test_lines_to_paragraphs_join.py —
+ahora sólo une una línea con la siguiente si la primera ya termina en algo que
+cierra), ese parche ya no hace falta: una línea sin puntuación sobrevive el
+viaje a F9 sola, sin que nadie le agregue nada.
+
+Este comando vuelve a ser lo que era antes del parche: partir por espacios (y
+por un punto existente dentro del texto, que sigue actuando como separador),
+sin tocar ni agregar ningún carácter.
 
 Parado en una línea actúa sobre esa línea; parado en un punto, sobre todo el
 párrafo — igual que Ctrl+C, Alt+↑ y Alt+Shift+→.
@@ -25,34 +34,34 @@ class TestSplitOnSpaces:
         from f2_mixin import split_on_spaces
         return split_on_spaces
 
-    def test_each_space_becomes_a_period_and_a_line(self):
+    def test_each_space_becomes_a_line(self):
         assert self._f()('itisagreatmovie agretaactress agreatactor') == [
-            'itisagreatmovie.', 'agretaactress.', 'agreatactor.']
+            'itisagreatmovie', 'agretaactress', 'agreatactor']
 
     def test_an_existing_period_also_breaks(self):
-        """«los puntos en linebreaks» — la segunda mitad de la regla."""
-        assert self._f()('uno.dos tres') == ['uno.', 'dos.', 'tres.']
+        """Un punto dentro del texto sigue actuando como separador — eso no
+        cambió. Lo que se sacó es agregar uno donde no había."""
+        assert self._f()('uno.dos tres') == ['uno', 'dos', 'tres']
 
     def test_runs_of_whitespace_collapse(self):
-        assert self._f()('a   b\tc') == ['a.', 'b.', 'c.']
+        assert self._f()('a   b\tc') == ['a', 'b', 'c']
 
-    def test_a_closer_that_already_ends_the_sentence_is_left_alone(self):
-        assert self._f()('isthatit? yesitis! esto… fin') == [
-            'isthatit?', 'yesitis!', 'esto…', 'fin.']
+    def test_nothing_gets_added_to_a_fragment(self):
+        """El cambio en sí: sin punto agregado, ni a los que ya cierran ('?')
+        ni a los que no ('unasolapalabra')."""
+        assert self._f()('isthatit? unasolapalabra') == ['isthatit?', 'unasolapalabra']
 
-    def test_a_trailing_comma_keeps_its_comma(self):
-        """No le como un carácter al texto: la coma queda y el punto cierra."""
-        assert self._f()('snapback, counterjab') == ['snapback,.', 'counterjab.']
+    def test_a_trailing_comma_is_left_exactly_as_is(self):
+        assert self._f()('snapback, counterjab') == ['snapback,', 'counterjab']
 
-    def test_a_line_with_no_space_still_gets_its_period(self):
-        """Clave: así se puede correr sobre líneas YA separadas, para puntuarlas."""
-        assert self._f()('unasolapalabra') == ['unasolapalabra.']
+    def test_a_line_with_no_space_is_left_alone(self):
+        assert self._f()('unasolapalabra') == ['unasolapalabra']
 
     def test_an_empty_line_yields_nothing(self):
         assert self._f()('   ') == []
 
     def test_edges_are_trimmed(self):
-        assert self._f()('  a b  ') == ['a.', 'b.']
+        assert self._f()('  a b  ') == ['a', 'b']
 
 
 # ── el comando en F2 ─────────────────────────────────────────────────────────
@@ -75,23 +84,22 @@ def _app(lines, index, tmp_path):
 
 
 def test_on_a_line_it_splits_that_line_only(tmp_path):
-    app, f = _app(['.', 'uno dos tres', 'otra.'], 1, tmp_path)
+    app, f = _app(['.', 'uno dos tres', 'otra linea'], 1, tmp_path)
     app._split_line_on_spaces()
-    assert app.line_ring.lines == ['.', 'uno.', 'dos.', 'tres.', 'otra.']
+    assert app.line_ring.lines == ['.', 'uno', 'dos', 'tres', 'otra linea']
 
 
 def test_the_caret_stays_on_the_first_piece(tmp_path):
     app, f = _app(['.', 'uno dos tres'], 1, tmp_path)
     app._split_line_on_spaces()
     assert app.line_ring.index == 1
-    assert app.line_ring.current() == 'uno.'
+    assert app.line_ring.current() == 'uno'
 
 
 def test_on_a_dot_it_splits_the_whole_paragraph(tmp_path):
-    app, f = _app(['.', 'a b', 'c d', '.', 'no me toques.'], 0, tmp_path)
+    app, f = _app(['.', 'a b', 'c d', '.', 'no me toques'], 0, tmp_path)
     app._split_line_on_spaces()
-    assert app.line_ring.lines == [
-        '.', 'a.', 'b.', 'c.', 'd.', '.', 'no me toques.']
+    assert app.line_ring.lines == ['.', 'a', 'b', 'c', 'd', '.', 'no me toques']
 
 
 def test_the_dots_are_never_exploded(tmp_path):
@@ -103,7 +111,7 @@ def test_the_dots_are_never_exploded(tmp_path):
 def test_it_reaches_disk(tmp_path):
     app, f = _app(['.', 'uno dos'], 1, tmp_path)
     app._split_line_on_spaces()
-    assert f.read_text(encoding='utf-8').splitlines() == ['.', 'uno.', 'dos.']
+    assert f.read_text(encoding='utf-8').splitlines() == ['.', 'uno', 'dos']
 
 
 def test_it_is_one_undo_step(tmp_path):
@@ -112,12 +120,13 @@ def test_it_is_one_undo_step(tmp_path):
     assert app._undo_begin.called and app._undo_commit.called
 
 
-def test_it_punctuates_lines_that_are_already_split(tmp_path):
-    """El caso de Federico: ya corrió el comando y quedaron líneas sin punto.
-    Correrlo de nuevo sobre el párrafo tiene que ponerles el punto."""
-    app, f = _app(['.', 'itisagreatmovie', 'agretaactress'], 0, tmp_path)
+def test_a_line_with_nothing_to_split_is_a_no_op(tmp_path):
+    """Ya no hay puntuación que agregar, así que una línea de una sola palabra
+    — con o sin puntuación al final — nunca cambia nada."""
+    app, f = _app(['.', 'unasola'], 1, tmp_path)
     app._split_line_on_spaces()
-    assert app.line_ring.lines == ['.', 'itisagreatmovie.', 'agretaactress.']
+    assert app.line_ring.lines == ['.', 'unasola']
+    assert not app._undo_begin.called
 
 
 def test_running_it_twice_does_nothing_the_second_time(tmp_path):
@@ -137,7 +146,7 @@ def test_on_normal_prose_it_explodes_every_word(tmp_path):
     Está documentado para que nadie lo descubra sobre su propio texto."""
     app, f = _app(['.', 'sin is not arbitrary'], 1, tmp_path)
     app._split_line_on_spaces()
-    assert app.line_ring.lines == ['.', 'sin.', 'is.', 'not.', 'arbitrary.']
+    assert app.line_ring.lines == ['.', 'sin', 'is', 'not', 'arbitrary']
 
 
 def test_it_survives_the_real_thing(tmp_path):
@@ -147,23 +156,20 @@ def test_it_survives_the_real_thing(tmp_path):
     app, f = _app(['.', real], 1, tmp_path)
     app._split_line_on_spaces()
     assert app.line_ring.lines == [
-        '.', 'itisagreatmovie.', 'agretaactress.', 'agreatactor.',
-        'isthatthethingshewaswritingabout?', 'bearruinedsomanylives.']
+        '.', 'itisagreatmovie', 'agretaactress', 'agreatactor',
+        'isthatthethingshewaswritingabout?', 'bearruinedsomanylives']
 
 
 def test_the_result_survives_a_round_trip_through_f9(tmp_path):
-    """La prueba que importa: puntuado, ir a F9 y volver ya no funde nada."""
+    """La prueba que importa, con el mecanismo nuevo: lo que arregla el viaje a
+    F9 ya no es la puntuación que agrega este comando — es que F9 dejó de unir
+    líneas que no cierran una oración. Partido acá, sin puntuación, sobrevive
+    igual."""
     from reading_page import lines_to_paragraphs
     app, f = _app(['.', 'unofrag dosfrag tresfrag'], 1, tmp_path)
     app._split_line_on_spaces()
-    fixed = list(app.line_ring.lines)
-
-    # F9 al abrir: pega el párrafo con espacios.
-    prose = '\n\n'.join(lines_to_paragraphs(fixed))
-    # F9 al salir: reformat reparte por oraciones. Ahora SÍ hay oraciones.
-    import re
-    back = [s.strip() for s in re.split(r'(?<=[.?!])\s+', prose) if s.strip()]
-    assert back == ['unofrag.', 'dosfrag.', 'tresfrag.']
+    sin_punto = [l for l in app.line_ring.lines if l != '.']
+    assert lines_to_paragraphs(app.line_ring.lines) == sin_punto
 
 
 # ── la tecla ─────────────────────────────────────────────────────────────────

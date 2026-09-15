@@ -20,15 +20,19 @@ def test_mm_to_pt():
 
 
 class TestLinesToParagraphs:
+    """El detalle de CUÁNDO se unen dos líneas vive ahora en
+    test_lines_to_paragraphs_join.py (sólo si la anterior termina en , . ? ! …).
+    Estos cuatro quedan como quedaban, pero con líneas que sí cierran oración
+    — para no mezclar "¿se unen?" con "¿se ignoran los marcadores/vacíos?"."""
 
     def test_consecutive_lines_join(self):
-        assert rp.lines_to_paragraphs(['a', 'b', '.', 'c']) == ['a b', 'c']
+        assert rp.lines_to_paragraphs(['a.', 'b.', '.', 'c.']) == ['a. b.', 'c.']
 
     def test_leading_and_double_dots(self):
-        assert rp.lines_to_paragraphs(['.', 'a', '.', '.', 'b']) == ['a', 'b']
+        assert rp.lines_to_paragraphs(['.', 'a.', '.', '.', 'b.']) == ['a.', 'b.']
 
     def test_o_marker_and_blanks_ignored(self):
-        assert rp.lines_to_paragraphs(['ø', 'a', '', 'b']) == ['a b']
+        assert rp.lines_to_paragraphs(['ø', 'a.', '', 'b.']) == ['a. b.']
 
     def test_empty(self):
         assert rp.lines_to_paragraphs([]) == []

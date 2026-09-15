@@ -99,18 +99,48 @@ def hyphenate_text(text, lang):
     return ' '.join(out)
 
 
+# Si una línea termina en uno de estos, la siguiente se pega con un espacio —
+# son la misma oración o el mismo párrafo cortado en dos renglones. Si no
+# termina en nada de esto, la línea queda sola.
+#
+# No es sólo "," y "." (lo textual que pidió Federico): incluye también "?!…",
+# el mismo cierre de oración que ya usa split_sentences en el reformat. Hace
+# falta — lines_to_paragraphs no es sólo el "cojoiner" de F9, también arma el
+# documento real de F4 y el PDF (build_reading_document, más abajo en este
+# archivo). Con sólo "," y ".", cualquier párrafo de su libro con una pregunta
+# o una exclamación en el medio se partiría en dos al exportar.
+PARAGRAPH_JOIN_ENDERS = ',.?!…'
+
+
 def lines_to_paragraphs(lines):
-    """Dot-model → list of paragraph strings (consecutive lines joined, '.' breaks)."""
-    paras, cur = [], []
+    """Dot-model → lista de strings de párrafo.
+
+    Una línea se pega con la SIGUIENTE sólo si ELLA MISMA termina en algo de
+    PARAGRAPH_JOIN_ENDERS. Así una oración reformateada (una línea por
+    oración, cada una terminada en . ? ! …) se reconstruye entera — pero un
+    fragmento de scriptio continua, sin puntuación ninguna, no se pega con el
+    de al lado: queda como su propio string.
+
+    Antes se pegaba TODO lo que hubiera entre dos puntos, sin mirar qué tenía
+    cada línea — así era como F9 fundía una sesión entera de scriptio continua
+    en una sola línea al abrirla.
+    """
+    paras, run = [], []
+
+    def flush():
+        if run:
+            paras.append(' '.join(run))
+            run.clear()
+
     for raw in lines:
         s = raw.strip()
         if s == '.':
-            if cur:
-                paras.append(' '.join(cur)); cur = []
+            flush()
         elif s and s != 'ø':
-            cur.append(s)
-    if cur:
-        paras.append(' '.join(cur))
+            if run and run[-1][-1] not in PARAGRAPH_JOIN_ENDERS:
+                flush()
+            run.append(s)
+    flush()
     return paras
 
 
