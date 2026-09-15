@@ -703,6 +703,58 @@ class F2Mixin:
         else:
             self._doc_split_line(0)
 
+    def _doc_duplicate(self, direction):
+        """Alt+Shift+↑/↓ en F2: duplicar y colocar la copia en la dirección de
+        la flecha. Arriba (-1) la copia queda ANTES del original; abajo (+1),
+        DESPUÉS. El cursor sigue a la copia — es el bloque que acaba de
+        aparecer del lado al que apuntaste.
+
+        El alcance es el de siempre: sobre una línea, esa línea; sobre un
+        punto, el párrafo entero que ese punto abre (con su propio punto —
+        la copia también es un párrafo completo, no contenido suelto).
+        """
+        ring = self.line_ring
+        n = len(ring.lines)
+        if not n:
+            return
+        idx = ring.index
+        if ring.lines[idx] == '.':
+            fin = idx + 1
+            while fin < n and ring.lines[fin] != '.':
+                fin += 1
+            start, end = idx, fin
+        else:
+            start, end = idx, idx + 1
+        bloque = list(ring.lines[start:end])
+        insert_at = start if direction < 0 else end
+
+        # El foco de párrafo (Enter sobre un punto) nunca coincide con estar
+        # PARADO en un punto — ahí el cursor nunca está sobre un punto — así
+        # que esto sólo puede pasar en el caso de una línea sola (end-start==1).
+        if self._para_focus and end - start == 1:
+            k = len(bloque)
+            orig_new_idx = idx if insert_at > idx else idx + k
+            shifted = [i if i < insert_at else i + k for i in self._para_focus_content]
+            if orig_new_idx in shifted:
+                pos = shifted.index(orig_new_idx)
+                shifted.insert(pos if direction < 0 else pos + 1, insert_at)
+            self._para_focus_content = shifted
+            if self.circular_view:
+                dot_idx = self._get_focus_dot_idx()
+                self.circular_view.focus_indices = set(self._para_focus_content) | {dot_idx}
+
+        ring.lines[insert_at:insert_at] = bloque
+        ring.index = insert_at
+        self.auto_save_circular()
+        if self.circular_view:
+            self.circular_view._offset = 0.0
+            self.circular_view.editor.setText(self._doc_editor_text())
+            self.circular_view.editor.setCursorPosition(0)
+            self.circular_view.editor.setReadOnly(ring.current() == '.')
+            self._apply_editor_style(self.circular_view.editor)
+            self.circular_view.update()
+        print(f"⧉ {len(bloque)} línea(s) duplicada(s) {'arriba' if direction < 0 else 'abajo'}")
+
     def _split_line_on_spaces(self):
         """Ctrl+Shift+E en F2: partirle los espacios a la línea donde estoy —
         o, parado en un punto, a todas las líneas de ese párrafo.

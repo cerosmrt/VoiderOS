@@ -747,6 +747,66 @@ class F3Mixin:
         self.current_file_path = fpath
         self.load_doc_lines()
 
+    def _book_duplicate(self, direction):
+        """Alt+Shift+↑/↓ en F3: duplicar el capítulo resaltado, colocando la
+        copia en la dirección de la flecha. Un archivo nuevo en disco, mismo
+        contenido, uniquificado con el mismo patrón que ya usa la fusión de
+        capítulos ("<name>-2.txt", incrementando); una entrada nueva en la
+        biblioteca, al lado de la original. El cursor sigue a la copia.
+
+        No hace nada sobre un punto (no es un capítulo) ni sobre el portal
+        '0' (no es un archivo, es un marcador).
+        """
+        if self._book_pending_new:
+            return
+        idx = self.book_ring.index
+        if idx >= len(self._library_lines):
+            return
+        fname = self._library_lines[idx]
+        if fname == '.' or self._book_is_portal(idx):
+            return
+        fpath = self._library_path_cache.get(fname)
+        if not fpath or not os.path.isfile(fpath):
+            return
+
+        stem, ext = os.path.splitext(fname)
+        i_dir = os.path.join(self.void_dir, 'I')
+        new_name = fname
+        k = 2
+        while (new_name in self._library_lines
+               or os.path.exists(os.path.join(i_dir, new_name))):
+            new_name = f"{stem}-{k}{ext}"
+            k += 1
+        new_path = os.path.join(i_dir, new_name)
+
+        try:
+            with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                content = f.read()
+        except Exception as e:
+            print(f"⚠️ No se pudo leer {fname}: {e}")
+            return
+
+        self._f3_undo_begin()
+        self._f3_undo_file(new_path)
+        try:
+            with open(new_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+        except Exception as e:
+            print(f"⚠️ No se pudo crear {new_name}: {e}")
+            return
+
+        insert_at = idx if direction < 0 else idx + 1
+        display = os.path.splitext(new_name)[0]
+        self.book_ring.lines.insert(insert_at, display)
+        self._library_lines.insert(insert_at, new_name)
+        self._library_path_cache[new_name] = new_path
+        self.book_ring.index = insert_at
+        self._save_library()
+        self._f3_undo_commit(key=None)
+        self.book_view._offset = 0.0
+        self._book_show_editor()
+        print(f"⧉ {os.path.splitext(fname)[0]} → {display}")
+
     def _book_rebase(self):
         """Ctrl+0 in F3: rotate ring so current title becomes first."""
         # Asentar la entrada nueva ANTES de mover el indice: aca el texto del

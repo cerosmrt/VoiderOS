@@ -252,10 +252,19 @@ class KeyRouterMixin:
                 self._f5_pick_filter_add(text); event.accept(); return
             event.accept(); return
 
-        # Alt+flecha y Alt+Shift+flecha NO se manejan aca: el editor tiene el
-        # foco y las acepta antes, asi que a este router no llegan nunca. Se
-        # resuelven por señal desde circular_view (sendLeft/sendRight) y en
-        # _doc_alt_arrow, que es donde se sabe que hay debajo del cursor.
+        # Alt+flecha y Alt+Shift+flecha (Left/Right) NO se manejan aca: el
+        # editor tiene el foco y las acepta antes, asi que a este router no
+        # llegan nunca. Se resuelven por señal desde circular_view
+        # (sendLeft/sendRight) y en _doc_alt_arrow.
+        #
+        # Alt+Shift+Up/Down SI llegan aca: el editor solo intercepta Up/Down
+        # sin modificador o con Ctrl, asi que estas burbujean sin que nadie
+        # las toque antes. Duplicar y colocar la copia en la direccion de la
+        # flecha — la linea, o el parrafo entero si estoy sobre un punto.
+        if key == K.Key_Up and mods == (Alt | Shift):
+            self._doc_duplicate(-1); event.accept(); return
+        if key == K.Key_Down and mods == (Alt | Shift):
+            self._doc_duplicate(1); event.accept(); return
 
         if self._matches(key, mods, 'swap_up'):
             if self.line_ring.current() == '.':
@@ -318,6 +327,11 @@ class KeyRouterMixin:
 
     def _handle_f3_keys(self, key, mods, event):
         # Up/Down/Enter handled by book_view.editor signals.
+        alt_shift = Qt.KeyboardModifier.AltModifier | Qt.KeyboardModifier.ShiftModifier
+        if key == Qt.Key.Key_Up and mods == alt_shift:
+            self._book_duplicate(-1); event.accept(); return
+        if key == Qt.Key.Key_Down and mods == alt_shift:
+            self._book_duplicate(1); event.accept(); return
         if mods == Qt.KeyboardModifier.ControlModifier and key == Qt.Key.Key_F:
             self._open_f3_search(); event.accept(); return
         if self._matches(key, mods, 'merge_book'):
