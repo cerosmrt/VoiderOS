@@ -155,44 +155,45 @@ ACTIVE — ready to implement next
 
 BUGS
 ----
-- F9 FUNDE EL TEXTO SIN PUNTUACIÓN (2026-09-08). Entrar a F9 y volver sobre un
-  texto escrito en scriptio continua colapsa la sesión entera en UNA línea.
-  Medido en I/0.txt: 8225 líneas → 2850, y los puntos separadores 563 → 302.
-  Son DOS transformaciones con pérdida, una en cada punta:
-    * al ABRIR — reading_page.py:102 lines_to_paragraphs() pega con ' ' todas
-      las líneas consecutivas hasta el próximo '.'. No toca el archivo, pero el
-      editor de F9 ya tiene el texto fundido en la mano.
-    * al GUARDAR — new_interface.py:_editor_save() escribe eso tal cual y llama
-      a reformat_active_file(), que reparte por oraciones. Sin puntos no hay
-      oraciones que repartir → queda una sola línea. Sólo dispara si el
-      documento quedó modified, pero alcanza con una tecla.
-  OJO: arreglar sólo el guardado NO alcanza — el editor ya recibió el texto
-  fundido al abrir. Hay que sacar las dos.
-  Federico decidió (2026-09-08) NO tocar F9 por ahora y atacarlo desde el dato,
-  con Ctrl+Shift+E (commit ce30349). Ese comando puntúa: deja un punto al final
-  de cada línea, y con eso el texto SÍ sobrevive al viaje (verificado: 91 líneas
-  puntuadas van a F9 y vuelven 91 idénticas; sin puntuar vuelve 1). O sea que el
-  agujero que queda es sólo el texto que todavía no pasó por Ctrl+Shift+E: F9
-  sigue fundiendo cualquier cosa sin puntuación.
-  Opciones evaluadas cuando se retome:
-    A (recomendada) — F9 deja de transformar de los dos lados: muestra las
-      líneas del archivo como están y escribe lo que se ve. Ida y vuelta byte a
-      byte. Se pierde "ver el texto corrido" dentro de F9, pero eso ya es F4:
-      F4 ES la vista de prosa, F9 no necesita ser otra. Sub-decisión abierta:
-      los '.' se ven como puntos (verbatim total) o como línea en blanco.
-    B — mantener el reflow pero recordar las líneas que entraron y reescribir
-      sólo los párrafos realmente tocados. Arregla "fui y volví" pero NO el caso
-      de scriptio continua: una sesión suele ser UN solo grupo de punto, así que
-      tocar una palabra funde todo igual.
-    C — que split_sentences no funda sin puntuación. No sirve: el daño ya
-      ocurrió al abrir.
+- F9 YA NO FUNDE POR FALTA DE PUNTUACIÓN — ARREGLADO DEL LADO DE LA APERTURA
+  (2026-09-08, arreglado 2026-09-15, commit a08e5d8). El bug que fundía scriptio
+  continua en una sola línea al abrir F9 está resuelto: lines_to_paragraphs
+  (reading_page.py) ya no une TODO lo que hay entre dos puntos — sólo une una
+  línea con la siguiente si ELLA MISMA termina en , . ? ! …. Un fragmento sin
+  puntuación queda como su propio párrafo/línea en vez de fundirse con el resto.
+  Verificado en vivo: fragmentos de scriptio continua entran a F9 como bloques
+  separados; prosa reformateada con una pregunta o exclamación en el medio del
+  párrafo se sigue reconstruyendo entera (usa el mismo lines_to_paragraphs que
+  F4/PDF — con la regla al pie de la letra de sólo "," y "." eso se habría
+  roto).
+  Con esto, Ctrl+Shift+E (F2) YA NO agrega puntuación a lo que parte — la que
+  agregaba antes (commit ce30349) era el parche que compensaba el viejo
+  comportamiento de F9, y ya no hace falta. OJO si se lee algo viejo de esta
+  sesión: cualquier nota anterior que diga "Ctrl+Shift+E puntúa" o "el punto es
+  lo que hace sobrevivir a F9" quedó desactualizada por este cambio.
+  SIGUE ABIERTO — el lado del GUARDADO no se tocó: _editor_save
+  (new_interface.py) escribe la prosa verbatim y llama a reformat_active_file(),
+  que separa por LÍNEAS EN BLANCO (no por lines_to_paragraphs) y dentro de cada
+  bloque reparte por oraciones vía split_sentences. Si alguna vez se EDITA algo
+  en F9 sobre un grupo de punto que tenía fragmentos sin puntuación (ahora
+  mostrados como bloques separados por línea en blanco) y eso dispara un save,
+  reformat_active_file trataría cada fragmento como su PROPIO párrafo — cada uno
+  terminaría separado por un punto nuevo, partiendo lo que antes era UN grupo de
+  punto en N grupos de una línea cada uno. Distinto síntoma que el fusionado de
+  antes (ya no se pierde texto en una sola línea gigante), pero sigue siendo
+  una corrupción de la estructura de párrafos si se llega a ese camino. No
+  hace falta tocarlo si no se edita nada sobre esos fragmentos — sólo VER F9 ya
+  no dispara ningún guardado (_editor_save sólo corre si el documento quedó
+  modified). Las opciones A/B/C evaluadas en su momento para el lado del
+  guardado siguen sin usarse; si esto se retoma, A (F9 no transforma de ningún
+  lado, verbatim total) sigue siendo la más limpia.
   El mirror de Rust tiene el MISMO join con pérdida en su F9 (enter_prose_editor
-  / reformat_prose). Lo que se decida acá hay que replicarlo allá.
+  / reformat_prose) y NO se tocó — sigue divergiendo del Python en esto.
 
-- I/0.txt SIGUE FUNDIDO (2026-09-08). El daño está en el archivo, sin revertir
-  — Federico eligió recuperarlo a mano con Ctrl+Shift+E en vez de restaurar.
-  La versión con los saltos intactos está en el snapshot de /void 1289099
-  ("snapshot 2026-09-08 09:31:36"): `git -C ~/void show 1289099:I/0.txt`.
+- I/0.txt SIGUE FUNDIDO EN PARTE (2026-09-08). El daño histórico sigue en el
+  archivo para las líneas que Federico no recuperó a mano. La versión con los
+  saltos intactos está en el snapshot de /void 1289099 ("snapshot 2026-09-08
+  09:31:36"): `git -C ~/void show 1289099:I/0.txt`.
   OJO — restaurarlo YA NO ES INOCUO. A las 09:31 era una recuperación sin
   pérdida, pero después de esa hora Federico borró a mano la basura del OCR del
   Jeet Kune Do (páginas, encabezados "TAO OF JEET KUNE DO", etc. — está en
@@ -203,14 +204,12 @@ BUGS
   ya fundido.
   Al 2026-09-09 Federico ya recuperó la mayor parte a mano con Ctrl+Shift+E
   (el archivo pasó de 2850 a 6673 líneas).
-  Hay DOS clases de línea fundida y Ctrl+Shift+E sólo arregla una:
-    * scriptio continua (líneas 97, 91, 93 — palabras pegadas, el espacio ES el
-      salto). Ctrl+Shift+E las devuelve exactas. Cero puntos adentro.
-    * prosa normal (línea 69: "sin is not arbitrary prohibition it is
-      ontological misalignment...") — fundida por el mismo bug, pero ahí el
-      espacio separa PALABRAS. Ctrl+Shift+E la dejaría en una palabra por línea.
-      Para éstas no hay comando: o se restaura del snapshot, o se reponen los
-      saltos a mano.
+  Ctrl+Shift+E (F2) ya NO agrega puntuación (ver la entrada de F9, arriba) — para
+  lo que quede sin recuperar de acá en más, el comando parte por espacios nomás,
+  sin puntuar. Sigue sin haber comando para el otro caso (prosa normal fundida,
+  ej. línea 69 — "sin is not arbitrary prohibition..." — donde el espacio separa
+  PALABRAS, no fragmentos): partirla explotaría una palabra por línea. Para
+  ésas: o se restaura del snapshot, o se reponen los saltos a mano.
 
 - Divergencia Python/Rust en backspace + Caps (2026-09-08). El bloqueo de
   backspace en scriptio continua va SÓLO en el input de F1 — F2/F3 es donde se
@@ -361,16 +360,6 @@ RENAME
 
 F3 / LIBRARY
 ------------
-- Ctrl+D — duplicate (context-sensitive):
-  * In F2 (doc view): duplicate the current line, inserting the copy directly
-    below it; cursor moves to the copy. Autosave + content-undo (Ctrl+Z).
-  * In F3 (library): duplicate the highlighted chapter file — write a copy next
-    to it (e.g. "<name>-2.txt", uniquified) and insert its entry right after the
-    original in the library. Atomic write; undoable via the F3 library-undo lane
-    (wrap in _f3_undo_begin/_f3_undo_file/_f3_undo_commit like the other F3 ops).
-  Note: Ctrl+Shift+D is the (currently broken) dispatch binding — keep Ctrl+D
-  distinct from it. Also confirm Ctrl+D doesn't collide with an existing editor
-  binding (e.g. deleteLineToZero) before wiring.
 
 - New-entry name clash → jump to the existing chapter (no phantom duplicate row).
   DECIDED: the EXISTING chapter always survives (keeps its slot + name); the

@@ -118,3 +118,36 @@ SESSION 2026-06-25
   antes; la biblioteca no se cargaba si no habías pasado por F3; y el panel se
   dibujaba al 1,6% de opacidad porque el bucle de líneas deja el painter
   atenuado y nadie lo reseteaba.
+
+── 2026-09-15 ────────────────────────────────────────────────────────────────
+
+- Ctrl+C EN F3 COPIA EL TÍTULO JUNTO CON EL CAPÍTULO (5db18ae). Antes copiaba
+  el texto crudo, sin nada que dijera de qué capítulo era. El formato reusa uno
+  que ya existía en F3 (la vista concatenada, Enter sobre un punto): ── STEM ──
+  en mayúsculas, extraído a widgets.chapter_title_header y compartido entre los
+  dos lugares. Aplica al capítulo suelto y a cada uno dentro del libro entero.
+
+- F9 SÓLO UNE LÍNEAS QUE YA CIERRAN UNA ORACIÓN (a08e5d8). El "cojoiner" de F9
+  (reading_page.lines_to_paragraphs) pegaba TODO lo que hubiera entre dos
+  puntos, sin mirar qué tenía cada línea — así fundía scriptio continua en una
+  sola línea al abrir. Ahora una línea se pega con la siguiente sólo si ELLA
+  MISMA termina en , . ? ! … (ampliado de ",." a incluir cierres de oración: la
+  misma función arma el documento real de F4/PDF, y con sólo ",." cualquier
+  párrafo con una pregunta en el medio se hubiera partido al exportar).
+  Con esto arreglado, Ctrl+Shift+E (F2) dejó de agregar puntuación — el punto
+  que le agregaba a cada fragmento era el parche que compensaba el viejo
+  comportamiento de F9, y ya no hace falta. Vuelve a ser lo que era: partir por
+  espacios (y por un punto existente), sin agregar ningún carácter.
+  Sigue abierto el lado del GUARDADO de F9 (_editor_save/reformat_active_file,
+  que reparte por líneas en blanco y no por lines_to_paragraphs) — ver
+  pending.txt, entrada de F9.
+
+- ALT+SHIFT+↑/↓ DUPLICA Y POSICIONA EN LA DIRECCIÓN DE LA FLECHA (7abdb14).
+  F2: duplica la línea, o el párrafo entero si estás sobre un punto (con su
+  propio punto). Arriba coloca la copia ANTES del original, abajo DESPUÉS; el
+  cursor sigue a la copia. Si duplicás una línea adentro de un párrafo enfocado
+  (Enter sobre un punto), la copia entra al foco. F3: duplica el CAPÍTULO — un
+  archivo nuevo en disco ("<name>-2.txt", uniquificado como ya hacía
+  _book_do_merge) y una entrada nueva al lado en la biblioteca; nada sobre un
+  punto o el portal '0'. Resuelve de otra forma el viejo ítem "Ctrl+D —
+  duplicate" (ver commit histórico), que queda subsumido por éste.
