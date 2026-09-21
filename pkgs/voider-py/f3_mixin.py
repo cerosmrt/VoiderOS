@@ -335,11 +335,34 @@ class F3Mixin:
                 self.book_ring.index = surv
             self._save_library()
             return True
+        i_dir = os.path.join(self.void_dir, 'I')
         fname = text + '.txt'
-        fpath = os.path.join(self.void_dir, 'I', fname)
-        if not os.path.exists(fpath):
-            open(fpath, 'w', encoding='utf-8').close()
-        self.book_ring.lines[idx] = text
+        fpath = os.path.join(i_dir, fname)
+        if os.path.exists(fpath):
+            # Ya hay un capitulo con ese nombre. NO se reusa ni se comparte —
+            # eso era el bug: una fila nueva apuntando al archivo de siempre,
+            # asi que "una entrada vacia" en realidad era la vieja con todo lo
+            # que ya tenia escrito. Y compartir el archivo entre dos filas
+            # tiene una trampa peor: borrar en una borra en la otra, porque es
+            # UNA sola cosa — es lo que le paso.
+            #
+            # Se crea un archivo GENUINAMENTE separado, uniquificado con el
+            # mismo patron que ya usan _book_do_merge y _book_duplicate
+            # ("<name>-2.txt", incrementando). El titulo que se ve en F3 sale
+            # siempre del archivo real, asi que lleva el sufijo — es el costo
+            # que elegio a cambio de que nunca mas se comparta contenido sin
+            # querer.
+            stem = text
+            k = 2
+            while fname in self._library_lines or os.path.exists(fpath):
+                fname = f"{stem}-{k}.txt"
+                fpath = os.path.join(i_dir, fname)
+                k += 1
+            print(f"⚠️ Ya existía '{stem}' — se creó "
+                  f"'{os.path.splitext(fname)[0]}' aparte, sin tocar el original.")
+        open(fpath, 'w', encoding='utf-8').close()
+        display = os.path.splitext(fname)[0]
+        self.book_ring.lines[idx] = display
         self._library_lines[idx] = fname
         self._library_path_cache[fname] = fpath
         self._save_library()

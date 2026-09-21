@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import QApplication
 
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from test_f3_undo import _f3_app
+from test_f3_undo import _f3_app, _read
 from new_interface import FullscreenCircleApp as App
 
 
@@ -161,3 +161,85 @@ def test_the_phantom_is_found_by_its_empty_name(qapp, tmp_path):
 def test_with_no_phantom_there_is_no_index(qapp, tmp_path):
     a = _app(tmp_path)
     assert a._book_pending_index() is None
+
+
+# ── nombre que ya existe: archivos separados, no el mismo archivo ───────────
+# Federico nombró una entrada nueva "The Book of I", esperando que quedara
+# vacía. Ya existía un capítulo con ese nombre — y lo que hacía
+# _book_materialize_pending era registrar una SEGUNDA fila apuntando al MISMO
+# archivo de siempre, sin avisar. Lo que vio al abrirla no era una entrada
+# vacía: era el capítulo viejo, con todo lo que ya tenía escrito.
+#
+# Le pregunté si prefería que las dos filas compartieran el archivo (como el
+# portal '0', que HOY es singleton — no existe ese mecanismo todavía) o que
+# fueran dos archivos de verdad. Eligió dos archivos: "when i renamed the
+# file, deleting the lines in one, would still delete on the other" — lo vivió
+# él mismo, porque es el mismo archivo detrás de las dos filas.
+#
+# El arreglo: si el nombre tipeado ya existe como archivo, NO se reusa —
+# se uniquifica igual que ya hace _book_do_merge / _book_duplicate
+# ("<name>-2.txt", incrementando) y se crea un archivo nuevo, genuinamente
+# vacío y separado. El título que se ve en F3 sale del archivo real, así que
+# lleva el "-2" — eso es lo que le costó, y lo aceptó a cambio de que nunca
+# más se comparta contenido sin querer.
+
+def test_a_colliding_name_gets_its_own_separate_file(qapp, tmp_path):
+    a = _app(tmp_path)
+    a._book_new_entry()                          # fantasma en 2
+    a.book_view.editor.text.return_value = 'Uno'  # choca con el Uno.txt real
+    a._book_materialize_pending()
+    assert 'Uno-2.txt' in a._library_lines
+
+
+def test_the_existing_chapter_is_never_touched(qapp, tmp_path):
+    a = _app(tmp_path)
+    a._book_new_entry()
+    a.book_view.editor.text.return_value = 'Uno'
+    a._book_materialize_pending()
+    assert _read(a._library_path_cache['Uno.txt']) == ['Uno']
+
+
+def test_the_new_file_is_genuinely_empty(qapp, tmp_path):
+    a = _app(tmp_path)
+    a._book_new_entry()
+    a.book_view.editor.text.return_value = 'Uno'
+    a._book_materialize_pending()
+    nuevo = a._library_path_cache['Uno-2.txt']
+    assert os.path.exists(nuevo)
+    assert _read(nuevo) == []
+
+
+def test_the_two_are_never_the_same_file_on_disk(qapp, tmp_path):
+    """El bug exacto que vivió: las dos filas apuntando al mismo path, así que
+    borrar en una borraba en la otra. Acá tienen que ser paths distintos."""
+    a = _app(tmp_path)
+    a._book_new_entry()
+    a.book_view.editor.text.return_value = 'Uno'
+    a._book_materialize_pending()
+    original = os.path.abspath(a._library_path_cache['Uno.txt'])
+    nuevo = os.path.abspath(a._library_path_cache['Uno-2.txt'])
+    assert original != nuevo
+
+
+def test_a_second_collision_keeps_incrementing(qapp, tmp_path):
+    a = _app(tmp_path)
+    with open(os.path.join(str(tmp_path), 'I', 'Uno-2.txt'), 'w', encoding='utf-8') as f:
+        f.write('ya usado\n')
+    a._library_lines.append('Uno-2.txt')
+    a.book_ring.lines.append('Uno-2')
+    a._library_path_cache['Uno-2.txt'] = os.path.join(str(tmp_path), 'I', 'Uno-2.txt')
+    a._book_new_entry()
+    a.book_view.editor.text.return_value = 'Uno'
+    a._book_materialize_pending()
+    assert 'Uno-3.txt' in a._library_lines
+
+
+def test_a_non_colliding_name_is_unaffected(qapp, tmp_path):
+    """El caso normal — nombre que no existe todavía — sigue igual: se crea
+    tal cual se tipeó, sin sufijo."""
+    a = _app(tmp_path)
+    a._book_new_entry()
+    a.book_view.editor.text.return_value = 'Nombre Nuevo'
+    a._book_materialize_pending()
+    assert 'Nombre Nuevo.txt' in a._library_lines
+    assert 'Nombre Nuevo-2.txt' not in a._library_lines
