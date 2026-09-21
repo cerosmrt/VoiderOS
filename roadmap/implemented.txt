@@ -151,3 +151,24 @@ SESSION 2026-06-25
   _book_do_merge) y una entrada nueva al lado en la biblioteca; nada sobre un
   punto o el portal '0'. Resuelve de otra forma el viejo ítem "Ctrl+D —
   duplicate" (ver commit histórico), que queda subsumido por éste.
+
+── 2026-09-21 ────────────────────────────────────────────────────────────────
+
+- UN NOMBRE REPETIDO EN F3 CREA UN ARCHIVO SEPARADO (4b2f7a0). Nombrar una
+  entrada nueva igual que un capítulo ya existente ya no la comparte en
+  silencio: antes, si el archivo ya existía, _book_materialize_pending no lo
+  pisaba (bien) pero registraba una SEGUNDA fila en la biblioteca apuntando al
+  MISMO archivo — "una entrada vacía" era en realidad la vieja, con todo lo
+  que ya tenía escrito, y editar cualquiera de las dos filas editaba la misma
+  cosa (Federico: "when i renamed the file, deleting the lines in one, would
+  still delete on the other").
+  Se le preguntó cómo prefería resolverlo — compartir contenido (como el
+  portal '0', que hoy es singleton, no existe ese mecanismo) o dos archivos de
+  verdad — y eligió dos archivos. Ahora, si el nombre ya existe, se crea un
+  archivo GENUINAMENTE separado y vacío, uniquificado con el mismo patrón que
+  ya usan _book_do_merge y _book_duplicate ("<name>-2.txt", incrementando). El
+  original queda intacto; el título en F3 lleva el sufijo, porque sale siempre
+  del archivo real.
+  Sólo previene el choque de acá en adelante — no separa retroactivamente lo
+  que ya estaba mezclado en su /void real (ver pending.txt, necesita su
+  decisión de contenido).
