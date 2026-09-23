@@ -68,6 +68,7 @@ DEFAULT_CONFIG = {
         "scratch_toggle": "`",
         "title_toggle": "Ctrl+Shift+T",
         "export_carousel": "Ctrl+Shift+C",
+        "carousel_view_toggle": "Ctrl+Shift+V",
         "typewriter_toggle": "Ctrl+Shift+W",
         "backup": "Ctrl+B"
     }

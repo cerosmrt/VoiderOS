@@ -182,3 +182,73 @@ class TestReadingPageViewNav:
         assert v.page > 0
         v.goto_paragraph(0)
         assert v.page == 0
+
+
+class TestReadingPageViewTitleSlide:
+    """F4 carousel preview: page 0 is a dedicated title slide, body starts on
+    page 1 — the same shape export_carousel() writes to disk."""
+
+    def _view(self, qapp, title_slide='Mi Capitulo', n_paras=5):
+        lines = []
+        for i in range(n_paras):
+            lines += [f'Paragraph {i} with enough words here to fill space nicely.', '.']
+        doc, para_blocks, layout = rp.build_reading_document(
+            [('', lines)], QFont('Consolas', 11))
+        v = rp.ReadingPageView()
+        v.resize(800, 600)
+        v.set_document(doc, para_blocks, layout, title_slide=title_slide)
+        return v
+
+    def test_starts_on_the_title_slide(self, qapp):
+        v = self._view(qapp)
+        assert v.page == 0
+        assert v.on_title_slide
+
+    def test_page_count_includes_the_title_slide(self, qapp):
+        doc, para_blocks, layout = rp.build_reading_document(
+            [('', ['a.', '.'])], QFont('Consolas', 11))
+        v = rp.ReadingPageView()
+        v.resize(800, 600)
+        v.set_document(doc, para_blocks, layout)
+        body_only_count = v.page_count
+        v.set_document(doc, para_blocks, layout, title_slide='T')
+        assert v.page_count == body_only_count + 1
+
+    def test_next_page_leaves_the_title_slide(self, qapp):
+        v = self._view(qapp)
+        v.next_page()
+        assert v.page == 1
+        assert not v.on_title_slide
+
+    def test_prev_page_returns_to_the_title_slide(self, qapp):
+        v = self._view(qapp)
+        v.next_page()
+        v.prev_page()
+        assert v.page == 0
+        assert v.on_title_slide
+
+    def test_goto_paragraph_never_lands_on_the_title_slide(self, qapp):
+        v = self._view(qapp)
+        v.goto_paragraph(0)
+        assert not v.on_title_slide
+        assert v.page >= 1
+
+    def test_no_title_slide_keeps_old_behaviour(self, qapp):
+        doc, para_blocks, layout = rp.build_reading_document(
+            [('T', ['a.', '.'])], QFont('Consolas', 11))
+        v = rp.ReadingPageView()
+        v.resize(800, 600)
+        v.set_document(doc, para_blocks, layout)
+        assert not v.on_title_slide
+        assert v.page == 0
+
+    def test_painting_the_title_slide_does_not_crash(self, qapp):
+        v = self._view(qapp)
+        pix = v.grab()
+        assert pix.width() > 0
+
+    def test_painting_a_body_page_does_not_crash(self, qapp):
+        v = self._view(qapp)
+        v.next_page()
+        pix = v.grab()
+        assert pix.width() > 0

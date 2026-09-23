@@ -303,6 +303,22 @@ def render_carousel_page(doc, layout, offsets, page, w_px, h_px,
     return pm
 
 
+def draw_title_slide(painter, w, h, title, font, ink=QColor('#111111')):
+    """Paint a centered title into (0, 0, w, h) of the painter's current
+    coordinate system — shared by the PNG export (render_title_slide) and the
+    on-screen F4 carousel preview (ReadingPageView), so they can't drift apart."""
+    if not title:
+        return
+    title_font = QFont(font)
+    title_font.setPointSizeF(max(font.pointSizeF(), 1.0) * 2.2)
+    painter.setFont(title_font)
+    painter.setPen(ink)
+    margin = w * 0.12
+    rect = QRectF(margin, 0, w - 2 * margin, h)
+    painter.drawText(rect, int(Qt.AlignmentFlag.AlignCenter |
+                                Qt.TextFlag.TextWordWrap), title)
+
+
 def render_title_slide(title, font, w_px, h_px,
                         paper=QColor('#ffffff'), ink=QColor('#111111')):
     """A standalone slide holding only the chapter title, centered — no body
@@ -312,14 +328,7 @@ def render_title_slide(title, font, w_px, h_px,
     if title:
         painter = QPainter(pm)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-        title_font = QFont(font)
-        title_font.setPointSizeF(max(font.pointSizeF(), 1.0) * 2.2)
-        painter.setFont(title_font)
-        painter.setPen(ink)
-        margin = w_px * 0.12
-        rect = QRectF(margin, 0, w_px - 2 * margin, h_px)
-        painter.drawText(rect, int(Qt.AlignmentFlag.AlignCenter |
-                                    Qt.TextFlag.TextWordWrap), title)
+        draw_title_slide(painter, w_px, h_px, title, font, ink)
         painter.end()
     return pm
 
@@ -337,19 +346,30 @@ class ReadingPageView(QWidget):
         self._page_count = 1
         self._paper = QColor('#ffffff')
         self._ink = QColor('#111111')
+        self._title_slide = None   # None = no dedicated title page (book view);
+                                    # a string = carousel view, page 0 is the title
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     # ── content ───────────────────────────────────────────────────────────────
 
-    def set_document(self, doc, para_blocks, layout):
+    def set_document(self, doc, para_blocks, layout, title_slide=None):
+        """title_slide: None for the plain book view; a title string switches
+        this view to carousel mode — page 0 becomes a dedicated title slide and
+        body pagination starts at page 1."""
         self._doc = doc
         self._para_blocks = list(para_blocks)
         self._layout = layout
         self._offsets = compute_page_offsets(
             doc, layout.block_h, getattr(layout, 'title_blocks', ()))
-        self._page_count = max(1, len(self._offsets))
+        self._title_slide = title_slide
+        body_pages = max(1, len(self._offsets))
+        self._page_count = body_pages + (1 if title_slide else 0)
         self._page = 0
         self.update()
+
+    @property
+    def on_title_slide(self):
+        return self._title_slide is not None and self._page == 0
 
     def _page_for_y(self, y):
         """Largest page index whose top is at or above y."""
@@ -371,12 +391,14 @@ class ReadingPageView(QWidget):
         return bh
 
     def goto_paragraph(self, para_ordinal):
-        """Jump to the page holding the given body paragraph (by ordinal)."""
+        """Jump to the page holding the given body paragraph (by ordinal) —
+        always a body page, never the title slide."""
         if not self._doc or not self._para_blocks or self._layout is None:
             return
         k = max(0, min(para_ordinal, len(self._para_blocks) - 1))
         y = block_top(self._doc, self._para_blocks[k])
-        self._page = max(0, min(self._page_for_y(y), self._page_count - 1))
+        shift = 1 if self._title_slide is not None else 0
+        self._page = max(0, min(self._page_for_y(y) + shift, self._page_count - 1))
         self.update()
 
     # ── navigation ──────────────────────────────────────────────────────────--
@@ -428,8 +450,20 @@ class ReadingPageView(QWidget):
         # The paper is the full page; the text block sits inset by the margins.
         painter.fillRect(QRectF(ox, oy, draw_w, draw_h), self._paper)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-        top = self._offsets[self._page] if self._offsets else 0.0
-        clip_h = self.page_clip_height(self._page)
+
+        if self.on_title_slide:
+            painter.save()
+            painter.translate(ox, oy)
+            painter.scale(scale, scale)
+            draw_title_slide(painter, L.page_w, L.page_h, self._title_slide,
+                             self._doc.defaultFont(), self._ink)
+            painter.restore()
+            painter.end()
+            return
+
+        body_page = self._page - (1 if self._title_slide is not None else 0)
+        top = self._offsets[body_page] if self._offsets else 0.0
+        clip_h = self.page_clip_height(body_page)
         painter.save()
         painter.translate(ox, oy)
         painter.scale(scale, scale)

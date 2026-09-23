@@ -221,3 +221,42 @@ SESSION 2026-06-25
   nueva; tests/test_f3_undo.py::test_split_undo y los dos de
   tests/test_merge.py que tocan split/merge actualizados a la misma
   convención. Suite completa: 961 passed.
+
+- F4 CARRUSEL: PREVIEW EN VIVO (Ctrl+Shift+V) Y EXPORT ALINEADO CON PDF.
+  Motivado por dos cosas que Federico notó probando el carrusel: (1) F4 no
+  mostraba nada distinto al cambiar el ratio en F10 — porque F4 sólo sabía
+  renderizar en A5, el ratio de carrusel no se leía en ningún lado todavía;
+  (2) exportar colgó la app ("Application Not Responding") en un capítulo
+  largo — el export dibuja página por página en Python (QPainter + guardar
+  PNG) y no le devolvía el control al event loop de Qt en ningún momento.
+    * Ctrl+Shift+V alterna F4 entre vista libro (A5, como siempre) y vista
+      carrusel (el ratio configurado en F10) — mismo teclado de navegación,
+      página 1 es el título centrado, página 2 en más es el cuerpo, exacto a
+      lo que export_carousel() escribe a disco. ReadingPageView ahora acepta
+      un title_slide opcional en set_document(); página 0 se pinta aparte
+      (draw_title_slide, la misma rutina que usa el PNG del título, así
+      preview y export no pueden desalinearse) y toda la paginación del
+      cuerpo se corre +1. goto_paragraph nunca aterriza en el slide de
+      título.
+    * export_carousel() dejó de tener su propio selector de capítulo
+      (_carousel_current_chapter, eliminado) y ahora usa _reading_sections(),
+      el mismo mecanismo que ya usa el export a PDF (Ctrl+S): capítulo
+      resaltado, o el libro entero si F3 está resaltado sobre un '.'. Un
+      libro entero no tiene un título único para nombrar la carpeta, así que
+      pregunta el nombre antes de escribir nada (QInputDialog, mismo patrón
+      que ya usa el backup a pendrive) — cancelar o dejarlo vacío no escribe
+      nada. Cada capítulo del libro recibe su propio slide de título; la
+      numeración de archivos es continua a través de capítulos (title→cuerpo,
+      title→cuerpo...).
+    * Colgada resuelta con QApplication.processEvents() entre cada slide
+      exportado — no es async de verdad, pero el event loop respira entre
+      páginas, así el compositor no marca la app como colgada en exports
+      largos (más relevante todavía ahora que un export puede ser el libro
+      entero, no sólo un capítulo).
+  tests/test_reading_page.py: nueva clase TestReadingPageViewTitleSlide (8
+  tests) para el title_slide de ReadingPageView. tests/test_f4_carousel_view.py
+  nuevo (8 tests) para el toggle y _reading_refresh_carousel.
+  tests/test_carousel_export.py reescrito para _reading_sections (capítulo o
+  libro, prompt de nombre, numeración continua). Verificado visualmente:
+  preview en pantalla y PNG exportado son pixel-por-pixel el mismo dibujo
+  (misma rutina compartida). Suite completa: 979 passed.

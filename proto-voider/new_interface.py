@@ -277,6 +277,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._f3_search_saved = None   # saved cursor index before search
         self._f3_display_ring = None   # temp ring shown during search
         self.reading_view = None    # F4: Reading render of current document
+        self._f4_carousel_view = False   # F4: book (A5) vs carousel-ratio preview
         self.vault_view = None      # (Oracle, no longer on F4)
         self.settings_view = None   # F10: Settings panel
         self.transform_view = None  # F5: Transform — editable O/ line → I/
