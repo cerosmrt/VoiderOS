@@ -884,13 +884,14 @@ class IoMixin:
     def _split_chapter_at_slash(self):
         """Split the current file at '/name' markers.
 
-        A line '/name' SEALS everything above it (back to the previous marker or
-        the file start) into a chapter called 'name' (the name is right after the
-        slash; a bare '/' auto-names). Text after the LAST marker stays in the
-        current file; if that remainder is empty, the emptied container chapter is
-        removed (so a merged book re-splits cleanly). Sealed chapters are inserted
-        in order at the container's slot, preserving reading order. A name clash
-        appends into the existing chapter. Atomic writes + a /void snapshot.
+        A line '/name' SEALS everything below it (up to the next marker or the
+        file end) into a chapter called 'name' (the name is right after the
+        slash; a bare '/' auto-names). Text before the FIRST marker stays in the
+        current file; if that leading remainder is empty, the emptied container
+        chapter is removed (so a merged book re-splits cleanly). Sealed chapters
+        are inserted in order at the container's slot, preserving reading order.
+        A name clash appends into the existing chapter. Atomic writes + a /void
+        snapshot.
         """
         lines = list(self.line_ring.lines)
         markers = [i for i, l in enumerate(lines) if l.strip().startswith('/')]
@@ -903,12 +904,12 @@ class IoMixin:
         self._git_snapshot_void('split')
         i_dir = os.path.join(self.void_dir, 'I')
 
-        segments, start = [], 0            # (name, content-above-the-marker)
-        for m in markers:
+        leading = lines[:markers[0]]
+        segments = []                      # (name, content-below-the-marker)
+        for k, m in enumerate(markers):
             name = lines[m].strip()[1:].strip()
-            segments.append((name, lines[start:m]))
-            start = m + 1
-        trailing = lines[start:]
+            end = markers[k + 1] if k + 1 < len(markers) else len(lines)
+            segments.append((name, lines[m + 1:end]))
 
         cur_fname = os.path.basename(self.current_file_path)
         try:
@@ -916,8 +917,8 @@ class IoMixin:
         except ValueError:
             cur_idx = min(self.book_ring.index, max(0, len(self._library_lines) - 1))
 
-        # Container = the trailing remainder. Empty (and not the scratch) → drop it.
-        cur = list(trailing)
+        # Container = the leading remainder. Empty (and not the scratch) → drop it.
+        cur = list(leading)
         while cur and not cur[-1].strip():
             cur.pop()
         is_scratch = os.path.abspath(self.current_file_path) == os.path.abspath(self.f1_file)

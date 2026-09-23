@@ -1,7 +1,8 @@
-"""Slash-split (new spec): a '/name' line SEALS the text above it (back to the
-previous marker or the file start) into a chapter 'name'. The trailing remainder
-stays in the current file; if that remainder is empty, the container is removed.
-Sealed chapters take the container's slot, in order."""
+"""Slash-split: a '/name' line SEALS the text below it (up to the next marker
+or the file end) into a chapter 'name'. The leading remainder — everything
+before the FIRST marker — stays in the current file; if that remainder is
+empty, the container is removed. Sealed chapters take the container's slot,
+in order."""
 import os
 import types
 from unittest.mock import MagicMock
@@ -54,13 +55,13 @@ def _read(path):
         return [l.rstrip('\n') for l in f]
 
 
-def test_seals_text_above(tmp_path):
+def test_seals_text_below(tmp_path):
     app, cur = _split_app(tmp_path, 'chapA',
-                          ['before1', 'before2', '/Sealed', 'after1'],
+                          ['before1', '/Sealed', 'after1', 'after2'],
                           ['chapA', 'other'])
     app._split_chapter_at_slash()
-    assert _read(str(tmp_path / 'I' / 'Sealed.txt')) == ['before1', 'before2']
-    assert _read(cur) == ['after1']                       # trailing stays
+    assert _read(str(tmp_path / 'I' / 'Sealed.txt')) == ['after1', 'after2']
+    assert _read(cur) == ['before1']                       # leading stays
     li = app._library_lines
     assert li.index('Sealed.txt') < li.index('chapA.txt')  # sealed above container
 
@@ -68,9 +69,9 @@ def test_seals_text_above(tmp_path):
 def test_multiple_markers_in_order(tmp_path):
     app, cur = _split_app(tmp_path, 'c', ['a', '/X', 'b', '/Y', 'c'], ['c'])
     app._split_chapter_at_slash()
-    assert _read(str(tmp_path / 'I' / 'X.txt')) == ['a']
-    assert _read(str(tmp_path / 'I' / 'Y.txt')) == ['b']
-    assert _read(cur) == ['c']
+    assert _read(str(tmp_path / 'I' / 'X.txt')) == ['b']
+    assert _read(str(tmp_path / 'I' / 'Y.txt')) == ['c']
+    assert _read(cur) == ['a']
     li = app._library_lines
     assert li.index('X.txt') < li.index('Y.txt') < li.index('c.txt')
 
@@ -81,7 +82,7 @@ def test_many_paragraphs_to_same_existing_chapter_append_in_order(tmp_path):
     # prior content — the program does NOT go crazy nor overwrite.
     app, cur = _split_app(
         tmp_path, 'pileta',
-        ['p1', '/El Logos', 'p2', '/El Logos', 'p3', '/Otro', 'p4', '/El Logos'],
+        ['p0', '/El Logos', 'p1', '/El Logos', 'p2', '/Otro', 'p3', '/El Logos', 'p4'],
         ['El Logos', 'Otro', 'pileta'])
     # chapters already have content
     with open(tmp_path / 'I' / 'El Logos.txt', 'w', encoding='utf-8') as f:
@@ -95,12 +96,12 @@ def test_many_paragraphs_to_same_existing_chapter_append_in_order(tmp_path):
         ['viejo', '.', 'p1', '.', 'p2', '.', 'p4']   # all three, in order
     assert _read(str(tmp_path / 'I' / 'Otro.txt')) == ['x', '.', 'p3']
     assert app._library_lines.count('El Logos.txt') == 1   # no duplicate row
-    assert not os.path.exists(cur)                          # empty container gone
+    assert _read(cur) == ['p0']                             # leading remainder stays
 
 
-def test_all_sealed_removes_container(tmp_path):
-    # merge round-trip: everything sealed, no trailing -> container removed
-    app, cur = _split_app(tmp_path, 'MERGED', ['a', '/X', 'b', '/Y'],
+def test_leading_empty_removes_container(tmp_path):
+    # merge round-trip: marker is the very first line -> no leading remainder
+    app, cur = _split_app(tmp_path, 'MERGED', ['/X', 'a', '/Y', 'b'],
                           ['MERGED', 'z'])
     app._split_chapter_at_slash()
     assert app._library_lines == ['X.txt', 'Y.txt', 'z.txt']
@@ -112,7 +113,7 @@ def test_all_sealed_removes_container(tmp_path):
 def test_name_with_spaces(tmp_path):
     app, cur = _split_app(tmp_path, 'c', ['a', '/El Tercer Templo', 't'], ['c'])
     app._split_chapter_at_slash()
-    assert _read(str(tmp_path / 'I' / 'El Tercer Templo.txt')) == ['a']
+    assert _read(str(tmp_path / 'I' / 'El Tercer Templo.txt')) == ['t']
 
 
 def test_bare_slash_auto_names(tmp_path):
@@ -137,8 +138,16 @@ def test_clash_merges_into_existing(tmp_path):
         f.write('old1\nold2\n')
     app._split_chapter_at_slash()
     assert not os.path.exists(str(tmp_path / 'I' / 'other-2.txt'))
-    assert _read(str(tmp_path / 'I' / 'other.txt')) == ['old1', 'old2', '.', 'x']
+    assert _read(str(tmp_path / 'I' / 'other.txt')) == ['old1', 'old2', '.', 't']
     assert app._library_lines.count('other.txt') == 1
+
+
+def test_marker_with_nothing_after_it_makes_a_placeholder_dot(tmp_path):
+    # Trailing marker, no content follows it before EOF — mirrors the old
+    # "empty segment" case, now on the tail instead of a would-be trailer.
+    app, cur = _split_app(tmp_path, 'c', ['a', '/Empty'], ['c'])
+    app._split_chapter_at_slash()
+    assert _read(str(tmp_path / 'I' / 'Empty.txt')) == ['.']
 
 
 def test_writes_are_atomic_no_tmp_left(tmp_path):

@@ -56,7 +56,7 @@ def test_merge_collapses_book(tmp_path):
     app._book_do_merge()
     assert app._library_lines == ['.', 'Book1.txt']
     assert app.switch_to_view.call_count == 0          # stays in F3
-    assert _read(str(tmp_path / 'I' / 'Book1.txt')) == ['a1', 'a2', '/A', 'b1', '/B']
+    assert _read(str(tmp_path / 'I' / 'Book1.txt')) == ['/A', 'a1', 'a2', '/B', 'b1']
     assert not os.path.exists(str(tmp_path / 'I' / 'A.txt'))
     assert not os.path.exists(str(tmp_path / 'I' / 'B.txt'))
 
@@ -90,7 +90,7 @@ def test_split_from_f3_highlighted_file(tmp_path):
     open(app.f1_file, 'w').close()
     dpath = str(tmp_path / 'I' / 'doc.txt')
     with open(dpath, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(['a', '/X', 'b', '/Y']) + '\n')
+        f.write('\n'.join(['/X', 'a', '/Y', 'b']) + '\n')
     app._library_lines = ['.', 'doc.txt']
     app.book_ring = LineRing(['.', 'doc'])
     app._library_path_cache = {'doc.txt': dpath}

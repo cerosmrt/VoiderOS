@@ -126,14 +126,14 @@ def test_merge_undo(tmp_path):
 
 def test_split_undo(tmp_path):
     app = _f3_app(tmp_path, ['.', 'MERGED.txt'],
-                  {'MERGED.txt': ['a', '/X', 'b', '/Y']})
+                  {'MERGED.txt': ['/X', 'a', '/Y', 'b']})
     app.current_file_path = app._library_path_cache['MERGED.txt']
-    app.line_ring = LineRing(['a', '/X', 'b', '/Y'])
+    app.line_ring = LineRing(['/X', 'a', '/Y', 'b'])
     app.book_ring.index = 1
     app._split_chapter_at_slash()
     assert 'X.txt' in app._library_lines and 'Y.txt' in app._library_lines
     assert not os.path.exists(str(tmp_path / 'I' / 'MERGED.txt'))
     app._undo_apply()
     assert app._library_lines == ['.', 'MERGED.txt']
-    assert _read(str(tmp_path / 'I' / 'MERGED.txt')) == ['a', '/X', 'b', '/Y']
+    assert _read(str(tmp_path / 'I' / 'MERGED.txt')) == ['/X', 'a', '/Y', 'b']
     assert not os.path.exists(str(tmp_path / 'I' / 'X.txt'))

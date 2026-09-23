@@ -887,8 +887,8 @@ class F3Mixin:
 
     def _book_do_merge(self):
         """Collapse the book (dot -> next dot) into ONE chapter (the named line just
-        typed): each chapter's lines followed by a '/name' seal marker, originals
-        removed. Stays in F3. Re-split (Ctrl+Shift+S) restores it."""
+        typed): each chapter preceded by a '/name' seal marker, originals removed.
+        Stays in F3. Re-split (Ctrl+Shift+S) restores it."""
         name = self.book_view.editor.text().strip() if self.book_view else ''
         dot_idx = getattr(self, '_merge_dot_idx', self.book_ring.index - 1)
         ph = dot_idx + 1                     # the blank naming line
@@ -917,8 +917,8 @@ class F3Mixin:
                 lines = []
             while lines and not lines[-1].strip():
                 lines.pop()
-            merged.extend(lines)
             merged.append('/' + os.path.splitext(fn)[0])   # seal marker
+            merged.extend(lines)
 
         cname = name + '.txt'
         cpath = os.path.join(i_dir, cname)

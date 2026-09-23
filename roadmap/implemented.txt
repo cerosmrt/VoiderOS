@@ -204,3 +204,20 @@ SESSION 2026-06-25
   Verificado visualmente (no sólo tests): se generaron slides de muestra para
   los tres ratios con texto real, justificado, con sangría, sin el hueco en
   blanco del bug de arriba.
+
+- SLASH-SPLIT (Ctrl+Shift+S) INVERTIDO: SELLA HACIA ABAJO, NO HACIA ARRIBA.
+  Un '/name' ahora sella todo lo que sigue (hasta el próximo marcador o el
+  final del archivo) en el capítulo 'name'; lo que queda ANTES del primer
+  marcador es lo que se queda en el contenedor (antes era al revés: sellaba
+  hacia arriba y el contenedor se quedaba con lo de DESPUÉS del último
+  marcador). Federico, viendo "/ART OF THE SOUL" en medio de un texto: "the
+  slash should split but title from it forward. right now it does it
+  backwards".
+  _book_do_merge (F3, fusionar capítulos) se actualizó en el mismo cambio para
+  seguir siendo la inversa exacta de split: ahora antepone el marcador '/name'
+  al contenido de cada capítulo (antes lo ponía después) — si no, fusionar y
+  volver a separar ya no daba el mismo resultado.
+  tests/test_split_chapter.py reescrito entero (10 tests) para la dirección
+  nueva; tests/test_f3_undo.py::test_split_undo y los dos de
+  tests/test_merge.py que tocan split/merge actualizados a la misma
+  convención. Suite completa: 961 passed.
