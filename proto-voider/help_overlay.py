@@ -46,6 +46,7 @@ HELP = [
     ("Ctrl+B",            "Backup vault to folder"),
     ("Ctrl+S",            "Export / save as PDF"),
     ("Ctrl+P",            "Print"),
+    ("Ctrl+Shift+C (F4)", "Export chapter as Instagram carousel (void/carousel/)"),
     ("",                  ""),
     ("EDITING  (F2)",     None),
     ("Enter",             "Void line → active file (F1)"),

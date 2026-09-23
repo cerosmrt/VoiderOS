@@ -17,7 +17,7 @@ sections page-break between chapters.
 from PyQt6.QtWidgets import QWidget
 from PyQt6.QtGui import (
     QTextDocument, QTextCursor, QTextBlockFormat, QTextCharFormat, QTextFormat,
-    QFont, QColor, QPainter, QPalette, QAbstractTextDocumentLayout,
+    QFont, QColor, QPainter, QPalette, QPixmap, QAbstractTextDocumentLayout,
 )
 from PyQt6.QtCore import Qt, QSizeF, QRectF
 
@@ -35,6 +35,21 @@ BOOK_MARGINS_MM = (21.0, 21.0, 20.0, 20.0)
 
 # Sink: blank space above a chapter title at the top of its page.
 TITLE_SINK_MM = 24.0
+
+# Instagram carousel presets, in pixels (width, height).
+CAROUSEL_PRESETS = {
+    '1:1': (1080, 1080),
+    '4:5': (1080, 1350),
+    '1.91:1': (1080, 566),
+}
+
+
+def carousel_page_pt(w_px, h_px):
+    """Physical page size, in the same pt unit as A5_PT, for a carousel slide of
+    ratio w_px:h_px. Keeps A5's width — so the existing font size, margins and
+    hyphenation carry over unchanged — and scales only the height to match."""
+    w = A5_PT[0]
+    return (w, w * h_px / w_px)
 
 
 class PageLayout:
@@ -189,14 +204,18 @@ def build_reading_document(sections, font, page_pt=A5_PT,
             cursor.insertBlock(fmt)
 
     for si, (title, lines) in enumerate(sections):
-        tf = QTextBlockFormat()
-        tf.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        tf.setTopMargin(mm_to_pt(TITLE_SINK_MM))   # chapter-opening sink
-        tf.setBottomMargin(mm_to_pt(12.0))
-        open_block(tf)
-        cursor.setCharFormat(title_char)
-        cursor.insertText(title or '')
-        layout.title_blocks.append(cursor.block().blockNumber())
+        # A falsy title means "no title slide here" — skip the block entirely
+        # rather than insert an invisible one that still eats the sink and
+        # bottom margin (the carousel exporter renders the title separately).
+        if title:
+            tf = QTextBlockFormat()
+            tf.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            tf.setTopMargin(mm_to_pt(TITLE_SINK_MM))   # chapter-opening sink
+            tf.setBottomMargin(mm_to_pt(12.0))
+            open_block(tf)
+            cursor.setCharFormat(title_char)
+            cursor.insertText(title)
+            layout.title_blocks.append(cursor.block().blockNumber())
 
         for pi, para in enumerate(lines_to_paragraphs(lines)):
             pf = QTextBlockFormat()
@@ -254,6 +273,55 @@ def block_top(doc, block_number):
     if not b.isValid():
         return 0.0
     return doc.documentLayout().blockBoundingRect(b).top()
+
+
+def render_carousel_page(doc, layout, offsets, page, w_px, h_px,
+                          paper=QColor('#ffffff'), ink=QColor('#111111')):
+    """Rasterize one page of a built reading document to a QPixmap of exactly
+    w_px × h_px. Same clip/scale technique as ReadingPageView.paintEvent — a
+    single uniform scale is correct because `layout` was built from
+    carousel_page_pt(w_px, h_px), so page_w:page_h already equals w_px:h_px."""
+    pm = QPixmap(w_px, h_px)
+    pm.fill(paper)
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+    scale = w_px / layout.page_w
+    top = offsets[page]
+    if page + 1 < len(offsets):
+        clip_h = min(offsets[page + 1] - top, layout.block_h)
+    else:
+        clip_h = layout.block_h
+    painter.scale(scale, scale)
+    painter.translate(layout.m_inner, layout.m_top)
+    painter.translate(0, -top)
+    painter.setClipRect(QRectF(0, top, layout.block_w, clip_h))
+    ctx = QAbstractTextDocumentLayout.PaintContext()
+    ctx.palette.setColor(QPalette.ColorRole.Text, ink)
+    ctx.clip = QRectF(0, top, layout.block_w, clip_h)
+    doc.documentLayout().draw(painter, ctx)
+    painter.end()
+    return pm
+
+
+def render_title_slide(title, font, w_px, h_px,
+                        paper=QColor('#ffffff'), ink=QColor('#111111')):
+    """A standalone slide holding only the chapter title, centered — no body
+    content. The dedicated first slide of a carousel export."""
+    pm = QPixmap(w_px, h_px)
+    pm.fill(paper)
+    if title:
+        painter = QPainter(pm)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        title_font = QFont(font)
+        title_font.setPointSizeF(max(font.pointSizeF(), 1.0) * 2.2)
+        painter.setFont(title_font)
+        painter.setPen(ink)
+        margin = w_px * 0.12
+        rect = QRectF(margin, 0, w_px - 2 * margin, h_px)
+        painter.drawText(rect, int(Qt.AlignmentFlag.AlignCenter |
+                                    Qt.TextFlag.TextWordWrap), title)
+        painter.end()
+    return pm
 
 
 class ReadingPageView(QWidget):

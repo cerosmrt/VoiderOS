@@ -68,6 +68,27 @@ class SettingsPanel(QWidget):
         self.bg_color_edit.setStyleSheet(self._INPUT_STYLE)
         lay.addWidget(self.bg_color_edit)
 
+        # Carousel aspect ratio (F4 → Instagram export, Ctrl+Shift+C)
+        lay.addWidget(self._label('Carousel ratio (F4 export)'))
+        self.carousel_preset_combo = QComboBox()
+        self.carousel_preset_combo.addItems(['1:1', '4:5', '1.91:1', 'Custom'])
+        self.carousel_preset_combo.setStyleSheet(self._INPUT_STYLE)
+        self.carousel_preset_combo.currentTextChanged.connect(
+            self._on_carousel_preset_changed)
+        lay.addWidget(self.carousel_preset_combo)
+
+        custom_row = QHBoxLayout()
+        self.carousel_w_spin = QSpinBox()
+        self.carousel_w_spin.setRange(100, 8000)
+        self.carousel_w_spin.setStyleSheet(self._INPUT_STYLE)
+        self.carousel_h_spin = QSpinBox()
+        self.carousel_h_spin.setRange(100, 8000)
+        self.carousel_h_spin.setStyleSheet(self._INPUT_STYLE)
+        custom_row.addWidget(self.carousel_w_spin)
+        custom_row.addWidget(QLabel('×'))
+        custom_row.addWidget(self.carousel_h_spin)
+        lay.addLayout(custom_row)
+
         # Buttons
         btn_row = QHBoxLayout()
         apply_btn = QPushButton('Apply')
@@ -93,18 +114,32 @@ class SettingsPanel(QWidget):
         lbl.setStyleSheet(self._LABEL_STYLE)
         return lbl
 
+    def _on_carousel_preset_changed(self, text):
+        custom = (text == 'Custom')
+        self.carousel_w_spin.setEnabled(custom)
+        self.carousel_h_spin.setEnabled(custom)
+
     def load(self, config):
         """Populate fields from config dict."""
         self.font_combo.setCurrentFont(QFont(config.get('font_family', 'Consolas')))
         self.size_spin.setValue(int(config.get('font_size', 11)))
         self.text_color_edit.setText(config.get('text_color', '#ffffff'))
         self.bg_color_edit.setText(config.get('bg_color', '#000000'))
+        preset = config.get('carousel_preset', '4:5')
+        self.carousel_preset_combo.setCurrentText(
+            'Custom' if preset == 'custom' else preset)
+        self.carousel_w_spin.setValue(int(config.get('carousel_w', 1080)))
+        self.carousel_h_spin.setValue(int(config.get('carousel_h', 1350)))
 
     def _on_apply(self):
+        preset_text = self.carousel_preset_combo.currentText()
         settings = {
             'font_family': self.font_combo.currentFont().family(),
             'font_size': self.size_spin.value(),
             'text_color': self.text_color_edit.text().strip() or '#ffffff',
             'bg_color': self.bg_color_edit.text().strip() or '#000000',
+            'carousel_preset': 'custom' if preset_text == 'Custom' else preset_text,
+            'carousel_w': self.carousel_w_spin.value(),
+            'carousel_h': self.carousel_h_spin.value(),
         }
         self.applied.emit(settings)

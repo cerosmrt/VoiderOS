@@ -20,6 +20,10 @@ DEFAULT_CONFIG = {
     # F4 justification hyphenation (Pyphen). "auto" detects each paragraph's
     # language (book is bilingual); a lang like "es_ES" forces one; "" disables.
     "reading_hyphen_lang": "auto",
+    # F4 → Instagram carousel export (Ctrl+Shift+C). "custom" uses carousel_w/h.
+    "carousel_preset": "4:5",
+    "carousel_w": 1080,
+    "carousel_h": 1350,
     "text_color": "#ffffff",
     "working_set_size": 100,
     "keybindings": {
@@ -63,6 +67,7 @@ DEFAULT_CONFIG = {
         "commit_void": "Ctrl+Shift+G",
         "scratch_toggle": "`",
         "title_toggle": "Ctrl+Shift+T",
+        "export_carousel": "Ctrl+Shift+C",
         "typewriter_toggle": "Ctrl+Shift+W",
         "backup": "Ctrl+B"
     }

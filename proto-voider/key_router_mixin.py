@@ -455,5 +455,7 @@ class KeyRouterMixin:
             event.accept(); return
         if key == K.Key_Escape:
             self.switch_to_view(1); event.accept(); return
+        if self._matches(key, mods, 'export_carousel'):
+            self.export_carousel(); event.accept(); return
         if self._matches(key, mods, 'quit'):
             self._show_lock_screen(); event.accept()

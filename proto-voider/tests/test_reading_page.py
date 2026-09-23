@@ -64,6 +64,15 @@ class TestBuildDocument:
         assert len(offsets) >= 2                       # 2nd chapter forces a page
         assert rp.block_top(doc, para_blocks[1]) >= offsets[1]
 
+    def test_empty_title_is_not_given_a_block(self, qapp):
+        # A falsy title means "no title slide here" (the carousel exporter
+        # renders the title separately) — it must not still eat the 24mm sink
+        # + 12mm bottom margin as a blank title block.
+        secs = [('', ['a.', '.'])]
+        doc, para_blocks, layout = rp.build_reading_document(secs, QFont('Consolas', 11))
+        assert layout.title_blocks == []
+        assert rp.block_top(doc, para_blocks[0]) == pytest.approx(0.0)
+
     def test_page_windows_tile_without_overlap(self, qapp):
         # the visible window of each page must meet the next page's top exactly,
         # so no line is shown on two pages (the duplication bug)

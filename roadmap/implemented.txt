@@ -172,3 +172,35 @@ SESSION 2026-06-25
   Sólo previene el choque de acá en adelante — no separa retroactivamente lo
   que ya estaba mezclado en su /void real (ver pending.txt, necesita su
   decisión de contenido).
+
+── 2026-09-23 ────────────────────────────────────────────────────────────────
+
+- F4 → CARRUSEL DE INSTAGRAM (Ctrl+Shift+C). Exporta el capítulo actual (el
+  resaltado en F3, o si no el archivo activo) como imágenes PNG listas para
+  subir a un carrusel: un slide de título centrado (1_titulo.png), y el cuerpo
+  paginado a partir del slide 2 en adelante.
+    * Reusa el motor real de F4 (build_reading_document/PageLayout de
+      reading_page.py), no el camino de exportación de Ctrl+S
+      (_build_doc_html), que es mucho más simple y no pagina de verdad.
+    * carousel_page_pt(w_px, h_px): inventa una página física con el mismo
+      ANCHO que A5 (148mm) —así la tipografía, márgenes e hyphenation ya
+      afinados no cambian— y sólo escala el ALTO para que la proporción
+      coincida con el ratio pedido. Luego se renderiza esa página a un
+      QPixmap del tamaño en píxeles exacto con un único factor de escala
+      (misma técnica que ya usa ReadingPageView.paintEvent en pantalla).
+    * El título va en SU PROPIO slide aparte (render_title_slide, texto
+      centrado, sin paginación) — el cuerpo se arma pasándole un título vacío
+      a build_reading_document, así no comparte página con el cuerpo como
+      pasa en la vista de lectura normal.
+    * Efecto secundario/arreglo: build_reading_document con título vacío
+      insertaba igual un bloque de título invisible, que se comía el sink
+      (24mm) + margen inferior (12mm) en blanco arriba del cuerpo. Ahora un
+      título "falsy" salta el bloque entero.
+    * F10: fila nueva "Carousel ratio (F4 export)" — desplegable 1:1 / 4:5 /
+      1.91:1 / Custom, con dos spinboxes de ancho×alto que sólo se habilitan
+      en Custom. Config: carousel_preset (default "4:5"), carousel_w/h
+      (default 1080×1350).
+    * Salida: void_dir/carousel/<NombreCapítulo>/1_titulo.png, 2.png, 3.png...
+  Verificado visualmente (no sólo tests): se generaron slides de muestra para
+  los tres ratios con texto real, justificado, con sangría, sin el hueco en
+  blanco del bug de arriba.

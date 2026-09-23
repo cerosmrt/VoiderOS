@@ -97,6 +97,59 @@ class F4Mixin:
                 p = self._para_ordinal_at(ring.lines, ring.index)
                 self.reading_view.goto_paragraph(p)
 
+    def _carousel_current_chapter(self):
+        """(title, lines) of the chapter a carousel export acts on: the F3
+        highlight when it's on an actual chapter, else the active file. Unlike
+        _reading_sections, this never expands into the whole-book multi-chapter
+        view — a carousel export is always exactly one chapter."""
+        ring = getattr(self, 'book_ring', None)
+        fname = self._library_current_fname() if (ring and ring.lines) else None
+        if fname:
+            fpath = self._library_path_cache.get(fname)
+            if fpath and os.path.isfile(fpath):
+                return os.path.splitext(fname)[0], self._reading_file_lines(fpath)
+        path = self.current_file_path
+        title = os.path.splitext(os.path.basename(path))[0]
+        return title, self._reading_file_lines(path)
+
+    def export_carousel(self):
+        """Ctrl+Shift+C (F4): export the current chapter as Instagram carousel
+        slides — a dedicated centered title slide, then the chapter body
+        paginated to the configured aspect ratio. Written to
+        void_dir/carousel/<Chapter>/."""
+        from reading_page import (
+            build_reading_document, compute_page_offsets, carousel_page_pt,
+            render_carousel_page, render_title_slide, CAROUSEL_PRESETS,
+        )
+        title, lines = self._carousel_current_chapter()
+
+        preset = self.config.get('carousel_preset', '4:5')
+        if preset == 'custom':
+            w_px = int(self.config.get('carousel_w', 1080))
+            h_px = int(self.config.get('carousel_h', 1350))
+        else:
+            w_px, h_px = CAROUSEL_PRESETS.get(preset, CAROUSEL_PRESETS['4:5'])
+
+        reading_font = QFont(self.config.get('reading_font', 'EB Garamond'),
+                             int(self.config.get('reading_size', 13)))
+        page_pt = carousel_page_pt(w_px, h_px)
+        # Empty section title: the title gets its own standalone slide below,
+        # so build_reading_document must not also draw it atop the body.
+        doc, para_blocks, layout = build_reading_document(
+            [('', lines)], reading_font, page_pt=page_pt,
+            hyphenate_lang=self.config.get('reading_hyphen_lang', 'auto'))
+        offsets = compute_page_offsets(doc, layout.block_h, layout.title_blocks)
+
+        out_dir = os.path.join(self.void_dir, 'carousel', title or 'capitulo')
+        os.makedirs(out_dir, exist_ok=True)
+
+        render_title_slide(title, reading_font, w_px, h_px).save(
+            os.path.join(out_dir, '1_titulo.png'))
+        for i, page in enumerate(range(len(offsets)), start=2):
+            render_carousel_page(doc, layout, offsets, page, w_px, h_px).save(
+                os.path.join(out_dir, f'{i}.png'))
+        print(f'🎠 Carrusel: {len(offsets)} slides + titulo → {out_dir}')
+
     def _build_reading_html(self, lines, title):
         """Convert Voider line format to prose HTML for F4 reading render.
 
