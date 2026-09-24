@@ -303,3 +303,27 @@ SESSION 2026-06-25
   Verificado visualmente con un círculo falso de muestra: la imagen se
   recorta y centra bien, la 'I' blanca queda legible encima. Suite completa:
   994 passed.
+
+- SHIFT+F12 REESCRITO CON grim: QScreen.grabWindow() NO ANDA EN ESTE WAYLAND.
+  Federico probó Shift+F12 apenas se implementó: el print de éxito salía,
+  pero void/covers/ quedaba vacía. Primero se agregó chequeo de isNull()/del
+  resultado de save() (nunca se chequeaban) — con eso, el mensaje pasó a ser
+  honesto: "grabWindow(0) devolvió un pixmap vacío". Confirmado en vivo, con
+  la ventana DETACHED (no fullscreen/layer-shell, una ventana común) — o sea
+  que no es un tema de layer-shell: QScreen.grabWindow() directamente no
+  funciona bajo este Hyprland/Wayland, ni para una ventana normal.
+  La solución fue dejar de usar la API de captura de Qt y usar `grim`
+  (wlr-screencopy), que ya está instalado y ya se usa en otro lado de la
+  config de Hyprland de este mismo sistema (Super+S, nix/modules/voider.nix).
+  grim soporta recorte nativo con `-g "X,Y WxH"`, así que no hace falta
+  capturar toda la pantalla y recortar en Qt — el geometry sale directo de
+  circle_bbox() + mapToGlobal(). Confirmado con un grim de prueba corrido a
+  mano: capturó contenido real de pantalla.
+  Este bug probablemente afecta IGUAL a F12 (take_screenshot), que usa el
+  mismo grabWindow(0) sin chequear el resultado — no se tocó porque no era
+  lo que se pidió, pero es la misma causa.
+  tests/test_circular_view_bbox.py: la clase TestTakeCircleScreenshot se
+  reescribió entera para mockear subprocess.run (io_mixin.subprocess.run) en
+  vez de screen.grabWindow — verifica el comando armado, el -g calculado, y
+  que un grim que falla o no está instalado no rompe nada. Suite completa:
+  997 passed.

@@ -50,60 +50,85 @@ def test_zero_radius_is_a_degenerate_point_not_a_crash(qapp):
 
 
 class TestTakeCircleScreenshot:
-    """Shift+F12: crop a full-screen grab to the circle and save it to
-    void_dir/covers/, for later reuse as a carousel cover image."""
+    """Shift+F12: crop the circle out via `grim` and save it to
+    void_dir/covers/, for later reuse as a carousel cover image.
 
-    def _app(self, qapp, tmp_path, radius=100):
+    Qt's own QScreen.grabWindow() was tried first and confirmed dead on this
+    Wayland/Hyprland setup — it returns a null pixmap even for a normal,
+    non-layer-shell window (verified live: "grabWindow(0) devolvió un pixmap
+    vacío"). grim (already installed, already used elsewhere in this
+    system's Hyprland config for Super+S) talks to the compositor directly
+    via wlr-screencopy and supports a region geometry natively — no need to
+    grab the whole screen and crop it ourselves in Qt.
+    """
+
+    def _app(self, qapp, tmp_path, radius=100, pos=(0, 0)):
         import types
         from helpers import make_ring_app
         from new_interface import FullscreenCircleApp
         a = make_ring_app(['.'])
         a.void_dir = str(tmp_path)
         a.circular_view = _view(qapp, 800, 600, radius)
-        a.screen = lambda: QApplication.primaryScreen()
+        a.circular_view.move(*pos)
         a.take_circle_screenshot = types.MethodType(
             FullscreenCircleApp.take_circle_screenshot, a)
         return a
 
-    def test_writes_a_png_into_covers(self, qapp, tmp_path):
-        a = self._app(qapp, tmp_path)
-        a.take_circle_screenshot()
-        covers = list((tmp_path / 'covers').glob('*.png'))
-        assert len(covers) == 1
-
-    def test_the_saved_image_matches_the_circle_bbox_size(self, qapp, tmp_path):
-        a = self._app(qapp, tmp_path, radius=150)
-        a.take_circle_screenshot()
-        from PyQt6.QtGui import QPixmap
-        covers = list((tmp_path / 'covers').glob('*.png'))
-        pm = QPixmap(str(covers[0]))
-        assert pm.width() == pm.height() == 300
-
-    def test_a_null_grab_is_handled_without_writing_anything(self, qapp, tmp_path):
-        # Reproduces what was actually seen live: grabWindow(0) can come back
-        # empty (Wayland/layer-shell can't grab a pinned-background surface
-        # the way it grabs a normal toplevel) — must not silently "succeed"
-        # with nothing on disk.
-        import types
+    def _ok_result(self):
         from unittest.mock import MagicMock
-        from new_interface import FullscreenCircleApp
-        from PyQt6.QtGui import QPixmap
+        return MagicMock(returncode=0, stderr='')
+
+    def test_calls_grim_with_a_region_matching_the_circle(self, qapp, tmp_path):
+        from unittest.mock import patch
+        a = self._app(qapp, tmp_path, radius=100, pos=(50, 60))
+        with patch('io_mixin.subprocess.run', return_value=self._ok_result()) as run:
+            a.take_circle_screenshot()
+        args = run.call_args[0][0]
+        assert args[0] == 'grim'
+        geom = args[args.index('-g') + 1]
+        # bbox for an 800x600 view, radius 100, is (300, 200, 200, 200);
+        # moved to (50, 60) -> global top-left (350, 260).
+        assert geom == '350,260 200x200'
+
+    def test_success_writes_into_covers_with_a_timestamped_name(self, qapp, tmp_path):
+        from unittest.mock import patch
         a = self._app(qapp, tmp_path)
-        fake_screen = MagicMock()
-        fake_screen.grabWindow.return_value = QPixmap()   # null pixmap
-        a.screen = lambda: fake_screen
-        a.take_circle_screenshot()
-        assert not (tmp_path / 'covers').exists()
+        with patch('io_mixin.subprocess.run', return_value=self._ok_result()) as run:
+            a.take_circle_screenshot()
+        out_path = run.call_args[0][0][-1]
+        assert out_path.startswith(str(tmp_path / 'covers' / 'cover_'))
+        assert out_path.endswith('.png')
+
+    def test_grim_failure_does_not_crash(self, qapp, tmp_path):
+        from unittest.mock import patch, MagicMock
+        a = self._app(qapp, tmp_path)
+        bad = MagicMock(returncode=1, stderr='wlr-screencopy failed')
+        with patch('io_mixin.subprocess.run', return_value=bad):
+            a.take_circle_screenshot()   # must not raise
+
+    def test_grim_missing_does_not_crash(self, qapp, tmp_path):
+        from unittest.mock import patch
+        a = self._app(qapp, tmp_path)
+        with patch('io_mixin.subprocess.run', side_effect=FileNotFoundError()):
+            a.take_circle_screenshot()   # must not raise
+
+    def test_zero_size_bbox_is_a_noop(self, qapp, tmp_path):
+        from unittest.mock import patch
+        a = self._app(qapp, tmp_path, radius=0)
+        with patch('io_mixin.subprocess.run', return_value=self._ok_result()) as run:
+            a.take_circle_screenshot()
+        run.assert_not_called()
 
     def test_no_circular_view_is_a_noop(self, qapp, tmp_path):
         import types
+        from unittest.mock import patch
         from helpers import make_ring_app
         from new_interface import FullscreenCircleApp
         a = make_ring_app(['.'])
         a.void_dir = str(tmp_path)
         a.circular_view = None
-        a.screen = lambda: QApplication.primaryScreen()
         a.take_circle_screenshot = types.MethodType(
             FullscreenCircleApp.take_circle_screenshot, a)
-        a.take_circle_screenshot()
-        assert not (tmp_path / 'covers').exists()
+        with patch('io_mixin.subprocess.run', return_value=self._ok_result()) as run:
+            a.take_circle_screenshot()
+        run.assert_not_called()

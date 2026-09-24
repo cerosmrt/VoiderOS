@@ -1498,32 +1498,36 @@ class IoMixin:
     def take_circle_screenshot(self):
         """Shift+F12: capture only what's inside the F2 circle — whatever the
         current opacity shows (void black, desktop, or nothing) — and save it
-        to void_dir/covers/, for later use as a carousel cover image."""
+        to void_dir/covers/, for later use as a carousel cover image.
+
+        Uses `grim` (wlr-screencopy) instead of Qt's QScreen.grabWindow(),
+        which returns a null pixmap on this Wayland/Hyprland setup — confirmed
+        live, not just in theory. grim is already installed and already used
+        elsewhere in this system's own Hyprland config (Super+S), and its -g
+        region flag crops natively, no need to grab the whole screen first."""
         from PyQt6.QtCore import QPoint
         cv = getattr(self, 'circular_view', None)
         if not cv:
             return
-        screen = self.screen()
-        full = screen.grabWindow(0)
-        if full.isNull():
-            print("⚠️ Circle screenshot: grabWindow(0) devolvió un pixmap vacío "
-                  "(probable limitación de Wayland/layer-shell) — nada para guardar.")
-            return
         x, y, w, h = cv.circle_bbox()
-        if w > 0 and h > 0:
-            top_left = cv.mapToGlobal(QPoint(x, y))
-            origin = screen.geometry().topLeft()
-            pixmap = full.copy(top_left.x() - origin.x(), top_left.y() - origin.y(), w, h)
-        else:
-            pixmap = full
+        if w <= 0 or h <= 0:
+            return
+        top_left = cv.mapToGlobal(QPoint(x, y))
         covers_dir = os.path.join(self.void_dir, 'covers')
         os.makedirs(covers_dir, exist_ok=True)
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         path = os.path.join(covers_dir, f"cover_{ts}.png")
-        if pixmap.save(path):
+        geometry = f"{top_left.x()},{top_left.y()} {w}x{h}"
+        try:
+            result = subprocess.run(['grim', '-g', geometry, path],
+                                    capture_output=True, timeout=5, text=True)
+        except FileNotFoundError:
+            print("⚠️ Circle screenshot: 'grim' no está instalado.")
+            return
+        if result.returncode == 0:
             print(f"🖼 Circle screenshot: {path}")
         else:
-            print(f"⚠️ Circle screenshot: no se pudo guardar en {path}")
+            print(f"⚠️ Circle screenshot: grim falló — {result.stderr.strip()}")
 
     def _printer_from_dialog(self):
         """Show QPrintDialog and return ready printer, or None if cancelled."""

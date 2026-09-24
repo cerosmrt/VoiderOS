@@ -5,6 +5,18 @@ state what's about to be done and get confirmation before touching files.
 
 ACTIVE — ready to implement next
 ---------------------------------
+- F12 (take_screenshot, io_mixin.py) PROBABLEMENTE ESTÁ IGUAL DE ROTO QUE
+  ESTABA Shift+F12 (2026-09-24, hallado de rebote, no tocado). Shift+F12
+  usaba QScreen.grabWindow(0) y devolvía un pixmap vacío en este
+  Wayland/Hyprland — confirmado en vivo, con la ventana en modo detached
+  (ni siquiera es un tema del layer-shell). Se arregló usando `grim` en vez
+  de la API de Qt (ver implemented.txt). F12 usa el MISMO grabWindow(0) SIN
+  chequear si devolvió algo — muy probable que hoy "funcione" (imprime el
+  mensaje) pero no deje nada en void/screenshots/, igual que le pasaba a
+  Shift+F12 antes del arreglo. No se tocó porque no era lo que pidió — la
+  arregla el mismo camino (grim -g con toda la pantalla, sin geometry) el
+  día que haga falta.
+
 - SU /void REAL SIGUE CON DOS FILAS COMPARTIENDO UN ARCHIVO (2026-09-21, NO
   RESUELTO — necesita su decisión, no se toca solo). El bug de más abajo
   (arreglado, commit 4b2f7a0) evita que esto vuelva a pasar de acá en más, pero
