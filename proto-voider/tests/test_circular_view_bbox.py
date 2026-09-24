@@ -79,6 +79,22 @@ class TestTakeCircleScreenshot:
         pm = QPixmap(str(covers[0]))
         assert pm.width() == pm.height() == 300
 
+    def test_a_null_grab_is_handled_without_writing_anything(self, qapp, tmp_path):
+        # Reproduces what was actually seen live: grabWindow(0) can come back
+        # empty (Wayland/layer-shell can't grab a pinned-background surface
+        # the way it grabs a normal toplevel) — must not silently "succeed"
+        # with nothing on disk.
+        import types
+        from unittest.mock import MagicMock
+        from new_interface import FullscreenCircleApp
+        from PyQt6.QtGui import QPixmap
+        a = self._app(qapp, tmp_path)
+        fake_screen = MagicMock()
+        fake_screen.grabWindow.return_value = QPixmap()   # null pixmap
+        a.screen = lambda: fake_screen
+        a.take_circle_screenshot()
+        assert not (tmp_path / 'covers').exists()
+
     def test_no_circular_view_is_a_noop(self, qapp, tmp_path):
         import types
         from helpers import make_ring_app

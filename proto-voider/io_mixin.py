@@ -1505,6 +1505,10 @@ class IoMixin:
             return
         screen = self.screen()
         full = screen.grabWindow(0)
+        if full.isNull():
+            print("⚠️ Circle screenshot: grabWindow(0) devolvió un pixmap vacío "
+                  "(probable limitación de Wayland/layer-shell) — nada para guardar.")
+            return
         x, y, w, h = cv.circle_bbox()
         if w > 0 and h > 0:
             top_left = cv.mapToGlobal(QPoint(x, y))
@@ -1516,8 +1520,10 @@ class IoMixin:
         os.makedirs(covers_dir, exist_ok=True)
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         path = os.path.join(covers_dir, f"cover_{ts}.png")
-        pixmap.save(path)
-        print(f"🖼 Circle screenshot: {path}")
+        if pixmap.save(path):
+            print(f"🖼 Circle screenshot: {path}")
+        else:
+            print(f"⚠️ Circle screenshot: no se pudo guardar en {path}")
 
     def _printer_from_dialog(self):
         """Show QPrintDialog and return ready printer, or None if cancelled."""
