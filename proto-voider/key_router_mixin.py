@@ -150,6 +150,8 @@ class KeyRouterMixin:
             self.take_screenshot(); event.accept(); return
         if self._matches(key, mods, 'open_screenshots'):
             self.open_screenshots_folder(); event.accept(); return
+        if self._matches(key, mods, 'circle_screenshot'):
+            self.take_circle_screenshot(); event.accept(); return
 
         if self._matches(key, mods, 'commit_void'):
             self.commit_void()
@@ -457,6 +459,8 @@ class KeyRouterMixin:
             self.switch_to_view(1); event.accept(); return
         if self._matches(key, mods, 'export_carousel'):
             self.export_carousel(); event.accept(); return
+        if self._matches(key, mods, 'export_carousel_cover'):
+            self.export_carousel_with_cover(); event.accept(); return
         if self._matches(key, mods, 'carousel_view_toggle'):
             self._toggle_f4_carousel_view(); event.accept(); return
         if self._matches(key, mods, 'quit'):

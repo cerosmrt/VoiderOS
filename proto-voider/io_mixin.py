@@ -1495,6 +1495,30 @@ class IoMixin:
         os.makedirs(screenshots_dir, exist_ok=True)
         subprocess.Popen(['xdg-open', screenshots_dir])
 
+    def take_circle_screenshot(self):
+        """Shift+F12: capture only what's inside the F2 circle — whatever the
+        current opacity shows (void black, desktop, or nothing) — and save it
+        to void_dir/covers/, for later use as a carousel cover image."""
+        from PyQt6.QtCore import QPoint
+        cv = getattr(self, 'circular_view', None)
+        if not cv:
+            return
+        screen = self.screen()
+        full = screen.grabWindow(0)
+        x, y, w, h = cv.circle_bbox()
+        if w > 0 and h > 0:
+            top_left = cv.mapToGlobal(QPoint(x, y))
+            origin = screen.geometry().topLeft()
+            pixmap = full.copy(top_left.x() - origin.x(), top_left.y() - origin.y(), w, h)
+        else:
+            pixmap = full
+        covers_dir = os.path.join(self.void_dir, 'covers')
+        os.makedirs(covers_dir, exist_ok=True)
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = os.path.join(covers_dir, f"cover_{ts}.png")
+        pixmap.save(path)
+        print(f"🖼 Circle screenshot: {path}")
+
     def _printer_from_dialog(self):
         """Show QPrintDialog and return ready printer, or None if cancelled."""
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)

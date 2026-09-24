@@ -333,6 +333,29 @@ def render_title_slide(title, font, w_px, h_px,
     return pm
 
 
+def render_cover_slide(image_path, w_px, h_px, font, mark='I',
+                        paper=QColor('#000000'), ink=QColor('#ffffff')):
+    """The carousel's cover slide: a chosen circle screenshot scaled to fill
+    the frame (center-cropped, never distorted), with the 'I' mark drawn
+    centered on top — the same routine as the chapter title slides. Falls
+    back to a plain fill if the image can't be loaded."""
+    pm = QPixmap(w_px, h_px)
+    pm.fill(paper)
+    src = QPixmap(image_path)
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+    if not src.isNull():
+        scaled = src.scaled(w_px, h_px, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                             Qt.TransformationMode.SmoothTransformation)
+        x = (w_px - scaled.width()) // 2
+        y = (h_px - scaled.height()) // 2
+        painter.drawPixmap(x, y, scaled)
+    painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+    draw_title_slide(painter, w_px, h_px, mark, font, ink)
+    painter.end()
+    return pm
+
+
 class ReadingPageView(QWidget):
     """Renders one page of a reading QTextDocument, centered on black."""
 

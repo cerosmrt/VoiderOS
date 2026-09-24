@@ -48,6 +48,8 @@ HELP = [
     ("Ctrl+P",            "Print"),
     ("Ctrl+Shift+V (F4)", "Toggle carousel preview (F10 ratio, title + slides)"),
     ("Ctrl+Shift+C (F4)", "Export as Instagram carousel (chapter, or book if on '.')"),
+    ("Ctrl+Shift+B (F4)", "Same, wrapped with a chosen cover + countercover"),
+    ("Shift+F12",         "Screenshot only inside the circle → void/covers/"),
     ("",                  ""),
     ("EDITING  (F2)",     None),
     ("Enter",             "Void line → active file (F1)"),

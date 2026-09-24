@@ -55,6 +55,7 @@ DEFAULT_CONFIG = {
         "tts_toggle": "Ctrl+T",
         "screenshot": "F12",
         "open_screenshots": "Ctrl+F12",
+        "circle_screenshot": "Shift+F12",
         "print_doc": "Ctrl+P",
         "export_doc": "Ctrl+S",
         "reformat_file": "Ctrl+Shift+F",
@@ -68,6 +69,7 @@ DEFAULT_CONFIG = {
         "scratch_toggle": "`",
         "title_toggle": "Ctrl+Shift+T",
         "export_carousel": "Ctrl+Shift+C",
+        "export_carousel_cover": "Ctrl+Shift+B",
         "carousel_view_toggle": "Ctrl+Shift+V",
         "typewriter_toggle": "Ctrl+Shift+W",
         "backup": "Ctrl+B"

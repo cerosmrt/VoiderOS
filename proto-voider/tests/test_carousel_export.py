@@ -54,6 +54,7 @@ def _app(tmp_path, library, book_index):
     open(app.current_file_path, 'w').close()
     app.config = {}
     for nm in ('_reading_sections', '_reading_file_lines', '_carousel_dimensions',
+               '_carousel_out_name', '_write_carousel_chapters',
                'export_carousel'):
         setattr(app, nm, types.MethodType(getattr(FullscreenCircleApp, nm), app))
     return app
@@ -145,6 +146,7 @@ def test_a_long_chapter_produces_several_body_slides(qapp, tmp_path):
     app.current_file_path = p
     app.config = {}
     for nm in ('_reading_sections', '_reading_file_lines', '_carousel_dimensions',
+               '_carousel_out_name', '_write_carousel_chapters',
                'export_carousel'):
         setattr(app, nm, types.MethodType(getattr(FullscreenCircleApp, nm), app))
     app.export_carousel()

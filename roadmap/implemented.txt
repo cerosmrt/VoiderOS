@@ -260,3 +260,46 @@ SESSION 2026-06-25
   libro, prompt de nombre, numeración continua). Verificado visualmente:
   preview en pantalla y PNG exportado son pixel-por-pixel el mismo dibujo
   (misma rutina compartida). Suite completa: 979 passed.
+
+- CARRUSEL: TAPA Y CONTRATAPA (Shift+F12, Ctrl+Shift+B). Motivado por
+  Federico: quiere sacar screenshots de sólo lo de ADENTRO del círculo (con
+  la opacidad bajada, tunéando FONDO y TINTA al momento de encuadrar) para
+  usarlos como portadas de carrusel. Su lectura del negro alrededor del
+  círculo — "being the void (metaphysical reality) outside the circle and
+  the whole of creation, within" — es justamente por qué NO hacía falta
+  perseguir el bug abierto de "la opacidad no aplica en fullscreen"
+  (pending.txt, 2026-09-10, nunca resuelto): el screenshot tiene que
+  capturar fielmente lo que el compositor esté mostrando en ese momento, sea
+  el void negro, el escritorio real, o lo que sea — no asumir nada.
+    * Shift+F12 (take_circle_screenshot, io_mixin.py): recorta un grab de
+      pantalla completa (mismo mecanismo que F12) al cuadrado que encierra el
+      círculo. CircularView.circle_bbox() (circular_view.py) da ese
+      rectángulo en coordenadas locales del widget — centrado, lado =
+      2×circle_radius —, y el método lo mapea a coordenadas de pantalla con
+      mapToGlobal antes de recortar. Guarda en void_dir/covers/.
+    * Ctrl+Shift+B (export_carousel_with_cover, f4_mixin.py): un comando
+      SEPARADO de Ctrl+Shift+C — la tapa es opt-in, no se mete en cada
+      export (decisión explícita de Federico: "separate keybinding just for
+      full book+cover export"). Abre un QFileDialog apuntando a
+      void_dir/covers/ para elegir la imagen; si cancela, no escribe nada.
+      La tapa (render_cover_slide, reading_page.py) escala la imagen elegida
+      para llenar el cuadro del carrusel (recorte centrado, sin
+      deformación — KeepAspectRatioByExpanding) y dibuja la marca 'I'
+      encima, centrada, con la MISMA rutina que ya usan los slides de
+      título (draw_title_slide) — pidió expresamente ese estilo. La
+      contratapa es un slide de texto con el título del capítulo actual
+      (mismo texto que ya usa el slide de título de ese capítulo; con el
+      libro entero, el nombre tipeado para la carpeta) — por ahora,
+      deliberadamente simple: "right now im just interested in the chapter".
+    * export_carousel() y export_carousel_with_cover() comparten
+      _carousel_out_name() (resuelve/pregunta el nombre de carpeta) y
+      _write_carousel_chapters() (el loop de título+cuerpo por capítulo,
+      numerado desde un start_n) — se factorizaron para no duplicar el loop
+      entre los dos comandos.
+  tests/test_circular_view_bbox.py nuevo (7 tests: geometría de circle_bbox +
+  take_circle_screenshot con self.screen() mockeado a primaryScreen()).
+  tests/test_carousel_cover.py nuevo (4 tests, render_cover_slide).
+  tests/test_carousel_export_cover.py nuevo (4 tests, export_carousel_with_cover).
+  Verificado visualmente con un círculo falso de muestra: la imagen se
+  recorta y centra bien, la 'I' blanca queda legible encima. Suite completa:
+  994 passed.

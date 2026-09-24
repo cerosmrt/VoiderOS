@@ -138,48 +138,35 @@ class F4Mixin:
                 p = self._para_ordinal_at(ring.lines, ring.index)
                 self.reading_view.goto_paragraph(p)
 
-    def export_carousel(self):
-        """Ctrl+Shift+C (F4): export the current F3 selection as Instagram
-        carousel slides — same scope as PDF export (_reading_sections): the
-        highlighted chapter, or the whole book when F3 is highlighted on a
-        '.' separator. Each chapter gets its own centered title slide, then
-        its body paginated to the configured aspect ratio. A whole-book
-        export has no single chapter title to name the folder with, so it
-        asks first. Written to void_dir/carousel/<name>/."""
+    def _carousel_out_name(self, sections):
+        """Folder name for a carousel export: the chapter's own title when
+        there's exactly one, otherwise prompted (a whole-book export has no
+        single title to name it with). None means the user cancelled."""
+        if len(sections) == 1:
+            return sections[0][0] or 'capitulo'
+        from PyQt6.QtWidgets import QInputDialog
+        out_name, ok = QInputDialog.getText(
+            self, 'Carrusel', 'Nombre para la carpeta del libro:')
+        out_name = out_name.strip()
+        if not ok or not out_name:
+            print("✗ Carrusel cancelado (sin nombre).")
+            return None
+        return out_name
+
+    def _write_carousel_chapters(self, sections, out_dir, w_px, h_px,
+                                 reading_font, page_pt, start_n=1):
+        """Write each section's title + body slides into out_dir, numbered
+        continuously from start_n. Returns (next_n, total_body_slides)."""
         from reading_page import (
-            build_reading_document, compute_page_offsets, carousel_page_pt,
+            build_reading_document, compute_page_offsets,
             render_carousel_page, render_title_slide,
         )
-        sections, _ = self._reading_sections()
-        if not sections:
-            print("✓ Nada para exportar.")
-            return
-
-        if len(sections) == 1:
-            out_name = sections[0][0] or 'capitulo'
-        else:
-            from PyQt6.QtWidgets import QInputDialog
-            out_name, ok = QInputDialog.getText(
-                self, 'Carrusel', 'Nombre para la carpeta del libro:')
-            out_name = out_name.strip()
-            if not ok or not out_name:
-                print("✗ Carrusel cancelado (sin nombre).")
-                return
-
-        w_px, h_px = self._carousel_dimensions()
-        reading_font = QFont(self.config.get('reading_font', 'EB Garamond'),
-                             int(self.config.get('reading_size', 13)))
-        page_pt = carousel_page_pt(w_px, h_px)
-        out_dir = os.path.join(self.void_dir, 'carousel', out_name)
-        os.makedirs(out_dir, exist_ok=True)
-
         from PyQt6.QtWidgets import QApplication
-        n = 1
+        n = start_n
         total_body = 0
         for title, lines in sections:
-            # Empty section title: the title gets its own standalone slide
-            # below, so build_reading_document must not also draw it atop
-            # the body.
+            # Empty section title: the title gets its own standalone slide,
+            # so build_reading_document must not also draw it atop the body.
             doc, para_blocks, layout = build_reading_document(
                 [('', lines)], reading_font, page_pt=page_pt,
                 hyphenate_lang=self.config.get('reading_hyphen_lang', 'auto'))
@@ -197,9 +184,77 @@ class F4Mixin:
                 # in the loop to pump the event loop on its own — without
                 # this the window manager reports Voider as not responding.
                 QApplication.processEvents()
+        return n, total_body
 
+    def export_carousel(self):
+        """Ctrl+Shift+C (F4): export the current F3 selection as Instagram
+        carousel slides — same scope as PDF export (_reading_sections): the
+        highlighted chapter, or the whole book when F3 is highlighted on a
+        '.' separator. Each chapter gets its own centered title slide, then
+        its body paginated to the configured aspect ratio. Written to
+        void_dir/carousel/<name>/."""
+        from reading_page import carousel_page_pt
+        sections, _ = self._reading_sections()
+        if not sections:
+            print("✓ Nada para exportar.")
+            return
+        out_name = self._carousel_out_name(sections)
+        if out_name is None:
+            return
+
+        w_px, h_px = self._carousel_dimensions()
+        reading_font = QFont(self.config.get('reading_font', 'EB Garamond'),
+                             int(self.config.get('reading_size', 13)))
+        page_pt = carousel_page_pt(w_px, h_px)
+        out_dir = os.path.join(self.void_dir, 'carousel', out_name)
+        os.makedirs(out_dir, exist_ok=True)
+
+        n, total_body = self._write_carousel_chapters(
+            sections, out_dir, w_px, h_px, reading_font, page_pt)
         print(f'🎠 Carrusel: {len(sections)} capítulo(s), {total_body} slides '
               f'+ títulos → {out_dir}')
+
+    def export_carousel_with_cover(self):
+        """Ctrl+Shift+B (F4): like export_carousel(), but wrapped with a
+        chosen cover image (the 'I' mark centered on top) and a countercover
+        slide bearing the chapter's title — a separate, opt-in command so a
+        plain Ctrl+Shift+C export never needs a cover picked. The cover image
+        comes from void_dir/covers/ (see Shift+F12, take_circle_screenshot)."""
+        from reading_page import carousel_page_pt, render_cover_slide, render_title_slide
+        sections, _ = self._reading_sections()
+        if not sections:
+            print("✓ Nada para exportar.")
+            return
+
+        from PyQt6.QtWidgets import QFileDialog
+        covers_dir = os.path.join(self.void_dir, 'covers')
+        cover_path, _ = QFileDialog.getOpenFileName(
+            self, 'Elegir portada', covers_dir, 'Imágenes (*.png *.jpg *.jpeg)')
+        if not cover_path:
+            print("✗ Cancelado (sin portada).")
+            return
+
+        out_name = self._carousel_out_name(sections)
+        if out_name is None:
+            return
+        back_title = sections[0][0] if len(sections) == 1 else out_name
+
+        w_px, h_px = self._carousel_dimensions()
+        reading_font = QFont(self.config.get('reading_font', 'EB Garamond'),
+                             int(self.config.get('reading_size', 13)))
+        page_pt = carousel_page_pt(w_px, h_px)
+        out_dir = os.path.join(self.void_dir, 'carousel', out_name)
+        os.makedirs(out_dir, exist_ok=True)
+
+        render_cover_slide(cover_path, w_px, h_px, reading_font).save(
+            os.path.join(out_dir, '1_portada.png'))
+        n, total_body = self._write_carousel_chapters(
+            sections, out_dir, w_px, h_px, reading_font, page_pt, start_n=2)
+        render_title_slide(back_title, reading_font, w_px, h_px).save(
+            os.path.join(out_dir, f'{n}_contratapa.png'))
+
+        print(f'🎠 Carrusel (con tapa): {len(sections)} capítulo(s), {total_body} '
+              f'slides + portada + contratapa → {out_dir}')
 
     def _build_reading_html(self, lines, title):
         """Convert Voider line format to prose HTML for F4 reading render.
