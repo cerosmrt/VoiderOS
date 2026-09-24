@@ -220,14 +220,6 @@ class CircularView(QWidget):
             return base_alpha
         return base_alpha * DIM_FACTOR
 
-    def circle_bbox(self):
-        """(x, y, w, h) bounding square of the circle, in this widget's own
-        local coordinates. Used by the Shift+F12 circle screenshot to know
-        what to crop out of a full-screen grab."""
-        cx, cy = self.width() // 2, self.height() // 2
-        r = self.circle_radius
-        return (cx - r, cy - r, 2 * r, 2 * r)
-
     def paintEvent(self, event):
         if self.width() == 0 or self.height() == 0:
             return

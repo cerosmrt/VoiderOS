@@ -327,3 +327,24 @@ SESSION 2026-06-25
   vez de screen.grabWindow — verifica el comando armado, el -g calculado, y
   que un grim que falla o no está instalado no rompe nada. Suite completa:
   997 passed.
+
+- SHIFT+F12 NO HACÍA NADA DESDE F1 (2026-09-24, seguido inmediato del arreglo
+  de arriba). Con grim ya andando, Federico probó Shift+F12 de nuevo: "it
+  does nothing now. not printing on terminal, nothing" — ni el mensaje de
+  éxito ni el de error. La causa: take_circle_screenshot dependía de
+  self.circular_view, el widget de F2 — pero F1 (la vista donde en realidad
+  se arma la tapa, tuneando FONDO/TINTA) usa OTRO widget (NormalView), y
+  circular_view recién se crea la primera vez que se visita F2 (lazy,
+  new_interface.py). Si Federico nunca pasó por F2 en esa sesión,
+  circular_view era None y la función volvía sin imprimir nada.
+  El círculo de F1 y el de F2 son geométricamente EL MISMO — mismo radio
+  (min(w,h)//2 - 35), centrado en la VENTANA completa, no en un widget hijo
+  — la fórmula está triplicada en el código (NormalView.paintEvent,
+  CircularView.paintEvent, FullscreenCircleApp._entry_geometry, comentado
+  ahí mismo "same circle as NormalView"). Se sacó la dependencia de
+  circular_view: ahora toma self.width()/self.height() (la ventana
+  principal) directamente, vía la función nueva _circle_bbox_for(w, h)
+  (io_mixin.py, pura, sin Qt) — funciona igual desde F1, F2, o cualquier
+  vista, porque el círculo es siempre el mismo respecto de la ventana.
+  Se sacó CircularView.circle_bbox() (quedó sin uso tras este cambio).
+  Suite completa: 997 passed.

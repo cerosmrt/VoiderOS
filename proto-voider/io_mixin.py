@@ -12,6 +12,17 @@ from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
 from app_config import _save_config
 from line_ring import LineRing
 
+
+def _circle_bbox_for(w, h):
+    """(x, y, side) bounding square of "the circle" for a window of size
+    w×h — same radius formula as NormalView.paintEvent, CircularView.paintEvent
+    and FullscreenCircleApp._entry_geometry (min(w,h)//2 - 35), kept in
+    lockstep since Shift+F12 must crop exactly what's drawn there."""
+    r = min(w, h) // 2 - 35
+    if r <= 0:
+        return (0, 0, 0)
+    return (w // 2 - r, h // 2 - r, 2 * r)
+
 # Carpetas de primer nivel que NO viajan en el backup. El backup existe para lo
 # que no se puede recuperar; los modelos de voz se vuelven a bajar y pesan más
 # que todo el resto junto (309 MB contra 78 MB de texto e historial).
@@ -1496,9 +1507,17 @@ class IoMixin:
         subprocess.Popen(['xdg-open', screenshots_dir])
 
     def take_circle_screenshot(self):
-        """Shift+F12: capture only what's inside the F2 circle — whatever the
-        current opacity shows (void black, desktop, or nothing) — and save it
+        """Shift+F12: capture only what's inside the circle — F1's or F2's,
+        whichever is showing, same geometry either way — at whatever the
+        current opacity shows (void black, desktop, or nothing), and save it
         to void_dir/covers/, for later use as a carousel cover image.
+
+        The circle is always centered in the WHOLE WINDOW (same formula as
+        NormalView.paintEvent and CircularView.paintEvent), computed here
+        from the main window directly rather than from a specific child
+        view — circular_view (F2) is only created lazily on first visiting
+        F2, so depending on it made this silently do nothing from F1, the
+        actual primary use case (opacity-tuned cover shots).
 
         Uses `grim` (wlr-screencopy) instead of Qt's QScreen.grabWindow(),
         which returns a null pixmap on this Wayland/Hyprland setup — confirmed
@@ -1506,18 +1525,15 @@ class IoMixin:
         elsewhere in this system's own Hyprland config (Super+S), and its -g
         region flag crops natively, no need to grab the whole screen first."""
         from PyQt6.QtCore import QPoint
-        cv = getattr(self, 'circular_view', None)
-        if not cv:
+        x, y, side = _circle_bbox_for(self.width(), self.height())
+        if side <= 0:
             return
-        x, y, w, h = cv.circle_bbox()
-        if w <= 0 or h <= 0:
-            return
-        top_left = cv.mapToGlobal(QPoint(x, y))
+        top_left = self.mapToGlobal(QPoint(x, y))
         covers_dir = os.path.join(self.void_dir, 'covers')
         os.makedirs(covers_dir, exist_ok=True)
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         path = os.path.join(covers_dir, f"cover_{ts}.png")
-        geometry = f"{top_left.x()},{top_left.y()} {w}x{h}"
+        geometry = f"{top_left.x()},{top_left.y()} {side}x{side}"
         try:
             result = subprocess.run(['grim', '-g', geometry, path],
                                     capture_output=True, timeout=5, text=True)
