@@ -231,11 +231,14 @@ class F5ReorderMixin:
 
     def _f5_open_picker(self):
         """Right in F5: open the in-view chapter catalogue. It lists every sendable
-        chapter in library order (↑/↓ to navigate, type to filter) and opens parked
-        on the chapter nearest the '0' portal — your working cluster."""
+        chapter in library order (↑/↓ to navigate, type to filter) — the active
+        chapter included, same as F2 — and opens parked on it: confirming without
+        moving is a no-op (_f5_move_current_to already treats same-file as one),
+        so the safety net comes free."""
         if self._f5_para_count() == 0:
             return
         self._f5_picker_open = True
+        self._pick_include_self = True
         self._f5_pick_filter = ''
         self._f5_pick_match_idx = self._f5_pick_start_idx()
         self._f5_refresh()
@@ -266,6 +269,10 @@ class F5ReorderMixin:
 
     def _f5_close_picker(self):
         self._f5_picker_open = False
+        # Se apaga al cerrar: si queda prendido, el panel de F2 hereda el activo
+        # en su lista aunque haya abierto desde otro archivo (mismo motivo que
+        # _doc_close_picker en f2_mixin.py).
+        self._pick_include_self = False
         self._f5_refresh()
 
     def _f5_pick_matches(self):

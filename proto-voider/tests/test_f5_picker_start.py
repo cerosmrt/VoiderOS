@@ -60,8 +60,14 @@ def test_start_idx_no_matches_is_zero():
 
 
 def test_open_picker_lands_on_the_portal_neighbour():
+    """_f5_open_picker ahora prende _pick_include_self (match F2 — Federico:
+    "yes match f2 too please"), asi que el propio '0.txt' activo entra a la
+    lista y gana el anclaje (distancia 0). El indice numerico sigue dando 2,
+    pero ahora es el portal mismo, no 'C' — de ahi el chequeo de identidad."""
     a = _app(['A.txt', 'B.txt', '0.txt', 'C.txt', 'D.txt'])
     a._f5_open_picker()
     assert a._f5_picker_open is True
     assert a._f5_pick_filter == ''
-    assert a._f5_pick_match_idx == 2        # opened on C, next to the portal
+    matches = a._f5_pick_matches()
+    assert matches[a._f5_pick_match_idx][0] == '0.txt'
+    assert a._f5_pick_match_idx == 2        # opened on the portal itself

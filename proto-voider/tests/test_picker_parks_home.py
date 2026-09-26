@@ -9,8 +9,13 @@ capítulo VECINO — y un Enter distraído te mandaba el párrafo ahí. Ahora el
 activo aparece y el panel abre sobre él: confirmar sin moverse no hace nada,
 porque mandar a uno mismo ya era un no-op. El resguardo sale gratis.
 
-Sólo cambia para F2. En F5 el panel sigue como estaba: ahí se abre con Right
-como un gesto deliberado de enviar, y no me lo pidió.
+Al principio esto cambió sólo para F2 (no lo había pedido para F5, que abre
+con Right como gesto deliberado de enviar). Después, comparando los dos
+paneles, pidió que F5 hiciera lo mismo — "yes match f2 too please" — así que
+ahora _f5_open_picker/_f5_close_picker prenden y apagan el mismo flag que
+_doc_open_picker/_doc_close_picker. _f5_move_current_to ya trataba mandar a
+uno mismo como no-op (test_move_to_same_file_ignored, test_f5_send.py), así
+que el resguardo también sale gratis del lado de F5.
 """
 import os
 import types
@@ -63,6 +68,17 @@ def _elegido(a):
     return m[a._f5_pick_match_idx % len(m)][0] if m else None
 
 
+def _enable_f5(a):
+    """Ata los metodos de F5 que _app() no necesitaba hasta ahora (las pruebas
+    de aca abajo abren el panel por el lado de F5, no de F2)."""
+    from new_interface import FullscreenCircleApp as App
+    for n in ('_f5_open_picker', '_f5_close_picker', '_f5_refresh',
+              '_f5_para_count', '_f5_tokens_cached', '_f5_tokens',
+              '_f5_para_positions', '_f5_invalidate_tokens'):
+        setattr(a, n, types.MethodType(getattr(App, n), a))
+    a._f5_picker_open = False
+
+
 # ── el activo aparece y es donde abre ────────────────────────────────────────
 
 def test_the_current_chapter_is_listed(tmp_path):
@@ -108,14 +124,26 @@ def test_it_works_from_the_first_chapter_too(tmp_path):
     assert _elegido(a) == 'Antes.txt'
 
 
-# ── F5 no cambia ─────────────────────────────────────────────────────────────
+# ── F5 ahora hace lo mismo ────────────────────────────────────────────────────
 
-def test_f5_still_excludes_the_source(tmp_path):
-    """Allá el panel se abre con Right como gesto deliberado de enviar. No me
-    lo pidió y no lo toco."""
+def test_f5_also_lists_the_current_chapter(tmp_path):
     a = _app(tmp_path)
-    a._pick_include_self = False          # como lo deja F5
-    assert 'Medio.txt' not in [f for f, _ in a._f5_pick_matches()]
+    _enable_f5(a)
+    a._f5_open_picker()
+    assert 'Medio.txt' in [f for f, _ in a._f5_pick_matches()]
+
+def test_f5_also_opens_parked_on_the_current_chapter(tmp_path):
+    a = _app(tmp_path)
+    _enable_f5(a)
+    a._f5_open_picker()
+    assert _elegido(a) == 'Medio.txt'
+
+def test_f5_closing_the_picker_resets_the_flag_too(tmp_path):
+    a = _app(tmp_path)
+    _enable_f5(a)
+    a._f5_open_picker()
+    a._f5_close_picker()
+    assert not a._pick_include_self, 'el flag quedó prendido y F2 lo hereda'
 
 
 def test_closing_the_picker_resets_the_flag(tmp_path):
