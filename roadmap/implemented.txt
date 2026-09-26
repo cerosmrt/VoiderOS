@@ -477,3 +477,32 @@ SESSION 2026-06-25
   con un render de muestra reproduciendo la captura de Federico: los
   puntos separan los grupos de libros en el panel, igual que en F2/F3.
   Suite completa: 1010 passed.
+
+- F5: EL PANEL DE CAPITULOS AHORA LISTA EL CAPITULO ACTIVO, IGUAL QUE F2
+  (2026-09-26, seguido inmediato del arreglo de los puntos de arriba).
+  Federico notó que en F2 el primer capítulo mostrado al abrir el panel es
+  el capítulo actual, y en F5 no. Primero verifiqué que F5 SI abría parado
+  en algo con sentido — el vecino más cercano en la biblioteca, no el
+  activo, porque _f5_open_picker deja _pick_include_self en False (a
+  propósito: en F2 esto existe como resguardo — un Enter distraído no
+  debería mandar el párrafo al capítulo de al lado — pero en F5 abrir el
+  panel con Right/→ ya es un gesto deliberado de enviar, así que nunca se
+  pidió el mismo resguardo ahí). Confirmado eso, pidió explícitamente
+  igualarlo: "yes match f2 too please".
+  Cambio: _f5_open_picker ahora prende _pick_include_self = True (como
+  _doc_open_picker en F2) y _f5_close_picker lo apaga de nuevo al cerrar
+  (como _doc_close_picker) para que no se filtre a la próxima apertura
+  desde F2. _f5_move_current_to ya trataba mandar un párrafo al mismo
+  archivo como no-op (test_move_to_same_file_ignored, ya existía), así que
+  confirmar sin moverse en F5 queda gratis, igual que en F2.
+  Se actualizó test_open_picker_lands_on_the_portal_neighbour (el índice
+  numérico seguía dando 2 pero ahora apunta al portal '0.txt' mismo, no a
+  'C' — se agregó un chequeo de identidad para que no quede como
+  casualidad), se agregó cobertura simétrica de F5 en
+  test_picker_parks_home.py (activo listado, panel abre sobre él, cerrar
+  apaga el flag) y se corrigió el test de test_picker_separators.py que
+  documentaba el comportamiento viejo ("F5 nunca lista el activo") para
+  verificar el nuevo en cambio. Verificado con un render de muestra vía
+  _f5_open_picker() real (no a mano): el capítulo activo aparece en
+  negrita en el panel, los puntos separadores siguen en su lugar. Suite
+  completa: 1013 passed.
