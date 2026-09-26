@@ -50,8 +50,8 @@
     LC_TIME           = "es_AR.UTF-8";
   };
 
-  services.xserver.xkb = { layout = "gb"; variant = ""; };
-  console.keyMap = "uk";
+  services.xserver.xkb = { layout = "latam"; variant = ""; };
+  console.keyMap = "la-latin1";
 
   users.users.federico = {
     isNormalUser  = true;
