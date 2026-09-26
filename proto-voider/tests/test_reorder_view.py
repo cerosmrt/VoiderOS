@@ -59,6 +59,18 @@ def test_title_header_paints_when_empty(qapp):
     _render(v)
 
 
+def test_separators_paint(qapp):
+    v = ReorderView()
+    units = [
+        {'kind': 'sep'},
+        {'kind': 'para', 'ordinal': 0, 'text': 'first'},
+        {'kind': 'sep'},
+        {'kind': 'para', 'ordinal': 1, 'text': 'second'},
+    ]
+    v.set_state(units, 0)
+    _render(v)
+
+
 def test_picker_panel_paints(qapp):
     v = ReorderView()
     v.set_state([{'kind': 'para', 'ordinal': 0, 'text': 'un parrafo'}], 0)

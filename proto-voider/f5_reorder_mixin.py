@@ -433,8 +433,9 @@ class F5ReorderMixin:
     # ── View state ────────────────────────────────────────────────────────────
 
     def _f5_units(self):
-        """Ordered display units for the view: paragraphs (with ordinal + prose)
-        and '/name' fences. Separators are implicit (paragraphs are spaced)."""
+        """Ordered display units for the view: paragraphs (with ordinal + prose),
+        '/name' fences, and '.' separators — matching F2, which shows a dot
+        between paragraph groups instead of hiding the boundary."""
         units, ordinal = [], -1
         for kind, val in self._f5_tokens_cached():
             if kind == 'para':
@@ -443,6 +444,8 @@ class F5ReorderMixin:
                               'text': ' '.join(val)})
             elif kind == 'mark':
                 units.append({'kind': 'mark', 'name': val.strip()[1:].strip()})
+            elif kind == 'sep':
+                units.append({'kind': 'sep'})
         return units
 
     def _f5_refresh(self):

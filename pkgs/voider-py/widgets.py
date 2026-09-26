@@ -39,9 +39,9 @@ def ring_alpha(distancia_px, media_altura, max_alpha=1.0):
     que es lo que hace que F2/F3 se lean como un anillo y no como una lista.
     Llega a cero en el borde de la ventana.
 
-    Vive aca porque la usan CircularView (F2/F3/F6) y el panel de capitulos.
-    Tenerla dos veces fue justo lo que hizo que el panel se viera distinto de
-    F3, que es lo que Federico marco.
+    Vive aca porque la usan CircularView (F2/F3/F6), el panel de capitulos y
+    ReorderView (F5). Tenerla duplicada fue justo lo que hizo que el panel se
+    viera distinto de F3 — y despues F5 del resto — asi que siempre una sola.
     """
     import math
     if media_altura == 0:

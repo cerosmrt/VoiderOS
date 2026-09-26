@@ -375,3 +375,37 @@ SESSION 2026-06-25
   Verificado en vivo con la ventana real (960×1080, floating): recorte
   960×960 limpio, sin barras, sin contenido de otras ventanas. Suite
   completa: 1000 passed.
+
+- F5 MATCHEADO A F2: centrado, fade por distancia, y separadores '.' visibles
+  (2026-09-26). Pedido de Federico: "deberia verse igual, y posicionarse
+  igual" que F2 — más el detalle de que los puntos que separan capítulos
+  también deberían verse, como en F2.
+    * _f5_units() (f5_reorder_mixin.py) ignoraba por completo los tokens
+      'sep' ('.') — F5 nunca mostraba dónde terminaba un grupo de párrafos y
+      empezaba el siguiente. Ahora los incluye como unidades propias.
+    * ReorderView (reorder_view.py) reescrito: texto centrado (antes
+      alineado a la izquierda) y el color binario blanco/gris (actual vs
+      resto) reemplazado por widgets.ring_alpha — la MISMA curva coseno que
+      ya usan CircularView (F2/F3/F6) y el panel de capítulos, no una
+      reimplementada — aplicada por distancia real en píxeles al centro del
+      widget, a TODAS las unidades (párrafos, separadores, fences), vía
+      painter.setOpacity(). El wrap de párrafos largos (lo que ya hacía bien
+      F5 y no F2) se mantuvo intacto.
+    * La lógica de posicionamiento (nuevo capítulo se inserta justo después
+      del archivo activo en la biblioteca; el cursor se queda en el mismo
+      índice tras mandar un párrafo, mostrando lo que ocupa su lugar) se
+      revisó y ya estaba bien — _f5_new_chapter_insert_idx y
+      _f5_move_current_to ya hacían exactamente eso. No hizo falta tocarla.
+  tests/test_f5_units.py nuevo (5 tests, separadores en _f5_units).
+  tests/test_reorder_view.py: test de pintado con separadores agregado.
+  Verificado visualmente con un render de muestra: centrado, fade correcto,
+  separadores visibles, fence con líneas también atenuadas por distancia,
+  flecha '>' y wrap intactos. Suite completa: 1006 passed.
+
+- TECLADO CAMBIADO DE GB A LATAM (2026-09-26). Federico no podía escribir
+  tildes ("no consigo poner tildes con mi teclado"). nix/system.nix tenía
+  el layout en "gb" (inglés británico, pc104) — sin dead keys para
+  acentos — pese a que el locale (LC_*) ya está en es_AR. Cambiado a
+  services.xserver.xkb.layout = "latam" y console.keyMap = "la-latin1".
+  Necesita rebuild (sudo nixos-rebuild switch) para aplicarse — no se
+  corrió, es tarea del usuario.

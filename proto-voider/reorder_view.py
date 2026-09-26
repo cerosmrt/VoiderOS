@@ -2,6 +2,8 @@ from PyQt6.QtWidgets import QWidget
 from PyQt6.QtGui import QPainter, QColor, QFont, QFontMetrics
 from PyQt6.QtCore import Qt, QRect, QEvent
 
+from widgets import ring_alpha
+
 
 class ReorderView(QWidget):
     """F5 — linear, read-only paragraph view of the active file. The current
@@ -73,6 +75,8 @@ class ReorderView(QWidget):
     def _unit_lines(self, unit, max_w, fm):
         if unit['kind'] == 'mark':
             return [unit['name'] or '·']
+        if unit['kind'] == 'sep':
+            return ['.']
         return self._wrap(unit['text'], max_w, fm)
 
     def _wrap_unit_cached(self, u, text_w, fm):
@@ -130,11 +134,17 @@ class ReorderView(QWidget):
         def draw_unit(u, by):
             wl = self._wrap_unit_cached(u, text_w, fm)
             bh = len(wl) * lh
+            # Same ring curve as F2/F3 (widgets.ring_alpha) — everything fades by
+            # distance from the centre, not just the current paragraph vs the rest.
+            alpha = ring_alpha(abs(by + bh / 2 - H / 2), H / 2, 1.0)
+            painter.setOpacity(alpha)
             if u['kind'] == 'mark':
                 self._draw_mark(painter, u['name'], by, PW, pad, fm, lh)
+            elif u['kind'] == 'sep':
+                self._draw_sep(painter, by, pad, text_w, lh)
             else:
                 is_cur = (u['ordinal'] == self._para_idx)
-                self._draw_para(painter, wl, by, pad, text_w, lh, fm, is_cur)
+                self._draw_para(painter, wl, by, pad, text_w, lh)
                 if is_cur:
                     # '>' output cue: Right arrow sends this paragraph.
                     painter.setPen(QColor(255, 255, 255))
@@ -178,17 +188,24 @@ class ReorderView(QWidget):
         from widgets import draw_pinned_title
         draw_pinned_title(painter, base_font, W, self._title)
 
-    def _draw_para(self, painter, wl, by, pad, text_w, lh, fm, current):
-        if current:
-            painter.setPen(QColor(255, 255, 255))
-        else:
-            painter.setPen(QColor(90, 90, 90))
+    def _draw_para(self, painter, wl, by, pad, text_w, lh):
+        # Centred, like F2 — no separate current/dim colour; the ring alpha
+        # (set by the caller) is what marks distance from the centre now.
+        painter.setPen(QColor(255, 255, 255))
         y = by
         for line in wl:
             painter.drawText(QRect(pad, y, text_w, lh),
-                             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
                              line)
             y += lh
+
+    def _draw_sep(self, painter, by, pad, text_w, lh):
+        # The '.' paragraph-group boundary, exactly like F2 shows it: centred,
+        # plain text, faded by the same ring curve as everything else.
+        painter.setPen(QColor(255, 255, 255))
+        painter.drawText(QRect(pad, by, text_w, lh),
+                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+                         '.')
 
     def _draw_mark(self, painter, name, by, W, pad, fm, lh):
         # A faint grey rule with the chapter name — a fixed fence (black & white).
