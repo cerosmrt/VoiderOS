@@ -113,7 +113,10 @@ class ReorderView(QWidget):
         PW = int(W * 0.62) if self._picker_open else W
         pad = max(48, int(PW * 0.14))
         text_w = PW - 2 * pad
-        gap = lh                                  # blank line between units
+        # No blank line between units — F2 packs every ring line at exactly one
+        # line_height with no extra gap; the '.' separator unit IS the breathing
+        # room between paragraph groups, same as it is in F2's ring.
+        gap = 0
 
         units = self._units
         if not units:

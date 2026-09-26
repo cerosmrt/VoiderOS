@@ -409,3 +409,18 @@ SESSION 2026-06-25
   services.xserver.xkb.layout = "latam" y console.keyMap = "la-latin1".
   Necesita rebuild (sudo nixos-rebuild switch) para aplicarse — no se
   corrió, es tarea del usuario.
+
+- F5: SACADO EL HUECO ENTRE CADA UNIDAD (2026-09-26, seguido inmediato del
+  matcheo a F2 de arriba). Federico, comparando contra una captura real de
+  F2: "por que hay un espacio entre cada parrafo y su punto previo y
+  posterior en f5?" — quedó un `gap = lh` (una línea en blanco completa)
+  sumado entre CADA unidad al reescribir ReorderView, herencia del diseño
+  viejo (que necesitaba separar bloques de párrafo sin punto explícito).
+  F2 no tiene ningún hueco: cada línea del anillo — sea texto, un '.' o lo
+  que sea — ocupa exactamente un line_height, pegada a la siguiente. Como
+  ahora _f5_units() ya incluye los separadores '.', y todo párrafo queda
+  siempre entre un 'sep' o un 'mark' (nunca dos 'para' seguidos sin
+  separador — así tokeniza _f5_tokens), sacar el gap (puesto en 0) es
+  seguro y deja el mismo empaquetado exacto que F2. Verificado con un
+  render de muestra: puntos pegados a su párrafo, sin hueco. Suite
+  completa: 1006 passed.
