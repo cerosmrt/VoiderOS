@@ -154,3 +154,27 @@ def test_f5_refresh_sends_the_separators_to_the_view(tmp_path):
     args, _ = a.reorder_view.set_picker_state.call_args
     matches = args[2]
     assert SEP in matches, f'sin separadores en la vista: {matches}'
+
+
+def test_f5_opens_parked_near_current_not_on_it(tmp_path):
+    """F5 deja _pick_include_self en False (a diferencia de F2): el capitulo
+    activo nunca es un destino valido, asi que nunca aparece listado en el
+    panel — ni resaltado ni atenuado. Lo que SI tiene que pasar es que abra
+    parado en el vecino mas cercano en la biblioteca (A, justo antes de B),
+    que es la 'referencia de donde estas' que da _f5_pick_start_idx."""
+    from f5_reorder_mixin import F5ReorderMixin
+    a = _app(tmp_path)               # biblioteca ['.','A','B','.','C','D'], activo B
+    a._pick_include_self = False     # el default real de F5 (_f5_open_picker)
+    a._f5_units = types.MethodType(F5ReorderMixin._f5_units, a)
+    a._f5_tokens_cached = types.MethodType(F5ReorderMixin._f5_tokens_cached, a)
+    a._f5_tokens = types.MethodType(F5ReorderMixin._f5_tokens, a)
+    a._f5_current_title = types.MethodType(F5ReorderMixin._f5_current_title, a)
+    a._f5_para_idx = 0
+    a._f5_picker_open = True
+    a._f5_pick_match_idx = a._f5_pick_start_idx()
+    a.reorder_view = MagicMock()
+    F5ReorderMixin._f5_refresh(a)
+    args, _ = a.reorder_view.set_picker_state.call_args
+    filas, idx = args[2], args[3]
+    assert 'B' not in filas, f'el activo no deberia listarse nunca: {filas}'
+    assert filas[idx] == 'A', f'deberia parar en el vecino mas cercano: {filas}'
