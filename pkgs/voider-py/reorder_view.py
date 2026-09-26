@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import QWidget
 from PyQt6.QtGui import QPainter, QColor, QFont, QFontMetrics
 from PyQt6.QtCore import Qt, QRect, QEvent
 
-from widgets import ring_alpha
+from widgets import row_alpha
 
 
 class ReorderView(QWidget):
@@ -137,16 +137,22 @@ class ReorderView(QWidget):
         def draw_unit(u, by):
             wl = self._wrap_unit_cached(u, text_w, fm)
             bh = len(wl) * lh
-            # Same ring curve as F2/F3 (widgets.ring_alpha) — everything fades by
-            # distance from the centre, not just the current paragraph vs the rest.
-            alpha = ring_alpha(abs(by + bh / 2 - H / 2), H / 2, 1.0)
+            is_cur = (u['kind'] == 'para' and u['ordinal'] == self._para_idx)
+            if is_cur:
+                alpha = 1.0
+            else:
+                # Same as the shared chapter-picker rows (widgets.row_alpha) —
+                # ring_alpha alone barely dims a neighbouring line (~0.975 one
+                # row away), which read as "everything is white". row_alpha
+                # multiplies by DIM_FACTOR too, so only the current paragraph
+                # is ever full white; that's what makes it read as ONE line.
+                alpha = row_alpha(abs(by + bh / 2 - H / 2), H / 2)
             painter.setOpacity(alpha)
             if u['kind'] == 'mark':
                 self._draw_mark(painter, u['name'], by, PW, pad, fm, lh)
             elif u['kind'] == 'sep':
                 self._draw_sep(painter, by, pad, text_w, lh)
             else:
-                is_cur = (u['ordinal'] == self._para_idx)
                 self._draw_para(painter, wl, by, pad, text_w, lh)
                 if is_cur:
                     # '>' output cue: Right arrow sends this paragraph.

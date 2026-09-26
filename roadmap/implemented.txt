@@ -434,3 +434,18 @@ SESSION 2026-06-25
   tests/test_quit_app.py nuevo (3 tests): confirma el binding, que dispara
   close(), y que F4 SIN Alt (que es view_f4, cambiar a F4) no cierra nada.
   Suite completa: 1009 passed.
+
+- F5: EL FADE NO ERA LO SUFICIENTEMENTE BRUSCO (2026-09-26, seguido
+  inmediato del matcheo a F2). El arreglo anterior usaba ring_alpha solo,
+  que a una línea de distancia del centro da ~0.975 — prácticamente el
+  mismo blanco, así que varios párrafos cercanos se veían todos "actuales".
+  Encontré la pieza que faltaba en widgets.py: row_alpha (la usa el panel
+  de capítulos compartido con F2/F3), que multiplica todo lo que NO es la
+  fila elegida por DIM_FACTOR=0.3 además de la curva — eso es lo que hace
+  que en el picker (y en F2/F3) SOLO una línea se vea blanca de verdad.
+  ReorderView ahora usa row_alpha en vez de ring_alpha: alpha=1.0 fijo para
+  el párrafo actual (identidad, no distancia — evita un caso raro de
+  redondeo con parrafos de alto impar), row_alpha para todo lo demás
+  (separadores, fences, y el resto de los párrafos). Verificado con un
+  render de muestra: un solo párrafo blanco, todo el resto gris parejo,
+  exactamente como el picker. Suite completa: 1009 passed.
