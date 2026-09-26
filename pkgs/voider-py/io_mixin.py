@@ -13,15 +13,12 @@ from app_config import _save_config
 from line_ring import LineRing
 
 
-def _circle_bbox_for(w, h):
-    """(x, y, side) bounding square of "the circle" for a window of size
-    w×h — same radius formula as NormalView.paintEvent, CircularView.paintEvent
-    and FullscreenCircleApp._entry_geometry (min(w,h)//2 - 35), kept in
-    lockstep since Shift+F12 must crop exactly what's drawn there."""
-    r = min(w, h) // 2 - 35
-    if r <= 0:
-        return (0, 0, 0)
-    return (w // 2 - r, h // 2 - r, 2 * r)
+def _square_crop_for(wx, wy, ww, wh):
+    """(x, y, side) of a centered 1:1 crop of a window at (wx, wy) sized
+    ww×wh — trims the wider axis (the "side bars") down to match the
+    narrower one, in global (compositor) coordinates."""
+    side = min(ww, wh)
+    return (wx + (ww - side) // 2, wy + (wh - side) // 2, side)
 
 # Carpetas de primer nivel que NO viajan en el backup. El backup existe para lo
 # que no se puede recuperar; los modelos de voz se vuelven a bajar y pesan más
@@ -1507,33 +1504,40 @@ class IoMixin:
         subprocess.Popen(['xdg-open', screenshots_dir])
 
     def take_circle_screenshot(self):
-        """Shift+F12: capture only what's inside the circle — F1's or F2's,
-        whichever is showing, same geometry either way — at whatever the
-        current opacity shows (void black, desktop, or nothing), and save it
-        to void_dir/covers/, for later use as a carousel cover image.
+        """Shift+F12: screenshot cropped to 1:1 (a centered square, trimming
+        the side bars) and saved to void_dir/covers/, for later use as a
+        carousel cover image.
 
-        The circle is always centered in the WHOLE WINDOW (same formula as
-        NormalView.paintEvent and CircularView.paintEvent), computed here
-        from the main window directly rather than from a specific child
-        view — circular_view (F2) is only created lazily on first visiting
-        F2, so depending on it made this silently do nothing from F1, the
-        actual primary use case (opacity-tuned cover shots).
-
-        Uses `grim` (wlr-screencopy) instead of Qt's QScreen.grabWindow(),
-        which returns a null pixmap on this Wayland/Hyprland setup — confirmed
-        live, not just in theory. grim is already installed and already used
-        elsewhere in this system's own Hyprland config (Super+S), and its -g
-        region flag crops natively, no need to grab the whole screen first."""
-        from PyQt6.QtCore import QPoint
-        x, y, side = _circle_bbox_for(self.width(), self.height())
+        The window's own position/size come from `hyprctl -j clients`
+        (matched by this process's pid), not from Qt's self-reported
+        geometry. Seen live: for a floating (detached) window, Qt's own
+        width()/mapToGlobal() didn't match where the window actually sits on
+        screen — the crop landed over other windows entirely. hyprctl and
+        grim both speak the compositor's own coordinate space, so anchoring
+        to hyprctl's numbers is what keeps the two in agreement. Also sidesteps
+        Qt's QScreen.grabWindow(), confirmed to return a null pixmap here."""
+        try:
+            hc = subprocess.run(['hyprctl', '-j', 'clients'],
+                                capture_output=True, timeout=5, text=True)
+            clients = json.loads(hc.stdout)
+        except (FileNotFoundError, json.JSONDecodeError):
+            print("⚠️ Circle screenshot: no se pudo consultar hyprctl.")
+            return
+        pid = os.getpid()
+        win = next((c for c in clients if c.get('pid') == pid), None)
+        if not win:
+            print("⚠️ Circle screenshot: no se encontró la ventana en hyprctl.")
+            return
+        wx, wy = win['at']
+        ww, wh = win['size']
+        x, y, side = _square_crop_for(wx, wy, ww, wh)
         if side <= 0:
             return
-        top_left = self.mapToGlobal(QPoint(x, y))
         covers_dir = os.path.join(self.void_dir, 'covers')
         os.makedirs(covers_dir, exist_ok=True)
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         path = os.path.join(covers_dir, f"cover_{ts}.png")
-        geometry = f"{top_left.x()},{top_left.y()} {side}x{side}"
+        geometry = f"{x},{y} {side}x{side}"
         try:
             result = subprocess.run(['grim', '-g', geometry, path],
                                     capture_output=True, timeout=5, text=True)

@@ -348,3 +348,30 @@ SESSION 2026-06-25
   vista, porque el círculo es siempre el mismo respecto de la ventana.
   Se sacó CircularView.circle_bbox() (quedó sin uso tras este cambio).
   Suite completa: 997 passed.
+
+- SHIFT+F12 SIN COORDENADAS DE Qt, Y SIMPLIFICADO A 1:1 SIN CÍRCULO
+  (2026-09-24/26). Con circular_view fuera de la ecuación, Federico probó de
+  nuevo: la imagen salía del tamaño correcto (846×846, coincidiendo con la
+  cuenta) pero con contenido de OTRAS ventanas (terminal, Thunar) mezclado.
+  hyprctl clients confirmó la causa: para una ventana floating (detached),
+  la posición/tamaño que reporta Qt (self.width()/mapToGlobal) NO coincidía
+  con dónde está la ventana en la pantalla real — el recorte caía en un
+  lugar distinto al que ocupa Voider. Se reemplazó por completo la
+  geometría de Qt por `hyprctl -j clients` (matcheando por pid del propio
+  proceso), que habla el mismo espacio de coordenadas que grim — confirmado
+  con una simulación a mano (grim con las coordenadas reales de hyprctl):
+  el círculo quedó perfecto, tocando los cuatro bordes del recorte. Lo que
+  se seguía viendo "sucio" no era un bug de recorte: Voider flotando con
+  FONDO bajo sobre el escritorio tileado deja ver de verdad lo que tiene
+  detrás — comportamiento correcto, no error.
+  Con eso confirmado, Federico simplificó el pedido: "no me interesa lo del
+  screenshot... solo quiero que...lo recorte en 1:1 (que le saque las
+  barras laterales)... no es tan importante que solo saque dentro del
+  círculo". Se sacó toda la lógica de círculo (_circle_bbox_for, con su
+  radio y margen de 35px) y se reemplazó por _square_crop_for(wx, wy, ww,
+  wh): un recorte cuadrado centrado que recorta el eje más ancho al tamaño
+  del más angosto — sin geometría de círculo, sin depender de ninguna vista
+  en particular. Sigue usando hyprctl + grim por los mismos motivos.
+  Verificado en vivo con la ventana real (960×1080, floating): recorte
+  960×960 limpio, sin barras, sin contenido de otras ventanas. Suite
+  completa: 1000 passed.
