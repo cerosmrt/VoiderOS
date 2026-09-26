@@ -133,3 +133,24 @@ def test_an_empty_library_does_not_crash(tmp_path):
     a = _app(tmp_path, biblioteca=['.'], activo='0.txt')
     filas, i = a._pick_display()
     assert filas == [] and i == 0
+
+
+# ── llega a la vista de F5, no solo a _pick_display ─────────────────────────
+
+def test_f5_refresh_sends_the_separators_to_the_view(tmp_path):
+    """_doc_refresh_picker (F2) ya usa _pick_display. _f5_refresh todavia
+    armaba las filas a mano desde _f5_pick_matches, que nunca incluye el '.'
+    — por eso el panel de F5 se veia sin puntos aunque el de F2 si los tenia."""
+    from f5_reorder_mixin import F5ReorderMixin
+    a = _app(tmp_path)
+    a._f5_units = types.MethodType(F5ReorderMixin._f5_units, a)
+    a._f5_tokens_cached = types.MethodType(F5ReorderMixin._f5_tokens_cached, a)
+    a._f5_tokens = types.MethodType(F5ReorderMixin._f5_tokens, a)
+    a._f5_current_title = types.MethodType(F5ReorderMixin._f5_current_title, a)
+    a._f5_para_idx = 0
+    a._f5_picker_open = True
+    a.reorder_view = MagicMock()
+    F5ReorderMixin._f5_refresh(a)
+    args, _ = a.reorder_view.set_picker_state.call_args
+    matches = args[2]
+    assert SEP in matches, f'sin separadores en la vista: {matches}'

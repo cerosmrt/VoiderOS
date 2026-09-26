@@ -449,3 +449,31 @@ SESSION 2026-06-25
   (separadores, fences, y el resto de los párrafos). Verificado con un
   render de muestra: un solo párrafo blanco, todo el resto gris parejo,
   exactamente como el picker. Suite completa: 1009 passed.
+
+- F5: AL PANEL DE CAPITULOS LE FALTABAN LOS PUNTOS SEPARADORES (2026-09-26).
+  Federico, insistiendo varias vueltas: "los puntos entre los capitulos,
+  igual que en f3 y igual que en f2" — mandó una captura del panel real
+  (el "navbar" de la derecha en F5) con nombres de capítulos de libros
+  distintos corridos sin ninguna separación. La confusión de las vueltas
+  anteriores era mía: estaba mirando los separadores '.' DENTRO del
+  contenido (los de _f5_units, ya arreglados) y no el panel de catálogo,
+  que es dibujo aparte (widgets.draw_chapter_picker).
+  La función que arma exactamente esto, _pick_display() en
+  f5_reorder_mixin.py, ya existía — Federico la había pedido antes
+  ("me gustaria que la lista se vea como se ve en f3... con los puntos
+  separadores"), ya estaba testeada (tests/test_picker_separators.py,
+  12 tests) y F2 (_doc_refresh_picker en f2_mixin.py) ya la usaba
+  correctamente. Pero _f5_refresh() — el refresh propio de F5 — nunca la
+  llamaba: seguía armando las filas a mano desde _f5_pick_matches(), que
+  por diseño excluye el '.' (no es un destino al que mandar un párrafo).
+  Por eso el panel de F2 mostraba los puntos y el de F5 no, con el mismo
+  código de dibujo debajo. Cambio de una línea: _f5_refresh() ahora llama
+  _pick_display() como F2, que devuelve tanto las filas (con '·' entre
+  libros) como el índice de fila correcto (los separadores corren la
+  cuenta respecto al índice de destino). Test nuevo agregado a
+  test_picker_separators.py que cubre específicamente el cableado a
+  reorder_view.set_picker_state (los 12 tests viejos solo probaban
+  _pick_display() en aislado, nunca que _f5_refresh() la usara). Verificado
+  con un render de muestra reproduciendo la captura de Federico: los
+  puntos separan los grupos de libros en el panel, igual que en F2/F3.
+  Suite completa: 1010 passed.

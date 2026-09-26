@@ -455,10 +455,15 @@ class F5ReorderMixin:
         view.set_state(self._f5_units(), self._f5_para_idx, self._f5_current_title(),
                        getattr(self, '_show_view_title', False))
         if getattr(self, '_f5_picker_open', False):
-            matches = self._f5_pick_matches()
             target = self._f5_pick_target()
+            # Las filas que se dibujan llevan los puntos separadores entre
+            # libros, igual que en F2/F3 — _pick_display traduce el indice de
+            # destino elegido al indice de fila (los separadores corren la
+            # cuenta). Antes esto armaba las filas a mano desde
+            # _f5_pick_matches, que nunca incluye el '.'.
+            filas, idx = self._pick_display()
             view.set_picker_state(True, self._f5_pick_filter,
-                                  [d for _, d in matches], self._f5_pick_match_idx,
+                                  filas, idx,
                                   bool(target and target.get('is_new')),
                                   target['display'] if target else '')
         else:
