@@ -61,6 +61,10 @@ class KeyRouterMixin:
                 self._f3_search_show_center()
                 event.accept(); return
 
+        # Global: quit the app cleanly (saves working-set position via closeEvent).
+        if self._matches(key, mods, 'quit_app'):
+            self.close(); event.accept(); return
+
         # Global: view switching
         if self._matches(key, mods, 'view_f1'):
             self.switch_to_view(0); event.accept(); return

@@ -22,6 +22,7 @@ HELP = [
     ("F10",               "Settings — font, size, colors"),
     ("F11",               "This help screen"),
     ("Esc",               "Lock screen — PAM password to unlock"),
+    ("Alt+F4",            "Quit (saves working-set position first)"),
     ("Ctrl+T",            "TTS — toggle text-to-speech"),
     ("F12",               "Screenshot"),
     ("Ctrl+F12",          "Open screenshots folder"),

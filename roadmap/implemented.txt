@@ -424,3 +424,13 @@ SESSION 2026-06-25
   seguro y deja el mismo empaquetado exacto que F2. Verificado con un
   render de muestra: puntos pegados a su párrafo, sin hueco. Suite
   completa: 1006 passed.
+
+- ALT+F4 CIERRA LA APP (2026-09-26). Pedido directo de Federico. Voider
+  captura casi todas las teclas a mano (keyPressEvent propio, sin chrome de
+  ventana), así que Alt+F4 nunca llegaba a Hyprland para cerrar la ventana
+  como haría con cualquier otra app. Nuevo binding global "quit_app":
+  "Alt+F4" → self.close(), que dispara closeEvent (ya existía, guarda la
+  posición del working set) — un cierre limpio, no un kill a lo bruto.
+  tests/test_quit_app.py nuevo (3 tests): confirma el binding, que dispara
+  close(), y que F4 SIN Alt (que es view_f4, cambiar a F4) no cierra nada.
+  Suite completa: 1009 passed.

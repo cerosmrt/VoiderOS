@@ -38,6 +38,7 @@ DEFAULT_CONFIG = {
         "view_f9": "F9",
         "view_f10": "F10",
         "help": "F11",
+        "quit_app": "Alt+F4",
         "quit": "Escape",
         "rebase": "Ctrl+0",
         "reshuffle": "Ctrl+R",
