@@ -546,3 +546,16 @@ SESSION 2026-06-25
   borrar la palabra siguiente. El editor lo comparten F1 (scratch), F2,
   F3, F6 y F7, así que el arreglo vale para las cinco vistas con una sola
   clase. Suite completa: 1023 passed.
+
+- CTRL+BACKSPACE AL FINAL DEL RENGLÓN YA NO BORRA LA LÍNEA ENTERA
+  (2026-09-27, mismo día que el arreglo de Ctrl+Delete de arriba). En
+  cualquier posición del medio del renglón Ctrl+Backspace ya caía nativo
+  (ninguna rama lo interceptaba ahí) — pero al final del todo había un
+  caso especial que emitía deleteLine, borrando el renglón completo en
+  vez de una palabra. Pedido de Federico: "quiero que ctrl backspace ya
+  no borre la linea enterea when at the end of a line, just last word
+  (one word backwards no exeception)" — a diferencia del arreglo de
+  Ctrl+Delete, acá NO hay excepción por posición: se borró la rama entera
+  (circular_view.py). Ctrl+Delete parado en cursorPosition()==0 sigue
+  siendo el comando de "mandar este renglón al tacho", así que no se
+  pierde nada. Suite completa: 1026 passed.
