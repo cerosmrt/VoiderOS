@@ -507,9 +507,6 @@ class CustomLineEdit(QLineEdit):
         elif key == Qt.Key.Key_Delete and mods == Qt.KeyboardModifier.NoModifier and self.cursorPosition() == len(self.text()) and not self.hasSelectedText():
             self.deleteAtEnd.emit()
             event.accept()
-        elif key == Qt.Key.Key_Backspace and ctrl and self.cursorPosition() == len(self.text()):
-            self.deleteLine.emit()
-            event.accept()
         elif key in (Qt.Key.Key_Left, Qt.Key.Key_Right) and (
                 mods == (Qt.KeyboardModifier.AltModifier
                          | Qt.KeyboardModifier.ShiftModifier)):
