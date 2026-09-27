@@ -492,10 +492,18 @@ class CustomLineEdit(QLineEdit):
             self.downPressed.emit()
             event.accept()
         elif key == Qt.Key.Key_Delete and ctrl:
+            # Sólo al PRINCIPIO del renglón Ctrl+Delete es el comando de
+            # línea (tacho / cosecha / vaciar tacho / sacar del working set,
+            # según qué vista conectó estas señales). En cualquier otra
+            # posición es edición de texto normal: borrar la palabra que
+            # sigue — para eso hace falta soltarle el evento a Qt en vez de
+            # aceptarlo acá, porque QLineEdit ya lo resuelve solo.
             if self.cursorPosition() == 0:
                 self.deleteLine.emit()
-            self.ctrlDeletePressed.emit()
-            event.accept()
+                self.ctrlDeletePressed.emit()
+                event.accept()
+            else:
+                super().keyPressEvent(event)
         elif key == Qt.Key.Key_Delete and mods == Qt.KeyboardModifier.NoModifier and self.cursorPosition() == len(self.text()) and not self.hasSelectedText():
             self.deleteAtEnd.emit()
             event.accept()
