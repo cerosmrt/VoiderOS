@@ -506,3 +506,28 @@ SESSION 2026-06-25
   _f5_open_picker() real (no a mano): el capítulo activo aparece en
   negrita en el panel, los puntos separadores siguen en su lugar. Suite
   completa: 1013 passed.
+
+- F5 MAPEABA MAL EL PUNTO, Y F9 NO RESPETABA POSICIÓN (2026-09-27). Pedido
+  de Federico: "f5 should respect current index from f1 and f2. f9 should
+  also. i mean this that while changing positions, i remain on the same
+  spot". Primero verifiqué que F5 YA hacía esto (_f5_enter, testeado en
+  ambas direcciones) — pero comparando dos capturas lado a lado, Federico
+  encontró el bug real: "el punto esta tomando como que pertenece al
+  parrafo anterior en f5 y no al siguiente como lo hace en f2". La regla
+  de F2 ya existía, escrita en _doc_send_scope (f2_mixin.py): "sobre un
+  punto, el parrafo entero que ese punto abre" — el de DESPUÉS, no el de
+  antes. _f5_para_at_line hacía lo contrario. Arreglado con casos límite
+  cubiertos: un punto al principio del archivo sigue abriendo el primer
+  párrafo, un punto final sin nada después cae de vuelta al último
+  párrafo (antes ya era así, por casualidad).
+  Aparte, F9 (el editor de prosa plano) no tenía NADA de esto — abría
+  siempre arriba de todo. Pregunté qué tan preciso hacía falta ("start of
+  paragraph" vs "line dentro del párrafo") y contestó: "that it lands in
+  the same paragraph is enough". Nueva _f9_entry_offset (f5_reorder_mixin.py)
+  mapea la línea actual del anillo a un offset de caracter en el texto de
+  F9. No se puede reusar el ordinal de _f5_para_at_line directo contra
+  lines_to_paragraphs (reading_page.py): esa función parte un solo
+  párrafo de F5 en varios bloques cuando una línea no termina en
+  ,.?!… (scriptio continua, un fragmento por línea) — así que se busca el
+  bloque que ABRE el párrafo, que siempre es el primero de esos
+  fragmentos. Suite completa: 1020 passed.
