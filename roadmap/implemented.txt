@@ -531,3 +531,18 @@ SESSION 2026-06-25
   ,.?!… (scriptio continua, un fragmento por línea) — así que se busca el
   bloque que ABRE el párrafo, que siempre es el primero de esos
   fragmentos. Suite completa: 1020 passed.
+
+- CTRL+DELETE AHORA BORRA LA PALABRA SIGUIENTE, SALVO AL PRINCIPIO DEL
+  RENGLÓN (2026-09-27). Pedido de Federico: "ctrl delete should delete one
+  word forward", y antes de que pudiera preguntar por el choque con el
+  uso existente (tacho/cosecha/vaciar tacho/sacar del working set, todos
+  atados a Ctrl+Delete) aclaró él mismo: "(except when at beginning of
+  line)". CustomLineEdit.keyPressEvent (circular_view.py) emitía
+  ctrlDeletePressed sin mirar la posición del cursor, y siempre llamaba
+  event.accept() — así que el borrado de palabra nativo de QLineEdit
+  nunca llegaba a correr. Ahora sólo en cursorPosition()==0 sigue siendo
+  el comando de línea de siempre; en cualquier otra posición el evento se
+  le suelta a super().keyPressEvent(), que QLineEdit ya resuelve como
+  borrar la palabra siguiente. El editor lo comparten F1 (scratch), F2,
+  F3, F6 y F7, así que el arreglo vale para las cinco vistas con una sola
+  clase. Suite completa: 1023 passed.
