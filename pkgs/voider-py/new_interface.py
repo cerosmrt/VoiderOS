@@ -808,6 +808,12 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             lines = self._reading_file_lines(self.current_file_path)
             self.editor_view.setPlainText('\n\n'.join(lines_to_paragraphs(lines)))
             self.editor_view.document().setModified(False)
+            # Land on the same paragraph F1/F2/F5 were on, not always the top.
+            from PyQt6.QtGui import QTextCursor
+            cursor = self.editor_view.textCursor()
+            cursor.setPosition(self._f9_entry_offset(lines, self.line_ring.index))
+            self.editor_view.setTextCursor(cursor)
+            self.editor_view.ensureCursorVisible()
             self.stack.setCurrentWidget(self.editor_view)
             self.entry.hide()
             self.editor_view.setFocus()

@@ -103,6 +103,29 @@ def test_enter_lands_on_paragraph_of_current_line():
     assert a._f5_para_idx == 2
 
 
+def test_enter_on_a_dot_lands_on_the_paragraph_it_opens():
+    """F2's own rule for 'standing on a dot' (_doc_send_scope, f2_mixin.py):
+    "sobre un punto, el parrafo entero que ese punto abre" — the paragraph
+    AFTER it, not before. F5 mapped a dot to the preceding paragraph instead,
+    so F2 and F5 disagreed on the same ring position (Federico caught it
+    comparing two screenshots side by side)."""
+    a = _app(['.', 'a', '.', 'b', '.', 'c'], idx=2)   # F2 parked on the dot before 'b'
+    a._f5_enter()
+    assert a._f5_para_idx == 1                        # 'b', not 'a'
+
+
+def test_enter_on_the_leading_dot_lands_on_the_first_paragraph():
+    a = _app(['.', 'a', '.', 'b'], idx=0)             # F2 parked on the very first dot
+    a._f5_enter()
+    assert a._f5_para_idx == 0                        # 'a'
+
+
+def test_enter_on_a_trailing_dot_falls_back_to_the_last_paragraph():
+    a = _app(['.', 'a', '.', 'b', '.'], idx=4)        # F2 parked on a dot with nothing after
+    a._f5_enter()
+    assert a._f5_para_idx == 1                        # 'b' — nothing to open, stay put
+
+
 def test_enter_to_f2_positions_and_switches():
     a = _app(['.', 'a', '.', 'b', '/A', 'c'], para=2)
     a._f5_enter_to_f2()

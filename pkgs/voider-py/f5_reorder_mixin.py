@@ -125,8 +125,13 @@ class F5ReorderMixin:
     # ── F2 ↔ F5 position mapping ──────────────────────────────────────────────
 
     def _f5_para_at_line(self, lines, line_idx):
-        """Ordinal of the paragraph containing lines[line_idx]. A '.'/'/name'/blank
-        line maps to the paragraph that precedes it (0 if none)."""
+        """Ordinal of the paragraph at lines[line_idx]. A '.' maps to the
+        paragraph it OPENS — the one right after it — same rule F2 itself uses
+        for "standing on a dot" (_doc_send_scope in f2_mixin.py: "sobre un
+        punto, el parrafo entero que ese punto abre"), not the one before.
+        A trailing dot with nothing after it has no paragraph to open; the
+        caller (_f5_enter) clamps that back to the last real paragraph.
+        A '/name' fence or blank line still maps to the paragraph before it."""
         if not lines:
             return 0
         line_idx = max(0, min(line_idx, len(lines) - 1))
@@ -143,13 +148,19 @@ class F5ReorderMixin:
                 last = ordinal
                 is_text = True
             if i == line_idx:
-                return max(0, ordinal if is_text else last)
+                if is_text:
+                    return max(0, ordinal)
+                if s == '.':
+                    return max(0, ordinal + 1)
+                return max(0, last)
         return max(0, last)
 
-    def _f5_line_of_para(self, ordinal):
+    def _f5_line_of_para(self, ordinal, lines=None):
         """First line index of the paragraph with this ordinal (0 if not found)."""
+        if lines is None:
+            lines = self.line_ring.lines
         ord_, in_para = -1, False
-        for i, raw in enumerate(self.line_ring.lines):
+        for i, raw in enumerate(lines):
             s = raw.strip()
             if s.startswith('/') or s == '.':
                 in_para = False
@@ -159,6 +170,27 @@ class F5ReorderMixin:
                     in_para = True
                     if ord_ == ordinal:
                         return i
+        return 0
+
+    def _f9_entry_offset(self, lines, line_idx):
+        """Character offset in F9's prose text (lines_to_paragraphs, joined
+        with '\\n\\n') of the paragraph holding lines[line_idx] — same
+        paragraph _f5_enter would land F5 on. lines_to_paragraphs can split
+        one F5 paragraph into several ,.?!…-terminated blocks (scriptio
+        continua, one fragment per line with no closing punctuation), so this
+        finds the block that STARTS the target paragraph, which is always the
+        first one: "lands in the same paragraph is enough" (Federico)."""
+        from reading_page import lines_to_paragraphs
+        if not lines:
+            return 0
+        para_idx = self._f5_para_at_line(lines, line_idx)
+        start_line = self._f5_line_of_para(para_idx, lines)
+        target = lines[start_line].strip() if 0 <= start_line < len(lines) else ''
+        offset = 0
+        for p in lines_to_paragraphs(lines):
+            if target and p.startswith(target):
+                return offset
+            offset += len(p) + 2       # the '\n\n' joiner
         return 0
 
     def _f5_enter(self):
