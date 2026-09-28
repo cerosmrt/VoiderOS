@@ -536,7 +536,7 @@ THEME
 
     # ── Input ─────────────────────────────────────────────────────────────────
     input {
-      kb_layout = gb
+      kb_layout = voider-accents
     }
   '';
 in
@@ -556,6 +556,25 @@ in
   programs.hyprland = {
     enable = true;
     xwayland.enable = false;
+  };
+
+  # ── Teclado: UK físico + tildes directas por AltGr ──────────────────────────
+  services.xserver.xkb.extraLayouts.voider-accents = {
+    description = "English (UK) + tildes por AltGr (VoiderOS)";
+    languages   = [ "eng" ];
+    symbolsFile = pkgs.writeText "voider-accents-xkb" ''
+      xkb_symbols "basic" {
+          include "gb(basic)"
+          name[Group1]="English (UK, Voider accents)";
+
+          key <AC01> { [ a, A, aacute, Aacute ] };
+          key <AD03> { [ e, E, eacute, Eacute ] };
+          key <AD08> { [ i, I, iacute, Iacute ] };
+          key <AD09> { [ o, O, oacute, Oacute ] };
+          key <AD07> { [ u, U, uacute, Uacute ] };
+          key <AB06> { [ n, N, ntilde, Ntilde ] };
+      };
+    '';
   };
 
   # EB Garamond — F4 reading/print book serif (see proto-voider/reading_page.py).
