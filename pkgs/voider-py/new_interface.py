@@ -96,12 +96,15 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             for action, ks in self.config.get('keybindings', {}).items()
         }
 
-        # Resolve void_dir: config → dialog
+        # Resolve void_dir: config → auto-create next to config.json (no
+        # forced dialog — a compiled .exe should be double-click and go). The
+        # manual picker (Ctrl+F4 / change_void_directory) is still there for
+        # changing it later; it's just not forced on first run any more.
         void_dir = self.config.get('void_dir', '')
         if not void_dir or not os.path.isdir(void_dir):
-            void_dir = self._pick_void_directory()
-            if not void_dir:
-                sys.exit(0)
+            void_dir = os.path.join(
+                os.path.dirname(os.path.abspath(CONFIG_PATH)), 'void')
+            os.makedirs(void_dir, exist_ok=True)
             self.config['void_dir'] = void_dir
             _save_config(self.config)
 
