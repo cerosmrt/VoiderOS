@@ -559,3 +559,21 @@ SESSION 2026-06-25
   (circular_view.py). Ctrl+Delete parado en cursorPosition()==0 sigue
   siendo el comando de "mandar este renglón al tacho", así que no se
   pierde nada. Suite completa: 1026 passed.
+
+- ALT+←/→ CON SELECCIÓN DEJABA UNA PALABRA PEGADA A SU PUNTUACIÓN
+  (2026-09-27). Federico, moviendo una frase seleccionada en la app real:
+  "mira cuando busco mover esas frases con alt flecha para la izquierda,
+  la palabra realidad se queda porque esta pegada a la coma, deberia
+  moverse tambien, es un bug" — con una captura mostrando "aplica a la
+  realidad" seleccionado y "realidad" quedándose atrás al mover el bloque.
+  _swap_words (f2_mixin.py) exigía que el span ENTERO de cada token
+  cupiera dentro de la selección para entrar al bloque. Una selección
+  hecha con shift+flecha o doble-click-arrastre para en la última letra
+  de una palabra — nunca llega a la puntuación pegada sin espacio (como
+  "realidad,"). Como core.split() sólo separa por espacios, esa coma es
+  parte del MISMO token, cuyo span termina un carácter después del final
+  de la selección — el chequeo de contención estricta lo descartaba en
+  silencio, y el bloque se movía sin él. Cambiado a un chequeo de
+  superposición (ya existía medio escrito como fallback para otro caso, y
+  resulta que arregla también este) — colapsa la lógica de dos pasos en
+  una sola condición. Suite completa: 1028 passed.
