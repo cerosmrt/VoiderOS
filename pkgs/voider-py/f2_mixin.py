@@ -1184,11 +1184,16 @@ class F2Mixin:
         if editor.hasSelectedText():
             sel_start = editor.selectionStart()
             sel_end = sel_start + len(editor.selectedText())
+            # Overlap, not full containment: a selection made by shift-arrow
+            # or double-click-drag stops right after the last letter of a
+            # word, never reaching punctuation glued to it with no space
+            # (e.g. "palabra,"). That comma is part of the SAME token
+            # (core.split() only splits on whitespace), so requiring the
+            # token's span to fit entirely inside the selection silently
+            # dropped it from the block — it stayed behind while the rest
+            # of the phrase moved.
             block_indices = [i for i, (s, e) in enumerate(spans)
-                             if s >= sel_start and e <= sel_end]
-            if not block_indices:
-                block_indices = [i for i, (s, e) in enumerate(spans)
-                                 if s < sel_end and e > sel_start]
+                             if s < sel_end and e > sel_start]
         else:
             cur = editor.cursorPosition()
             block_indices = [i for i, (s, e) in enumerate(spans) if s <= cur <= e]
