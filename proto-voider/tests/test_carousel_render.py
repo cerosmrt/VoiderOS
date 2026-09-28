@@ -23,7 +23,7 @@ def _font():
     return QFont('EB Garamond', 13)
 
 
-def _not_blank(pixmap, paper=QColor('#ffffff')):
+def _not_blank(pixmap, paper=QColor('#000000')):
     img = pixmap.toImage().convertToFormat(QImage.Format.Format_RGB32)
     paper_rgb = paper.rgb()
     for y in range(0, img.height(), 7):
@@ -61,6 +61,18 @@ class TestRenderCarouselPage:
         offsets = rp.compute_page_offsets(doc, layout.block_h, layout.title_blocks)
         assert len(offsets) > 1
 
+    def test_default_background_is_black_matching_voiders_own_look(self, qapp):
+        """Was white/near-black (the printed-book look, shared with the PDF
+        path) — Federico: carousel slides should match Voider's own black
+        background / white text, not look like a book page. render_cover_slide
+        already defaulted to black/white; title and body slides didn't, so the
+        cover flashed to a different background than the rest of the carousel."""
+        doc, para_blocks, layout = self._doc(['Una linea.', '.'])
+        offsets = rp.compute_page_offsets(doc, layout.block_h, layout.title_blocks)
+        pm = rp.render_carousel_page(doc, layout, offsets, 0, 1080, 1350)
+        img = pm.toImage().convertToFormat(QImage.Format.Format_RGB32)
+        assert img.pixel(5, 5) == QColor('#000000').rgb()
+
 
 class TestRenderTitleSlide:
 
@@ -76,3 +88,8 @@ class TestRenderTitleSlide:
     def test_an_empty_title_is_left_blank(self, qapp):
         pm = rp.render_title_slide('', _font(), 1080, 1350)
         assert not _not_blank(pm)
+
+    def test_default_background_is_black_matching_voiders_own_look(self, qapp):
+        pm = rp.render_title_slide('El Titulo', _font(), 1080, 1350)
+        img = pm.toImage().convertToFormat(QImage.Format.Format_RGB32)
+        assert img.pixel(5, 5) == QColor('#000000').rgb()

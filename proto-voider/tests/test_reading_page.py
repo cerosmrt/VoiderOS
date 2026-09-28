@@ -2,7 +2,7 @@
 import pytest
 
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QColor
 
 import reading_page as rp
 
@@ -233,6 +233,15 @@ class TestReadingPageViewTitleSlide:
         assert not v.on_title_slide
         assert v.page >= 1
 
+    def test_carousel_mode_is_black_on_white_like_the_export(self, qapp):
+        """render_carousel_page/render_title_slide default to black/white
+        (Voider's own look, not the printed-book white page) — the preview
+        has to match what actually gets exported, not the plain book view's
+        white paper."""
+        v = self._view(qapp)
+        assert v._paper == QColor('#000000')
+        assert v._ink == QColor('#ffffff')
+
     def test_no_title_slide_keeps_old_behaviour(self, qapp):
         doc, para_blocks, layout = rp.build_reading_document(
             [('T', ['a.', '.'])], QFont('Consolas', 11))
@@ -241,6 +250,10 @@ class TestReadingPageViewTitleSlide:
         v.set_document(doc, para_blocks, layout)
         assert not v.on_title_slide
         assert v.page == 0
+        # The plain book view keeps the printed-page look — only carousel
+        # mode (title_slide set) switches to black/white.
+        assert v._paper == QColor('#ffffff')
+        assert v._ink == QColor('#111111')
 
     def test_painting_the_title_slide_does_not_crash(self, qapp):
         v = self._view(qapp)

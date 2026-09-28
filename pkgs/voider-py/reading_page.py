@@ -276,7 +276,7 @@ def block_top(doc, block_number):
 
 
 def render_carousel_page(doc, layout, offsets, page, w_px, h_px,
-                          paper=QColor('#ffffff'), ink=QColor('#111111')):
+                          paper=QColor('#000000'), ink=QColor('#ffffff')):
     """Rasterize one page of a built reading document to a QPixmap of exactly
     w_px × h_px. Same clip/scale technique as ReadingPageView.paintEvent — a
     single uniform scale is correct because `layout` was built from
@@ -303,7 +303,7 @@ def render_carousel_page(doc, layout, offsets, page, w_px, h_px,
     return pm
 
 
-def draw_title_slide(painter, w, h, title, font, ink=QColor('#111111')):
+def draw_title_slide(painter, w, h, title, font, ink=QColor('#ffffff')):
     """Paint a centered title into (0, 0, w, h) of the painter's current
     coordinate system — shared by the PNG export (render_title_slide) and the
     on-screen F4 carousel preview (ReadingPageView), so they can't drift apart."""
@@ -320,7 +320,7 @@ def draw_title_slide(painter, w, h, title, font, ink=QColor('#111111')):
 
 
 def render_title_slide(title, font, w_px, h_px,
-                        paper=QColor('#ffffff'), ink=QColor('#111111')):
+                        paper=QColor('#000000'), ink=QColor('#ffffff')):
     """A standalone slide holding only the chapter title, centered — no body
     content. The dedicated first slide of a carousel export."""
     pm = QPixmap(w_px, h_px)
@@ -378,13 +378,21 @@ class ReadingPageView(QWidget):
     def set_document(self, doc, para_blocks, layout, title_slide=None):
         """title_slide: None for the plain book view; a title string switches
         this view to carousel mode — page 0 becomes a dedicated title slide and
-        body pagination starts at page 1."""
+        body pagination starts at page 1.
+
+        Carousel mode also switches the preview to black/white (matching
+        render_carousel_page's own colours — Voider's own look, not the
+        printed-book white page the plain book view keeps)."""
         self._doc = doc
         self._para_blocks = list(para_blocks)
         self._layout = layout
         self._offsets = compute_page_offsets(
             doc, layout.block_h, getattr(layout, 'title_blocks', ()))
         self._title_slide = title_slide
+        if title_slide is not None:
+            self._paper, self._ink = QColor('#000000'), QColor('#ffffff')
+        else:
+            self._paper, self._ink = QColor('#ffffff'), QColor('#111111')
         body_pages = max(1, len(self._offsets))
         self._page_count = body_pages + (1 if title_slide else 0)
         self._page = 0
