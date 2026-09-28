@@ -832,6 +832,33 @@ PENDIENTES web (para cuando haya tiempo):
 
 LONG-TERM / DEFERRED
 --------------------
+- RUST MIRROR (pkgs/voider-rs/) — seguir portando hasta paridad (2026-09-28,
+  Federico: "deja el mirror de rust para otro dia, anotalo en pending").
+  Estado real (más avanzado de lo que parecía a primera vista — ver
+  pkgs/voider-rs/PARITY.md, 136 tests Rust contra 592 del Python): F1-F5, F9,
+  undo/redo, backup a drive, IPC entre instancias, todo portado y testeado.
+  Falta: F6/F7/F8 (el lado O/: lector, navegador, oráculo) — no arrancado.
+  Print/PDF, lock screen, TTS tampoco están. El mirror es UNIDIRECCIONAL:
+  Rust tiene que alcanzar a Python, nunca al revés — y PARITY.md está
+  desactualizado respecto a todo lo arreglado en Python esta sesión (F5
+  mapeaba mal el punto, F9 no mantenía posición, Ctrl+Delete/Backspace,
+  Alt+flecha con selección) — portar eso también cuando se retome.
+  Ya existe, probado y documentado, un build de Windows funcionando desde
+  esta misma máquina vía Nix cross-compile (pkgs/voider-rs/BUILD-WINDOWS.md,
+  commit b5b6098): voider-rs.exe, 4.9MB, portable, sin instalar nada. Le
+  faltan PDF/voz/sync entre instancias (limitaciones de la plataforma
+  Windows, no del cross-compile). NO publicar/compilar para godplaystheartist
+  hasta que el mirror esté más cerca de paridad — ver también la nota de
+  compilar-en-Windows más abajo.
+
+- COMPILAR PYTHON A .EXE DESDE UNA VM DE WINDOWS (2026-09-28). PyInstaller no
+  cross-compila desde Linux (necesita correr EN el target) — el camino real
+  es una VM de Windows acá mismo (QEMU/virt-manager en NixOS) con Python +
+  PyQt6 + PyInstaller instalados adentro, compilando nativo. Evita toda la
+  fricción que tuvo el cross-compile de Rust (conseguir la std, el nombre de
+  libpthread.a) porque no cruza nada — es compilación normal dentro de la VM.
+  No arrancado: hace falta una ISO de Windows y configurar la VM primero.
+
 - Void scanner: on startup, scan /void recursively, index all .txt files.
   F3 shows chapters across entire void. Source files never modified.
 
