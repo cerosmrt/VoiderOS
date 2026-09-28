@@ -436,6 +436,15 @@ THEME
     windowrulev2 = nofullscreenrequest,  class:voider-py
     windowrulev2 = suppressevent maximize, class:voider-py
     windowrulev2 = workspace 1,          class:voider-py
+    # By title, not class: proto-voider runs under nix-shell python3, so its
+    # real WM class is "python3" — the class:voider-py rules above never
+    # matched it. The window title IS always "Voider" though (set in
+    # new_interface.py regardless of how it's launched), so this one reaches
+    # both proto and production. Without noshadow, the global shadow
+    # (rgba(00000099), added in f72fcc9) draws a dark haze over Voider's own
+    # translucent background — the opposite of what Ctrl+-/Ctrl+Shift+- are
+    # for. Other apps keep their shadow; only Voider opts out.
+    windowrulev2 = noshadow,             title:^(Voider)$
 
     # ── Force all apps to workspace 1 (tiles with voider) ────────────────────
     windowrulev2 = workspace 1, class:firefox
