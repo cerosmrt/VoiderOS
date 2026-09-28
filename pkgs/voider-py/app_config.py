@@ -5,7 +5,18 @@ import sys
 from PyQt6.QtCore import Qt, qInstallMessageHandler, QtMsgType
 
 
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+def _config_dir():
+    """Where config.json/state.json live: next to the real .exe when frozen
+    (PyInstaller sets sys.frozen + sys.executable), next to this source file
+    otherwise. A frozen --onefile build self-extracts to a temp folder on
+    every launch and deletes it on exit — __file__ points in there, so writes
+    made through it never survive a restart."""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+CONFIG_PATH = os.path.join(_config_dir(), 'config.json')
 
 DEFAULT_CONFIG = {
     "void_dir": "",
