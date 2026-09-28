@@ -1,0 +1,307 @@
+
+╔══════════════════════════════════════════════════════════════════╗
+║                          V O I D E R                               ║
+║                     complete usage manual                          ║
+╚══════════════════════════════════════════════════════════════════╝
+
+
+────────────────────────────────────────────────────────────────────
+  WHAT IT IS
+────────────────────────────────────────────────────────────────────
+
+Voider is a full-screen writing environment. Black background, white
+text, a circle. No panel, no taskbar, no chrome — nothing between you
+and the page.
+
+Everything you write lives in /void: plain .txt files, one line of
+text per line on disk. A single line "." on its own separates
+paragraphs — that's the only formatting mark the format has. Files
+can be grouped into a book, ordered as chapters.
+
+The working method the whole interface is built around is called
+LOOP WRITING: lines get written, released into the pool, and later
+recirculated back to you without context — a fragment resurfaces days
+or months later, disconnected from when you wrote it, and you decide
+again whether it belongs somewhere.
+
+Two pools of text exist side by side:
+  I/   — your own writing. Chapters, the scratch, everything you type.
+  O/   — an external corpus (readings, other authors) you can pull
+         fragments from, fork into your own writing, or just read.
+
+
+────────────────────────────────────────────────────────────────────
+  THE VIEWS
+────────────────────────────────────────────────────────────────────
+
+  F1   Write — the scratch (0.txt) or your active file, centred entry
+  F2   Circular doc — the active file as a ring of lines, edit/reorder
+  F3   Book browser — the chapter list: reorder, rename, split, merge
+  F4   Reading view — the current doc rendered as prose; export PDF /
+       print / Instagram-carousel images
+  F5   Linear reorder — paragraphs of the active file in order, swap
+       position, send any paragraph to another chapter
+  F6   O/ reader — read a book from the external corpus, line by line
+  F7   Working set — up to 8 O/ books loaded at once, for quick recall
+  F8   Oracle — one random line pulled from all of O/
+  F9   Plain editor — the active file as ordinary prose text, for bulk
+       edits
+  F10  Settings — font, size, colours, keybindings
+  F11  This help screen (shown in-app)
+
+Switch view any time by pressing F1 through F10. Escape from most
+views returns to F1.
+
+
+────────────────────────────────────────────────────────────────────
+  GLOBAL CONTROLS  (work from anywhere)
+────────────────────────────────────────────────────────────────────
+
+  Alt+F4               Quit (saves your position first)
+  Escape                Lock screen (needs your system password to
+                         return) — or leaves the current view back to
+                         F1, depending on where you are
+  Ctrl+Z                Undo (in F1, F2, F3, F5)
+  Ctrl+Shift+Z           Redo
+  Ctrl + / Ctrl -        Background transparency (window opacity)
+  Ctrl+Shift+ + / -      Ink transparency (text and the circle itself)
+  F12                    Screenshot → void/screenshots/
+  Shift+F12              Screenshot cropped to a 1:1 square → void/covers/
+                          (for carousel cover art)
+  Ctrl+F12               Open the screenshots folder
+  Ctrl+B                 Back up the whole void to an external drive
+  Ctrl+Shift+G           Commit /void to git by hand, with a timestamp
+  Ctrl+T                 Toggle text-to-speech (reads the current line)
+  Ctrl+F2                Pick the active file
+  Ctrl+F3                Pick the book folder
+  Ctrl+F4                Change the void directory
+  `  (backtick)           Jump to the scratch (0.txt); press again to
+                         return to where you were
+  Ctrl+Shift+T            Toggle a pinned title at the top (F2 / F5)
+  Ctrl+Shift+W            Toggle typewriter mode (F1): caret stays fixed
+                         at centre, text scrolls under it
+
+
+────────────────────────────────────────────────────────────────────
+  F1 — WRITE
+────────────────────────────────────────────────────────────────────
+
+The main entry point. A single centred line where you type; Enter
+releases it into the active file (usually the scratch, 0.txt) and
+clears the box — this is "voiding" a line.
+
+  Enter                  Void the current line into the active file
+  Up / Down               Previous / next line of the active file
+  Alt+Up / Alt+Down        Previous / next FILE in the void
+  PageUp / PageDown        Jump to the previous / next paragraph (the
+                         nearest "." separator)
+  Tab                     Recycle a random line from I/ into the box
+  Shift+Tab                Same, but from your O/ working set (F7)
+  Ctrl+0                  Rebase: rotate the current paragraph so this
+                         line becomes its first line
+  Ctrl+Shift+E             Turn every space into a line break (a "."
+                         already splits into a new paragraph too)
+
+
+────────────────────────────────────────────────────────────────────
+  F2 — CIRCULAR DOC
+────────────────────────────────────────────────────────────────────
+
+The active file drawn as a ring: the current line sits at the centre,
+full brightness; everything else fades out with distance, above and
+below. This is where real editing happens — moving lines, splitting
+and joining, sending paragraphs elsewhere.
+
+  Up / Down               Navigate lines
+  Enter                   Confirm an edit to the current line
+  Home / End               Jump to the first / last line of the file
+  PageUp / PageDown        Jump to the previous / next paragraph
+  Alt+Left / Alt+Right      Move a word (or the block you've selected)
+  Alt+Shift+Left/Right      Send this line or paragraph to another
+                          chapter — opens a picker on that side
+  Alt+Up / Alt+Down         On a line: swap it with its neighbour.
+                          On a "." : swap the whole paragraph group
+  Ctrl+Delete               At the START of a line: send it to
+                          trash.txt. Anywhere else: delete the next
+                          word (normal text editing)
+  Ctrl+Backspace            Delete the word behind the cursor —
+                          anywhere in the line, no exceptions
+  Backspace (at start)      Join this line with the previous one
+  Tab (on text)             Insert a random I/ fragment at the cursor
+                          (press again to re-roll)
+  Shift+Tab                Insert a random O/ working-set fragment
+  Tab (on a ".")            Shuffle the lines within that paragraph
+  Tab (on "ø", the start)   Shuffle the order of all paragraphs
+  Ctrl+0                    Rebase the whole document around here
+  Ctrl+Shift+D              Dispatch: paragraphs tagged "/chapter-name"
+                          get routed out to that chapter automatically
+  Ctrl+Shift+F              Reformat pasted/raw text into Voider's
+                          format (detects sentence boundaries, adds
+                          "." separators) — on already-formatted text,
+                          collapses duplicate/stray separators instead
+  Ctrl+Shift+X              Open the trash
+  Ctrl+P                   Print the active file
+  Ctrl+S                   Export the active file as PDF
+
+
+────────────────────────────────────────────────────────────────────
+  F3 — BOOK BROWSER
+────────────────────────────────────────────────────────────────────
+
+The chapter list of your book, one row per file, same ring style as
+F2. Manage the book's structure here: order, names, splits, merges.
+
+  Up / Down               Navigate chapters
+  Enter                   Open the highlighted chapter (into F2)
+  Alt+Up / Alt+Down        Move the highlighted chapter up/down the list
+  Alt+Shift+Up/Down         Duplicate the highlighted chapter
+  Ctrl+0                  Rebase: the current chapter becomes first
+  Ctrl+Shift+S             Split a chapter at a "/name" marker inside it
+  Ctrl+Shift+M             On a "." separator: merge the chapters in
+                          that group into one, naming the result
+  Ctrl+Delete               On trash.txt specifically: empty it
+                          (Ctrl+Z brings it back)
+  Ctrl+P                   Print the whole book (every chapter in
+                          order, excluding the scratch)
+
+
+────────────────────────────────────────────────────────────────────
+  F4 — READING VIEW
+────────────────────────────────────────────────────────────────────
+
+Renders the current document (or the whole book, if you're on the
+book's "." entry point) as paginated prose, like a printed page.
+
+  Up / Down / PageUp/Down   Turn pages
+  Ctrl+P                   Print
+  Ctrl+S                   Export as PDF
+  Ctrl+Shift+V              Toggle a carousel preview: same scope as
+                          export, shown as a title slide + body slides
+                          at the ratio set in F10
+  Ctrl+Shift+C              Export as an Instagram carousel (a set of
+                          numbered image slides) — chapter, or the
+                          whole book if you're on the book's "."
+  Ctrl+Shift+B              Same export, plus a cover and countercover
+                          slide (pick an image, add the book title)
+
+
+────────────────────────────────────────────────────────────────────
+  F5 — LINEAR REORDER
+────────────────────────────────────────────────────────────────────
+
+The same file as F2, but read top-to-bottom as plain paragraphs
+instead of a ring — easier to see order and move things around by
+distance rather than one line at a time. Chapter fences ("/name"
+lines) show as dividers; paragraphs can cross them.
+
+  PageUp / PageDown         Move to the previous / next paragraph
+  Alt+Up / Alt+Down          Swap the current paragraph with its
+                          neighbour (crosses chapter fences — the
+                          fence itself doesn't move)
+  Right  (or → on the '>')   Open the send-to-chapter picker
+  In the picker: type to filter, arrows to choose, Enter/→ to send
+  (creates the chapter first if the name you typed doesn't exist yet)
+  Ctrl+Shift+T               Toggle the pinned chapter title at the top
+
+
+────────────────────────────────────────────────────────────────────
+  F6 — O/ READER
+────────────────────────────────────────────────────────────────────
+
+Read one book from the external corpus (O/), same ring layout as F2.
+You can edit while reading, and harvest lines out into your own
+writing.
+
+  Up / Down                Navigate lines
+  Ctrl+Delete                Harvest the current line into 0.txt — it
+                           leaves the O/ book and becomes yours
+  Enter / Ctrl+Enter          Split the line at the cursor
+
+
+────────────────────────────────────────────────────────────────────
+  F7 — WORKING SET
+────────────────────────────────────────────────────────────────────
+
+Up to 8 O/ books loaded at once, so Tab/Shift+Tab elsewhere in the
+app (F1, F2) can pull a random fragment from any of them without
+switching context.
+
+  Up / Down                Navigate slots
+  Enter                    Load the highlighted book into F6
+  Tab                      Fill an empty slot
+
+
+────────────────────────────────────────────────────────────────────
+  F8 — ORACLE
+────────────────────────────────────────────────────────────────────
+
+One random line, pulled from the entire O/ corpus — a single
+disconnected fragment, no book context. Press again for another.
+
+
+────────────────────────────────────────────────────────────────────
+  F9 — PLAIN EDITOR
+────────────────────────────────────────────────────────────────────
+
+The active file as ordinary prose text (paragraphs joined into
+readable blocks, not the raw one-line-per-line format) — for bulk
+edits that are awkward one line at a time in F2. Opens on the same
+paragraph you were on in F1/F2/F5. Saves back to the dot-model
+format on leaving.
+
+
+────────────────────────────────────────────────────────────────────
+  F10 — SETTINGS
+────────────────────────────────────────────────────────────────────
+
+Font family and size (editing and reading separately), text colour,
+carousel export ratio and dimensions, and every keybinding above is
+reconfigurable here.
+
+
+────────────────────────────────────────────────────────────────────
+  THE FILE FORMAT
+────────────────────────────────────────────────────────────────────
+
+Plain .txt, one sentence or fragment per line. A line containing only
+"." separates paragraphs:
+
+    First sentence of paragraph one.
+    Second sentence of paragraph one.
+    .
+    First sentence of paragraph two.
+    .
+    Paragraph three, just one line.
+
+A line starting with "/" (e.g. "/chapter-name") is a fence — a fixed
+marker, not text, used to tag where a paragraph should be dispatched
+or to divide a file into sections.
+
+Ctrl+Shift+F converts raw pasted text (no dots, normal paragraphs)
+into this format automatically.
+
+
+────────────────────────────────────────────────────────────────────
+  CONFIGURATION
+────────────────────────────────────────────────────────────────────
+
+config.json (next to the program) stores: the void directory, book
+folder, active file, fonts and sizes, colours, carousel export
+settings, and every keybinding. It's created automatically on first
+run if missing.
+
+state.json (same folder) remembers where you left off — active file,
+last view, position in the library — so relaunching drops you back
+exactly where you were.
+
+
+────────────────────────────────────────────────────────────────────
+  BACKUPS
+────────────────────────────────────────────────────────────────────
+
+Every save is atomic (never a half-written file) and /void is a git
+repository — Ctrl+Shift+G commits it by hand any time. Ctrl+B copies
+the whole void, with its git history, to an external drive you
+choose, with a confirmation step first.
+
+────────────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 
 ╔══════════════════════════════════════════════════════════════════╗
-║                         V O I D E R                             ║
-║                    manual de uso completo                        ║
+║                          V O I D E R                               ║
+║                    manual de uso completo                          ║
 ╚══════════════════════════════════════════════════════════════════╝
 
 
@@ -9,162 +9,326 @@
   QUÉ ES
 ────────────────────────────────────────────────────────────────────
 
-Voider es un editor de texto minimalista de pantalla completa.
-Fondo negro. Sin distracciones. Pensado para escribir, revisar y
-organizar notas, ideas o fragmentos de texto.
+Voider es un entorno de escritura a pantalla completa. Fondo negro,
+texto blanco, un círculo. Sin panel, sin barra de tareas, sin nada
+entre vos y la página.
 
-El texto se guarda en archivos .txt organizados en una carpeta
-llamada "vault" (bóveda). Los archivos se pueden agrupar como
-capítulos de un libro.
+Todo lo que escribís vive en /void: archivos .txt planos, una línea
+de texto por renglón en el disco. Una línea con solo "." separa
+párrafos — es la única marca de formato que existe. Los archivos se
+pueden agrupar en un libro, ordenados como capítulos.
 
-El formato interno es simple: cada línea es una unidad de texto.
-El carácter "." (punto solo en una línea) actúa como separador
-de párrafos.
+El método de trabajo alrededor del cual está armada toda la interfaz
+se llama LOOP WRITING (escritura en bucle): las líneas se escriben,
+se liberan al conjunto, y más tarde vuelven a aparecer sin contexto —
+un fragmento resurge días o meses después, desconectado del momento
+en que lo escribiste, y volvés a decidir si pertenece a algún lado.
 
-
-────────────────────────────────────────────────────────────────────
-  LAS 4 VISTAS
-────────────────────────────────────────────────────────────────────
-
-  F1  ·  ESCRITURA
-        Vista principal. Círculo blanco sobre negro.
-        Escribís en el centro de la pantalla.
-
-  F2  ·  DOCUMENTO
-        Vista circular. Muestra el archivo activo como un anillo
-        de líneas centradas. Podés navegar y editar.
-
-  F3  ·  LIBRO
-        Lista de archivos del libro. Navegás capítulos,
-        los reordenás y los renombrás.
-
-  F4  ·  VAULT
-        Líneas aleatorias de todos tus archivos mezcladas.
-        Las podés enviar al documento activo con Enter.
-
-  Cambiás de vista en cualquier momento con F1 / F2 / F3 / F4.
+Existen dos conjuntos de texto en paralelo:
+  I/   — tu propia escritura. Capítulos, el scratch, todo lo que tipeás.
+  O/   — un corpus externo (lecturas, otros autores) del que podés
+         sacar fragmentos, pasarlos a tu propia escritura, o solo leer.
 
 
 ────────────────────────────────────────────────────────────────────
-  CONTROLES GLOBALES  (funcionan en cualquier vista)
+  LAS VISTAS
 ────────────────────────────────────────────────────────────────────
 
-  F1 / F2 / F3 / F4     cambiar vista
-  Escape                 volver a F1 (desde F2, F3, F4)
-  Ctrl + Up              aumentar opacidad de la ventana
-  Ctrl + Down            disminuir opacidad de la ventana
-  Ctrl + R               mezclar vault (nuevo orden aleatorio)
-  Ctrl + B               backup manual del vault
-  Ctrl + F2              elegir archivo activo
-  Ctrl + F3              elegir carpeta de libro
-  Ctrl + F4              elegir carpeta de vault
-  F12                    captura de pantalla
-  Ctrl + F12             abrir carpeta de capturas
+  F1   Escritura — el scratch (0.txt) o tu archivo activo, entrada
+       centrada
+  F2   Documento circular — el archivo activo como un anillo de
+       líneas, editar/reordenar
+  F3   Navegador de libro — la lista de capítulos: reordenar,
+       renombrar, dividir, fusionar
+  F4   Vista de lectura — el documento actual como prosa; exportar
+       PDF / imprimir / carrusel de Instagram
+  F5   Reorden lineal — los párrafos del archivo activo en orden,
+       cambiar de posición, mandar cualquier párrafo a otro capítulo
+  F6   Lector de O/ — leer un libro del corpus externo, línea por línea
+  F7   Working set — hasta 8 libros de O/ cargados a la vez, para
+       recuperación rápida
+  F8   Oráculo — una línea al azar sacada de todo O/
+  F9   Editor plano — el archivo activo como prosa normal, para
+       ediciones en bloque
+  F10  Configuración — fuente, tamaño, colores, atajos de teclado
+  F11  Esta pantalla de ayuda (dentro de la app)
+
+Cambiás de vista en cualquier momento con F1 a F10. Escape desde la
+mayoría de las vistas vuelve a F1.
+
+
+────────────────────────────────────────────────────────────────────
+  CONTROLES GLOBALES  (funcionan desde cualquier lado)
+────────────────────────────────────────────────────────────────────
+
+  Alt+F4                 Salir (guarda tu posición antes)
+  Escape                  Pantalla de bloqueo (pide tu contraseña del
+                         sistema para volver) — o vuelve a F1 desde la
+                         vista actual, según dónde estés
+  Ctrl+Z                  Deshacer (en F1, F2, F3, F5)
+  Ctrl+Shift+Z             Rehacer
+  Ctrl + / Ctrl -          Transparencia del fondo (opacidad de la
+                         ventana)
+  Ctrl+Shift+ + / -        Transparencia de la tinta (el texto y el
+                         círculo en sí)
+  F12                      Captura de pantalla → void/screenshots/
+  Shift+F12                Captura recortada a un cuadrado 1:1 →
+                         void/covers/ (para portadas de carrusel)
+  Ctrl+F12                 Abrir la carpeta de capturas
+  Ctrl+B                   Hacer un backup de todo el void a un
+                         disco externo
+  Ctrl+Shift+G             Commitear /void a git a mano, con
+                         timestamp
+  Ctrl+T                   Activar/desactivar texto a voz (lee la
+                         línea actual)
+  Ctrl+F2                  Elegir el archivo activo
+  Ctrl+F3                  Elegir la carpeta del libro
+  Ctrl+F4                  Cambiar el directorio del void
+  `  (comilla invertida)    Saltar al scratch (0.txt); apretarla de
+                         nuevo vuelve a donde estabas
+  Ctrl+Shift+T              Mostrar/ocultar un título fijo arriba de
+                         todo (F2 / F5)
+  Ctrl+Shift+W              Activar/desactivar el modo máquina de
+                         escribir (F1): el cursor queda fijo en el
+                         centro, el texto se desliza debajo
 
 
 ────────────────────────────────────────────────────────────────────
   F1 — ESCRITURA
 ────────────────────────────────────────────────────────────────────
 
-  Enter                  guardar línea y vaciar el campo
-  Up                     línea anterior del archivo activo
-  Down                   línea siguiente del archivo activo
-  Alt + Up               archivo anterior del vault
-  Alt + Down             archivo siguiente del vault
-  PageUp                 saltar al párrafo anterior (dot .)
-  PageDown               saltar al párrafo siguiente (dot .)
-  Ctrl + 0               rebase: rotar el párrafo actual para que
-                         la línea seleccionada quede primera
-  Escape                 cerrar el programa
+El punto de entrada principal. Una sola línea centrada donde tipeás;
+Enter la libera al archivo activo (normalmente el scratch, 0.txt) y
+vacía el campo — esto es "voidear" una línea.
+
+  Enter                   Voidear la línea actual al archivo activo
+  Up / Down                Línea anterior / siguiente del archivo activo
+  Alt+Up / Alt+Down         Archivo anterior / siguiente del void
+  PageUp / PageDown         Saltar al párrafo anterior / siguiente (el
+                          separador "." más cercano)
+  Tab                      Reciclar una línea al azar de I/ en el campo
+  Shift+Tab                 Lo mismo, pero de tu working set de O/ (F7)
+  Ctrl+0                   Rebase: rotar el párrafo actual para que
+                          esta línea quede primera
+  Ctrl+Shift+E              Convertir cada espacio en un salto de
+                          línea (un "." también separa en párrafo nuevo)
 
 
 ────────────────────────────────────────────────────────────────────
-  F2 — DOCUMENTO
+  F2 — DOCUMENTO CIRCULAR
 ────────────────────────────────────────────────────────────────────
 
-  Up / Down              navegar líneas
-  Enter                  confirmar edición de la línea actual
-  Ctrl + Enter           partir la línea en el cursor
-  Backspace (al inicio)  unir la línea con la anterior
-  Alt + Up               subir línea (o subir párrafo si estás en .)
-  Alt + Down             bajar línea (o bajar párrafo si estás en .)
-  PageUp                 saltar al párrafo anterior
-  PageDown               saltar al párrafo siguiente
-  Ctrl + 0               rebase del documento
-  Ctrl + P               imprimir archivo activo
-  Ctrl + Shift + F       reformatear texto raw en formato Voider
-                         (si ya está en formato Voider: colapsa
-                         puntos duplicados/incorrectos)
-  Escape                 volver a F1
+El archivo activo dibujado como un anillo: la línea actual queda en
+el centro, con brillo total; todo lo demás se atenúa con la
+distancia, arriba y abajo. Acá pasa la edición real: mover líneas,
+partir y unir, mandar párrafos a otro lado.
+
+  Up / Down                Navegar líneas
+  Enter                    Confirmar la edición de la línea actual
+  Home / End                Saltar a la primera / última línea del
+                          archivo
+  PageUp / PageDown          Saltar al párrafo anterior / siguiente
+  Alt+Izquierda / Derecha    Mover una palabra (o el bloque
+                          seleccionado)
+  Alt+Shift+Izq/Der           Mandar esta línea o párrafo a otro
+                          capítulo — abre un panel de ese lado
+  Alt+Up / Alt+Down          Sobre una línea: la intercambia con la
+                          vecina. Sobre un "." : intercambia todo el
+                          grupo de párrafo
+  Ctrl+Delete                Al PRINCIPIO de una línea: la manda a
+                          trash.txt. En cualquier otra posición:
+                          borra la palabra siguiente (edición normal)
+  Ctrl+Backspace              Borra la palabra detrás del cursor — en
+                          cualquier posición del renglón, sin excepción
+  Backspace (al principio)     Une esta línea con la anterior
+  Tab (sobre texto)            Inserta un fragmento al azar de I/ en
+                          el cursor (apretarlo de nuevo lo vuelve a
+                          sortear)
+  Shift+Tab                  Inserta un fragmento al azar del working
+                          set de O/
+  Tab (sobre un ".")           Mezcla las líneas dentro de ese párrafo
+  Tab (sobre "ø", el inicio)   Mezcla el orden de todos los párrafos
+  Ctrl+0                    Rebase de todo el documento desde acá
+  Ctrl+Shift+D               Dispatch: los párrafos marcados
+                          "/nombre-capitulo" se mandan solos a ese
+                          capítulo
+  Ctrl+Shift+F               Reformatea texto crudo/pegado al formato
+                          de Voider (detecta límites de oración,
+                          agrega separadores ".") — sobre texto ya
+                          formateado, colapsa separadores duplicados
+                          o sueltos en vez de eso
+  Ctrl+Shift+X                Abrir el tacho
+  Ctrl+P                    Imprimir el archivo activo
+  Ctrl+S                    Exportar el archivo activo como PDF
 
 
 ────────────────────────────────────────────────────────────────────
-  F3 — LIBRO
+  F3 — NAVEGADOR DE LIBRO
 ────────────────────────────────────────────────────────────────────
 
-  Up / Down              navegar capítulos
-  Enter                  activar capítulo (abre en F2)
-  Alt + Up               mover capítulo hacia arriba en la lista
-  Alt + Down             mover capítulo hacia abajo en la lista
-  Ctrl + 0               rebase: el capítulo actual queda primero
-  Ctrl + P               imprimir el libro completo (todos los
-                         capítulos en orden, excluyendo 0.txt)
-  Escape                 volver a F1
+La lista de capítulos de tu libro, una fila por archivo, mismo
+estilo de anillo que F2. Acá se administra la estructura del libro:
+orden, nombres, divisiones, fusiones.
+
+  Up / Down                Navegar capítulos
+  Enter                    Abrir el capítulo resaltado (en F2)
+  Alt+Up / Alt+Down          Mover el capítulo resaltado arriba/abajo
+                          en la lista
+  Alt+Shift+Up/Down           Duplicar el capítulo resaltado
+  Ctrl+0                    Rebase: el capítulo actual pasa a ser el
+                          primero
+  Ctrl+Shift+S               Dividir un capítulo en un marcador
+                          "/nombre" que tenga adentro
+  Ctrl+Shift+M               Sobre un separador ".": fusiona los
+                          capítulos de ese grupo en uno, pidiendo
+                          nombre
+  Ctrl+Delete                 Específicamente sobre trash.txt: lo
+                          vacía (Ctrl+Z lo trae de vuelta)
+  Ctrl+P                    Imprimir el libro entero (todos los
+                          capítulos en orden, sin el scratch)
 
 
 ────────────────────────────────────────────────────────────────────
-  F4 — VAULT
+  F4 — VISTA DE LECTURA
 ────────────────────────────────────────────────────────────────────
 
-  Up / Down              navegar líneas del vault
-  Enter                  enviar línea al documento activo
-  Ctrl + R               volver a mezclar el vault
-  Escape                 volver a F1
+Renderiza el documento actual (o el libro entero, si estás parado en
+el "." raíz del libro) como prosa paginada, como una página impresa.
+
+  Up / Down / PageUp/Down     Pasar páginas
+  Ctrl+P                    Imprimir
+  Ctrl+S                    Exportar como PDF
+  Ctrl+Shift+V                Mostrar/ocultar una vista previa de
+                          carrusel: mismo alcance que la exportación,
+                          como slide de título + slides de contenido,
+                          en la proporción configurada en F10
+  Ctrl+Shift+C                Exportar como carrusel de Instagram (un
+                          conjunto de imágenes numeradas) — capítulo,
+                          o el libro entero si estás en el "." del libro
+  Ctrl+Shift+B                 La misma exportación, con una portada y
+                          contraportada (elegís una imagen, se agrega
+                          el título del libro)
+
+
+────────────────────────────────────────────────────────────────────
+  F5 — REORDEN LINEAL
+────────────────────────────────────────────────────────────────────
+
+El mismo archivo que F2, pero leído de arriba a abajo como párrafos
+normales en vez de un anillo — más fácil ver el orden y mover cosas
+por distancia en vez de línea por línea. Los límites de capítulo
+(líneas "/nombre") se ven como separadores; los párrafos pueden
+cruzarlos.
+
+  PageUp / PageDown            Ir al párrafo anterior / siguiente
+  Alt+Up / Alt+Down             Intercambia el párrafo actual con su
+                          vecino (cruza los límites de capítulo — el
+                          límite en sí no se mueve)
+  Derecha (o → sobre el '>')     Abre el panel de mandar a capítulo
+  En el panel: escribís para filtrar, flechas para elegir, Enter/→
+  para mandar (crea el capítulo primero si el nombre no existe todavía)
+  Ctrl+Shift+T                   Mostrar/ocultar el título del
+                          capítulo fijo arriba
+
+
+────────────────────────────────────────────────────────────────────
+  F6 — LECTOR DE O/
+────────────────────────────────────────────────────────────────────
+
+Leer un libro del corpus externo (O/), mismo diseño de anillo que
+F2. Se puede editar mientras se lee, y cosechar líneas hacia tu
+propia escritura.
+
+  Up / Down                Navegar líneas
+  Ctrl+Delete                Cosecha la línea actual a 0.txt — sale
+                          del libro de O/ y pasa a ser tuya
+  Enter / Ctrl+Enter          Partir la línea en el cursor
+
+
+────────────────────────────────────────────────────────────────────
+  F7 — WORKING SET
+────────────────────────────────────────────────────────────────────
+
+Hasta 8 libros de O/ cargados a la vez, para que Tab/Shift+Tab en
+otras vistas (F1, F2) puedan sacar un fragmento al azar de cualquiera
+de ellos sin cambiar de contexto.
+
+  Up / Down                Navegar las ranuras
+  Enter                    Cargar el libro resaltado en F6
+  Tab                      Llenar una ranura vacía
+
+
+────────────────────────────────────────────────────────────────────
+  F8 — ORÁCULO
+────────────────────────────────────────────────────────────────────
+
+Una línea al azar, sacada de todo el corpus de O/ — un fragmento
+suelto, sin contexto de libro. Apretalo de nuevo para otra.
+
+
+────────────────────────────────────────────────────────────────────
+  F9 — EDITOR PLANO
+────────────────────────────────────────────────────────────────────
+
+El archivo activo como prosa normal (los párrafos unidos en bloques
+legibles, no el formato crudo de una línea por renglón) — para
+ediciones en bloque que son incómodas línea por línea en F2. Abre en
+el mismo párrafo en el que estabas en F1/F2/F5. Guarda de vuelta al
+formato de puntos al salir.
+
+
+────────────────────────────────────────────────────────────────────
+  F10 — CONFIGURACIÓN
+────────────────────────────────────────────────────────────────────
+
+Familia y tamaño de fuente (edición y lectura por separado), color
+del texto, proporción y dimensiones de exportación de carrusel, y
+todos los atajos de teclado de arriba son reconfigurables acá.
 
 
 ────────────────────────────────────────────────────────────────────
   EL FORMATO DE ARCHIVO
 ────────────────────────────────────────────────────────────────────
 
-Los archivos son .txt simples. El separador de párrafos es una
-línea con un solo punto:
+Archivos .txt planos, una oración o fragmento por línea. Una línea
+que contiene solo "." separa párrafos:
 
     Primera oración del párrafo uno.
     Segunda oración del párrafo uno.
     .
     Primera oración del párrafo dos.
     .
-    Párrafo tres.
+    Párrafo tres, una sola línea.
 
-Ctrl+Shift+F convierte texto crudo (pegado desde otro lado)
-al formato Voider: detecta límites de oraciones y agrega los
-separadores automáticamente.
+Una línea que empieza con "/" (ej. "/nombre-capitulo") es un límite —
+una marca fija, no texto, que se usa para etiquetar adónde debería
+mandarse un párrafo o para dividir un archivo en secciones.
+
+Ctrl+Shift+F convierte texto crudo pegado (sin puntos, párrafos
+normales) a este formato automáticamente.
 
 
 ────────────────────────────────────────────────────────────────────
-  CONFIGURACIÓN
+  CONFIGURACIÓN (archivo)
 ────────────────────────────────────────────────────────────────────
 
-El archivo config.json (en la misma carpeta que el exe) guarda:
+config.json (al lado del programa) guarda: el directorio del void, la
+carpeta del libro, el archivo activo, fuentes y tamaños, colores,
+configuración de exportación de carrusel, y todos los atajos. Se crea
+solo la primera vez si no existe.
 
-  · vault_dir    carpeta del vault (archivos de escritura)
-  · book_dir     carpeta del libro (capítulos)
-  · active_file  último archivo activo
-  · font_family  fuente (por defecto: Consolas)
-  · font_size    tamaño de fuente (por defecto: 11)
-  · keybindings  todos los atajos son reconfigurables aquí
-
-Si no existe config.json, se crea automáticamente al iniciar.
+state.json (misma carpeta) recuerda dónde quedaste — archivo activo,
+última vista, posición en la biblioteca — así que volver a abrir el
+programa te deja exactamente donde estabas.
 
 
 ────────────────────────────────────────────────────────────────────
   BACKUPS
 ────────────────────────────────────────────────────────────────────
 
-Voider hace backups automáticos al guardar y al iniciar.
-También podés hacer uno manual con Ctrl+B.
-Los backups se guardan en la subcarpeta "backups" dentro del vault.
-
+Cada guardado es atómico (nunca un archivo escrito a medias) y /void
+es un repositorio git — Ctrl+Shift+G lo commitea a mano cuando
+quieras. Ctrl+B copia todo el void, con su historial de git, a un
+disco externo que elijas, con un paso de confirmación antes.
 
 ────────────────────────────────────────────────────────────────────
-
