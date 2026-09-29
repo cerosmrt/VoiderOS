@@ -678,27 +678,31 @@ PENDIENTES web (para cuando haya tiempo):
   - [ ] Asegurar savefile.php (ver arriba).
   - [ ] Usar FTPS (FTP sobre TLS) en vez de FTP plano si Hostinger lo ofrece.
 
-  ── VENTA DE LIBROS: FORMATO (2026-09-28, decidido, sin empezar) ─────────────
+  ── VENTA DE LIBROS: FORMATO (2026-09-28, decidido — PDF LISTO 2026-09-29) ───
   Hoy download_book.php entrega el .txt crudo del void tal cual — se ve roto
   para un comprador común (los separadores de párrafo son líneas con un solo
   punto, sin tipografía). Decidido con Federico: vender un BUNDLE de tres
   formatos en una sola compra, en vez de solo el .txt:
-    1. PDF — YA EXISTE, Voider lo exporta (F4, Ctrl+S): serif, justificado,
-       paginado. Solo falta generarlo/subirlo para los libros elegidos.
+    1. PDF — HECHO (2026-09-29, commit da10d24). NO estaba listo como se
+       creyó el día anterior: Ctrl+S en F4 usaba _render_doc/_build_doc_html
+       (HTML centrado en monoespaciada, ni cerca del libro real). Se conectó
+       al motor de verdad (reading_page.build_reading_document), y de paso
+       apareció un segundo bug — doc.print(printer) directo escalaba la
+       página continua de 1.000.000pt ~1000x para entrar en una hoja real,
+       texto invisible (pdftotext lo leía, pdftoppm mostraba nada). Nueva
+       print_reading_document() en reading_page.py resuelve los dos.
     2. EPUB — NO EXISTE todavía. Kindle hoy acepta EPUB directo (ya no hace
        falta MOBI, que Amazon viene discontinuando). Hay que construir el
        exportador desde cero en Voider — no hay ni un punto de partida
-       parecido al de PDF (reading_page.py) para EPUB.
+       parecido al de PDF (reading_page.py) para EPUB. SIGUIENTE PASO.
     3. TXT — el mismo void/I/<nombre>.txt de siempre. Lejos de ser "roto":
        para alguien que ya usa Voider es directamente importable a su
        propio void/I/, mismo formato de puntos, sin conversión — un plus
-       que ningún ebook store genérico ofrece.
-  Empezar por el exportador de EPUB (lo único que falta construir). Después,
-  la parte de armar el bundle/entrega de los tres formatos juntos es trabajo
-  del lado del server (download_book.php hoy entrega un solo archivo) — para
-  la otra instancia, no para acá.
-  Federico: "dejalo en pending mañana lo armamos" — retomar preguntando por
-  dónde arrancar (el exportador de EPUB en sí, probablemente).
+       que ningún ebook store genérico ofrece. Confirmado con Federico: no
+       hace falta tocar nada acá.
+  Después de EPUB: armar el bundle/entrega de los tres formatos juntos es
+  trabajo del lado del server (download_book.php hoy entrega un solo
+  archivo) — para la otra instancia, no para acá.
 
   ── EL ORÁCULO EXTERNO (2026-09-09, sin empezar) ──────────────────────────────
 
