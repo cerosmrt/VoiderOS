@@ -13,6 +13,7 @@ let
 
   voiderPython = pkgs.python3.withPackages (ps: with ps; [
     pyqt6 numpy pyaudio watchdog langdetect pyphen
+    ebooklib  # F4 Ctrl+Shift+A: EPUB export, part of the PDF+EPUB+TXT sale bundle
   ]);
 
   # proto-voider: el sandbox de Python. Corre la app directamente, sin watcher —
