@@ -511,6 +511,9 @@ THEME
 
     # ── Screenshot to clipboard ───────────────────────────────────────────────
     bind = SUPER, S, exec, grim - | wl-copy
+    # Region select (drag a rectangle with slurp) — useful with two monitors,
+    # where a full-screen grab shows more than what's actually being discussed.
+    bind = SUPER SHIFT, S, exec, grim -g "$(slurp)" - | wl-copy
 
     # ── Compositor settings ───────────────────────────────────────────────────
     general {
