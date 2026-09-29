@@ -678,31 +678,32 @@ PENDIENTES web (para cuando haya tiempo):
   - [ ] Asegurar savefile.php (ver arriba).
   - [ ] Usar FTPS (FTP sobre TLS) en vez de FTP plano si Hostinger lo ofrece.
 
-  ── VENTA DE LIBROS: FORMATO (2026-09-28, decidido — PDF LISTO 2026-09-29) ───
-  Hoy download_book.php entrega el .txt crudo del void tal cual — se ve roto
-  para un comprador común (los separadores de párrafo son líneas con un solo
-  punto, sin tipografía). Decidido con Federico: vender un BUNDLE de tres
-  formatos en una sola compra, en vez de solo el .txt:
-    1. PDF — HECHO (2026-09-29, commit da10d24). NO estaba listo como se
-       creyó el día anterior: Ctrl+S en F4 usaba _render_doc/_build_doc_html
-       (HTML centrado en monoespaciada, ni cerca del libro real). Se conectó
-       al motor de verdad (reading_page.build_reading_document), y de paso
-       apareció un segundo bug — doc.print(printer) directo escalaba la
-       página continua de 1.000.000pt ~1000x para entrar en una hoja real,
-       texto invisible (pdftotext lo leía, pdftoppm mostraba nada). Nueva
-       print_reading_document() en reading_page.py resuelve los dos.
-    2. EPUB — NO EXISTE todavía. Kindle hoy acepta EPUB directo (ya no hace
-       falta MOBI, que Amazon viene discontinuando). Hay que construir el
-       exportador desde cero en Voider — no hay ni un punto de partida
-       parecido al de PDF (reading_page.py) para EPUB. SIGUIENTE PASO.
-    3. TXT — el mismo void/I/<nombre>.txt de siempre. Lejos de ser "roto":
-       para alguien que ya usa Voider es directamente importable a su
-       propio void/I/, mismo formato de puntos, sin conversión — un plus
-       que ningún ebook store genérico ofrece. Confirmado con Federico: no
-       hace falta tocar nada acá.
-  Después de EPUB: armar el bundle/entrega de los tres formatos juntos es
-  trabajo del lado del server (download_book.php hoy entrega un solo
-  archivo) — para la otra instancia, no para acá.
+  ── VENTA DE LIBROS: FORMATO — LISTO DEL LADO DE VOIDER (2026-09-28/29) ──────
+  Decidido con Federico: vender un BUNDLE de tres formatos en una sola compra
+  (download_book.php hoy solo entrega el .txt crudo, que se ve roto para un
+  comprador común). Los tres formatos, y el comando que los junta, están
+  hechos:
+    1. PDF — commit da10d24. Ctrl+S en F4 usaba _render_doc/_build_doc_html
+       (HTML centrado en monoespaciada) en vez del motor real
+       (reading_page.build_reading_document). Al conectarlo apareció un
+       segundo bug — doc.print(printer) directo escalaba ~1000x la página
+       continua de 1.000.000pt, texto invisible — resuelto con la nueva
+       print_reading_document().
+    2. EPUB — commit f9fb6a7. epub_export.py, sobre ebooklib (agregado a
+       voiderPython en nix/modules/voider.nix y nix/profiles/dev.nix).
+       Validado con epubcheck oficial: 0 errores, 0 warnings.
+    3. TXT — sin cambios, confirmado con Federico: el void/I/<nombre>.txt de
+       siempre ya sirve tal cual, importable directo a otro Voider.
+  Comando que junta los tres — commit fe95779: Ctrl+Shift+A en F4
+  (export_sale_bundle, f4_mixin.py), mismo alcance que PDF/carrusel
+  (_reading_sections). Escribe void/gPTA_books/<nombre>/<nombre>.{pdf,epub,
+  txt}. El .txt de un capítulo solo es el archivo tal cual; el de un libro
+  entero junta los capítulos con fences /nombre-capitulo (el mismo marcador
+  que ya usan dispatch/split, no un formato nuevo).
+
+  LO QUE QUEDA — del lado del SERVER, para la otra instancia, no para acá:
+  armar la entrega/bundle desde download_book.php, que hoy entrega un solo
+  archivo. Federico sube la carpeta de void/gPTA_books/<nombre>/ a mano.
 
   ── EL ORÁCULO EXTERNO (2026-09-09, sin empezar) ──────────────────────────────
 
