@@ -50,6 +50,7 @@ HELP = [
     ("Ctrl+Shift+V (F4)", "Toggle carousel preview (F10 ratio, title + slides)"),
     ("Ctrl+Shift+C (F4)", "Export as Instagram carousel (chapter, or book if on '.')"),
     ("Ctrl+Shift+B (F4)", "Same, wrapped with a chosen cover + countercover"),
+    ("Ctrl+Shift+A (F4)", "Export PDF+EPUB+TXT together → void/gPTA_books/<name>/"),
     ("Shift+F12",         "Screenshot only inside the circle → void/covers/"),
     ("",                  ""),
     ("EDITING  (F2)",     None),

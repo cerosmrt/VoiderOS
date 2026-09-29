@@ -208,6 +208,9 @@ el "." raíz del libro) como prosa paginada, como una página impresa.
   Ctrl+Shift+B                 La misma exportación, con una portada y
                           contraportada (elegís una imagen, se agrega
                           el título del libro)
+  Ctrl+Shift+A                 Exportar PDF + EPUB + TXT juntos, listo
+                          para vender — mismo alcance, escrito en
+                          void/gPTA_books/<nombre>/
 
 
 ────────────────────────────────────────────────────────────────────

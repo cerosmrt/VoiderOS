@@ -183,6 +183,9 @@ book's "." entry point) as paginated prose, like a printed page.
                           whole book if you're on the book's "."
   Ctrl+Shift+B              Same export, plus a cover and countercover
                           slide (pick an image, add the book title)
+  Ctrl+Shift+A              Export PDF + EPUB + TXT together, ready to
+                          sell — same scope, written to
+                          void/gPTA_books/<name>/
 
 
 ────────────────────────────────────────────────────────────────────
