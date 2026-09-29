@@ -46,6 +46,29 @@ class TestBuildDocument:
         doc, para_blocks, layout = rp.build_reading_document(sections, QFont('Consolas', 11))
         assert len(para_blocks) == 3
 
+    def test_no_explicit_ink_leaves_the_char_format_colourless(self, qapp):
+        """Default (ink=None): the two on-screen callers supply colour via
+        their own palette override, which a set foreground would outrank."""
+        sections = [('Chap', ['p1', '.'])]
+        doc, para_blocks, layout = rp.build_reading_document(sections, QFont('Consolas', 11))
+        block = doc.findBlockByNumber(para_blocks[0])
+        fmt = block.begin().fragment().charFormat()
+        from PyQt6.QtGui import QTextFormat
+        assert not fmt.hasProperty(QTextFormat.Property.ForegroundBrush)
+
+    def test_explicit_ink_sets_the_char_format_colour(self, qapp):
+        """This is the actual bug: doc.print(printer) — used for the real
+        PDF/print export — never goes through the on-screen palette
+        override, so without this the exported text has no colour and
+        prints invisible (confirmed with a real render: pdftotext read it
+        fine, pdftoppm showed a blank page)."""
+        sections = [('Chap', ['p1', '.'])]
+        doc, para_blocks, layout = rp.build_reading_document(
+            sections, QFont('Consolas', 11), ink=QColor('#111111'))
+        block = doc.findBlockByNumber(para_blocks[0])
+        fmt = block.begin().fragment().charFormat()
+        assert fmt.foreground().color() == QColor('#111111')
+
     def test_long_document_spans_multiple_pages(self, qapp):
         lines = []
         for i in range(120):
@@ -265,3 +288,57 @@ class TestReadingPageViewTitleSlide:
         v.next_page()
         pix = v.grab()
         assert pix.width() > 0
+
+
+class TestPrintReadingDocument:
+    """The actual PDF/print path (F4's Ctrl+S/Ctrl+P) — real QPrinter, real
+    file on disk. doc.print(printer) directly was the bug this exists to
+    catch: build_reading_document's continuous ~1,000,000pt page gets
+    scaled ~1000x by Qt's own print pagination to fit a real page, so the
+    text becomes sub-pixel — invisible, but pdftotext still reads it fine.
+    A blank-but-nonzero-size file would pass a naive "it didn't crash"
+    check, so this asserts real page count and a realistic minimum size
+    instead, close to what caught the bug live (pdftoppm on the exported
+    file rendering a blank page)."""
+
+    def _printer(self, tmp_path, name='out.pdf'):
+        from PyQt6.QtPrintSupport import QPrinter
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+        path = str(tmp_path / name)
+        printer.setOutputFileName(path)
+        return printer, path
+
+    def test_writes_a_real_pdf_file(self, qapp, tmp_path):
+        sections = [('Capitulo', ['Una linea de prueba real.', '.'])]
+        doc, para_blocks, layout = rp.build_reading_document(
+            sections, QFont('Consolas', 11), ink=QColor('#111111'))
+        offsets = rp.compute_page_offsets(doc, layout.block_h, layout.title_blocks)
+        printer, path = self._printer(tmp_path)
+        rp.print_reading_document(doc, layout, offsets, printer)
+        import os
+        assert os.path.isfile(path)
+        # A blank page still writes a valid (small) PDF shell — a real page
+        # with actual glyph outlines is meaningfully bigger. This is the
+        # same class of check that caught the bug: file "exists" was never
+        # the problem, invisible content was.
+        assert os.path.getsize(path) > 3000
+
+    def test_multi_page_document_writes_one_printer_page_per_offset(self, qapp, tmp_path):
+        lines = []
+        for i in range(150):
+            lines += [f'Parrafo numero {i} con suficiente texto para ocupar espacio real en la pagina impresa.', '.']
+        doc, para_blocks, layout = rp.build_reading_document(
+            [('', lines)], QFont('Consolas', 11), ink=QColor('#111111'))
+        offsets = rp.compute_page_offsets(doc, layout.block_h, layout.title_blocks)
+        assert len(offsets) > 1   # the scenario that actually matters: a real book
+        printer, path = self._printer(tmp_path, 'multi.pdf')
+        rp.print_reading_document(doc, layout, offsets, printer)
+        import subprocess
+        try:
+            out = subprocess.run(['pdfinfo', path], capture_output=True,
+                                 text=True, timeout=5).stdout
+        except FileNotFoundError:
+            pytest.skip('pdfinfo (poppler-utils) not available')
+        pages_line = next(l for l in out.splitlines() if l.startswith('Pages:'))
+        assert int(pages_line.split()[1]) == len(offsets)

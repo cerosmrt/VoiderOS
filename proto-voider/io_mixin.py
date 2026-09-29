@@ -1641,20 +1641,41 @@ class IoMixin:
         self._render_doc(printer)
 
     def print_vault(self):
-        """Ctrl+P in F4: print the current document as prose."""
+        """Ctrl+P in F4: print the current document as prose — the same
+        justified/hyphenated serif typesetting the on-screen book view uses."""
         printer = self._printer_from_dialog()
         if printer is None:
             return
-        self._render_doc(printer)
+        self._print_reading_doc(printer)
 
     def export_vault(self):
-        """Ctrl+S in F4: export the current document as prose PDF."""
+        """Ctrl+S in F4: export the current document as prose PDF — same
+        typeset engine as the on-screen book view, not a plain HTML dump."""
         title = os.path.splitext(os.path.basename(self.current_file_path))[0]
         default_path = os.path.join(self.void_dir, title + '.pdf')
         printer = self._printer_from_save_dialog(default_path)
         if printer is None:
             return
-        self._render_doc(printer)
+        self._print_reading_doc(printer)
+
+    def _print_reading_doc(self, printer):
+        """Build the same document F4's book view shows on screen
+        (reading_page.build_reading_document: justified, hyphenated, serif,
+        the F10-configured reading font) and send it straight to the
+        printer/PDF file — this used to go through _render_doc, a plain
+        centered-monospace HTML dump unrelated to what F4 actually displays."""
+        from PyQt6.QtGui import QFont, QColor
+        from reading_page import (build_reading_document, compute_page_offsets,
+                                  print_reading_document, A5_PT)
+        sections, _ = self._reading_sections()
+        reading_font = QFont(self.config.get('reading_font', 'EB Garamond'),
+                             int(self.config.get('reading_size', 13)))
+        doc, para_blocks, layout = build_reading_document(
+            sections, reading_font, page_pt=A5_PT,
+            hyphenate_lang=self.config.get('reading_hyphen_lang', 'auto'),
+            ink=QColor('#111111'))
+        offsets = compute_page_offsets(doc, layout.block_h, layout.title_blocks)
+        print_reading_document(doc, layout, offsets, printer, ink=QColor('#111111'))
 
     def _render_doc(self, printer):
         """Build HTML from the active file and send to printer."""

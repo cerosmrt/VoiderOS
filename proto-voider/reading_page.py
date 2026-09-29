@@ -18,7 +18,9 @@ from PyQt6.QtWidgets import QWidget
 from PyQt6.QtGui import (
     QTextDocument, QTextCursor, QTextBlockFormat, QTextCharFormat, QTextFormat,
     QFont, QColor, QPainter, QPalette, QPixmap, QAbstractTextDocumentLayout,
+    QPageSize,
 )
+from PyQt6.QtPrintSupport import QPrinter
 from PyQt6.QtCore import Qt, QSizeF, QRectF
 
 
@@ -161,12 +163,22 @@ def lines_to_paragraphs(lines):
 
 def build_reading_document(sections, font, page_pt=A5_PT,
                            margins_mm=BOOK_MARGINS_MM, line_height_pct=132,
-                           justify=True, indent=True, hyphenate_lang=None):
+                           justify=True, indent=True, hyphenate_lang=None,
+                           ink=None):
     """Build the book QTextDocument.
 
     sections: list of (title, lines). Returns (doc, para_blocks, layout) where
     para_blocks[i] is the block number of the i-th body paragraph across all
     sections (used to jump to the page you're currently reading).
+
+    ink: explicit text colour, or None to leave the character formats
+    without one. The two on-screen callers (ReadingPageView's paintEvent,
+    render_carousel_page) supply colour separately via a QAbstractTextDocumentLayout
+    PaintContext palette override, which a bare QTextCharFormat colour would
+    outrank — so they pass None and keep doing that. Direct printing
+    (doc.print(printer), used for the actual PDF/print export) never goes
+    through that palette override at all: without an explicit ink here, the
+    text carries no colour and prints invisible. Always pass ink there.
     """
     layout = PageLayout(page_pt, margins_mm)
     doc = QTextDocument()
@@ -186,11 +198,15 @@ def build_reading_document(sections, font, page_pt=A5_PT,
 
     body_char = QTextCharFormat()
     body_char.setFont(font)
+    if ink is not None:
+        body_char.setForeground(ink)
 
     title_font = QFont(font)
     title_font.setPointSizeF(max(font.pointSizeF(), 1.0) * 1.5)
     title_char = QTextCharFormat()
     title_char.setFont(title_font)
+    if ink is not None:
+        title_char.setForeground(ink)
 
     first_block = True
 
@@ -273,6 +289,52 @@ def block_top(doc, block_number):
     if not b.isValid():
         return 0.0
     return doc.documentLayout().blockBoundingRect(b).top()
+
+
+def print_reading_document(doc, layout, offsets, printer, ink=QColor('#111111')):
+    """Send every computed page of a built reading document to a printer/PDF
+    file, one printer page per offset.
+
+    doc.print(printer) cannot be used directly: build_reading_document lays
+    the whole book out as ONE huge continuous "page" (setPageSize height
+    1,000,000pt — see its docstring) so compute_page_offsets can paginate by
+    hand without ever splitting a line. Handed straight to doc.print(), Qt
+    treats that 1,000,000pt page as THE page and scales it down ~1000x to
+    fit the printer's real page — the text becomes sub-pixel and the output
+    is a blank page (confirmed with a real render: pdftotext still read the
+    text fine, pdftoppm showed nothing).
+
+    Same clip/scale/paint technique as render_carousel_page, looped over
+    every page instead of rendering one to a QPixmap, and targeting the
+    printer's own QPainter with printer.newPage() between pages instead."""
+    printer.setPageSize(QPageSize(QSizeF(layout.page_w, layout.page_h),
+                                   QPageSize.Unit.Point))
+    printer.setFullPage(True)
+    painter = QPainter(printer)
+    if not painter.isActive():
+        return
+    painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+    page_rect = printer.pageRect(QPrinter.Unit.DevicePixel)
+    scale = page_rect.width() / layout.page_w
+    for page in range(len(offsets)):
+        if page > 0:
+            printer.newPage()
+        top = offsets[page]
+        if page + 1 < len(offsets):
+            clip_h = min(offsets[page + 1] - top, layout.block_h)
+        else:
+            clip_h = layout.block_h
+        painter.save()
+        painter.scale(scale, scale)
+        painter.translate(layout.m_inner, layout.m_top)
+        painter.translate(0, -top)
+        painter.setClipRect(QRectF(0, top, layout.block_w, clip_h))
+        ctx = QAbstractTextDocumentLayout.PaintContext()
+        ctx.palette.setColor(QPalette.ColorRole.Text, ink)
+        ctx.clip = QRectF(0, top, layout.block_w, clip_h)
+        doc.documentLayout().draw(painter, ctx)
+        painter.restore()
+    painter.end()
 
 
 def render_carousel_page(doc, layout, offsets, page, w_px, h_px,
