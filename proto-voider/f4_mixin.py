@@ -168,14 +168,29 @@ class F4Mixin:
             parts.extend(lines)
         return '\n'.join(parts) + '\n'
 
+    def _sale_bundle_dir(self, lang, out_name):
+        """Where the bundle for `out_name` lands. lang is 'Español' or
+        'English'. Federico configures sale_bundle_dir_es/en to point
+        straight at his godplaystheartist checkout (books/ or libros/) —
+        those are absolute paths specific to his machine, so unset (anyone
+        else's Voider, including a compiled .exe handed to someone else)
+        falls back to a local void_dir/gPTA_books/<name>/ instead."""
+        key = 'sale_bundle_dir_es' if lang == 'Español' else 'sale_bundle_dir_en'
+        base = self.config.get(key, '').strip()
+        if not base:
+            base = os.path.join(self.void_dir, 'gPTA_books')
+        return os.path.join(base, out_name)
+
     def export_sale_bundle(self):
-        """Ctrl+Shift+A (F4): export PDF + EPUB + TXT together into
-        void_dir/gPTA_books/<name>/ — everything needed to upload a book for
-        sale in one place. Same scope as PDF/carousel export
-        (_reading_sections): the highlighted chapter, or the whole book when
-        F3 is highlighted on a '.' separator."""
+        """Ctrl+Shift+A (F4): export PDF + EPUB + TXT together — everything
+        needed to upload a book for sale in one place. Same scope as
+        PDF/carousel export (_reading_sections): the highlighted chapter, or
+        the whole book when F3 is highlighted on a '.' separator. Asks which
+        language it's in, since the destination (and eventually the site's
+        own catalog) is split by language, not something Voider can guess."""
         from PyQt6.QtGui import QColor
         from PyQt6.QtPrintSupport import QPrinter
+        from PyQt6.QtWidgets import QInputDialog
         from reading_page import (build_reading_document, compute_page_offsets,
                                   print_reading_document, A5_PT)
         from epub_export import build_epub
@@ -187,8 +202,13 @@ class F4Mixin:
         out_name = self._carousel_out_name(sections)
         if out_name is None:
             return
+        lang, ok = QInputDialog.getItem(
+            self, 'Idioma', 'Idioma del libro:', ['Español', 'English'], 0, False)
+        if not ok:
+            print("✗ Bundle cancelado (sin idioma).")
+            return
 
-        out_dir = os.path.join(self.void_dir, 'gPTA_books', out_name)
+        out_dir = self._sale_bundle_dir(lang, out_name)
         os.makedirs(out_dir, exist_ok=True)
 
         reading_font = QFont(self.config.get('reading_font', 'EB Garamond'),

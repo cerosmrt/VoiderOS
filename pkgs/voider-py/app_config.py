@@ -22,6 +22,12 @@ DEFAULT_CONFIG = {
     "void_dir": "",
     "book_dir": "",
     "active_file": "",
+    # Ctrl+Shift+A (F4): where the PDF+EPUB+TXT sale bundle lands, per
+    # language. Empty (the default for anyone but Federico) falls back to
+    # void_dir/gPTA_books/<title>/ — these are personal absolute paths, not
+    # something a compiled .exe for other people should ever have baked in.
+    "sale_bundle_dir_es": "",
+    "sale_bundle_dir_en": "",
     "void_key": "enter",
     "font_family": "Consolas",
     "font_size": 11,
