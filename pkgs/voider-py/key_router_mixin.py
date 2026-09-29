@@ -467,5 +467,7 @@ class KeyRouterMixin:
             self.export_carousel_with_cover(); event.accept(); return
         if self._matches(key, mods, 'carousel_view_toggle'):
             self._toggle_f4_carousel_view(); event.accept(); return
+        if self._matches(key, mods, 'export_sale_bundle'):
+            self.export_sale_bundle(); event.accept(); return
         if self._matches(key, mods, 'quit'):
             self._show_lock_screen(); event.accept()

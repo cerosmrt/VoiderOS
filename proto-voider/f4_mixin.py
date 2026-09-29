@@ -153,6 +153,65 @@ class F4Mixin:
             return None
         return out_name
 
+    def _sections_as_txt(self, sections):
+        """The TXT half of the sale bundle. A single chapter is just its own
+        raw lines — the file exactly as it already exists in void/I/, still
+        directly importable into someone else's Voider. Multiple chapters (a
+        whole-book export) get joined with '/chapter-title' fences between
+        them — the same marker Voider's own dispatch/split already use, not
+        a new format."""
+        if len(sections) == 1:
+            return '\n'.join(sections[0][1]) + '\n'
+        parts = []
+        for title, lines in sections:
+            parts.append(f'/{title}')
+            parts.extend(lines)
+        return '\n'.join(parts) + '\n'
+
+    def export_sale_bundle(self):
+        """Ctrl+Shift+A (F4): export PDF + EPUB + TXT together into
+        void_dir/gPTA_books/<name>/ — everything needed to upload a book for
+        sale in one place. Same scope as PDF/carousel export
+        (_reading_sections): the highlighted chapter, or the whole book when
+        F3 is highlighted on a '.' separator."""
+        from PyQt6.QtGui import QColor
+        from PyQt6.QtPrintSupport import QPrinter
+        from reading_page import (build_reading_document, compute_page_offsets,
+                                  print_reading_document, A5_PT)
+        from epub_export import build_epub
+
+        sections, _ = self._reading_sections()
+        if not sections:
+            print("✓ Nada para exportar.")
+            return
+        out_name = self._carousel_out_name(sections)
+        if out_name is None:
+            return
+
+        out_dir = os.path.join(self.void_dir, 'gPTA_books', out_name)
+        os.makedirs(out_dir, exist_ok=True)
+
+        reading_font = QFont(self.config.get('reading_font', 'EB Garamond'),
+                             int(self.config.get('reading_size', 13)))
+        ink = QColor('#111111')
+
+        doc, para_blocks, layout = build_reading_document(
+            sections, reading_font, page_pt=A5_PT,
+            hyphenate_lang=self.config.get('reading_hyphen_lang', 'auto'), ink=ink)
+        offsets = compute_page_offsets(doc, layout.block_h, layout.title_blocks)
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+        printer.setOutputFileName(os.path.join(out_dir, out_name + '.pdf'))
+        print_reading_document(doc, layout, offsets, printer, ink=ink)
+
+        build_epub(sections, out_name, os.path.join(out_dir, out_name + '.epub'))
+
+        with open(os.path.join(out_dir, out_name + '.txt'), 'w',
+                 encoding='utf-8') as f:
+            f.write(self._sections_as_txt(sections))
+
+        print(f'📦 Bundle de venta: {len(sections)} capítulo(s) → {out_dir}')
+
     def _write_carousel_chapters(self, sections, out_dir, w_px, h_px,
                                  reading_font, page_pt, start_n=1):
         """Write each section's title + body slides into out_dir, numbered
