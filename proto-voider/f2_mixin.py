@@ -300,10 +300,14 @@ class F2Mixin:
         self._doc_refresh_editor()
 
     def _doc_collapse_to_one_paragraph(self):
-        """Ctrl+Shift+.: delete every dot separator in the document, merging
-        all paragraphs into one. Tab on the single remaining dot
-        (_doc_shuffle_para_lines) then shuffles every line in the file at
-        once, instead of being limited to one paragraph's worth."""
+        """Ctrl+Shift+Delete, with the cursor on the document's first dot:
+        delete every dot separator, merging all paragraphs into one. Tab on
+        the single remaining dot (_doc_shuffle_para_lines) then shuffles
+        every line in the file at once, instead of being limited to one
+        paragraph's worth. A no-op anywhere else in the document, so it
+        can't fire by accident mid-edit."""
+        if self.line_ring.index != 0:
+            return
         merged = [l for l in self.line_ring.lines if l != '.']
         self._rebuild_ring_from_paragraphs([merged])
         self.line_ring.index = 0

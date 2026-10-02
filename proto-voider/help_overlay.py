@@ -62,7 +62,7 @@ HELP = [
     ("Ctrl+Shift+R",      "Randomise all lines in 0.txt"),
     ("Ctrl+Shift+D",      "Dispatch: route /name paragraphs to files"),
     ("Ctrl+Shift+E",      "Each space → a line break (a dot already splits too)"),
-    ("Ctrl+Shift+.",      "Delete all dots, merging the file into one paragraph (so Tab shuffles every line)"),
+    ("Ctrl+Shift+Delete (on the first dot)", "Delete all dots, merging the file into one paragraph (so Tab shuffles every line)"),
     ("Alt+Shift+↑/↓",     "Duplicate: line, or the paragraph on a dot"),
     ("Ctrl+Delete",       "Send line to trash.txt (from trash: back to 0.txt)"),
     ("Ctrl+Shift+X",      "Open the trash"),

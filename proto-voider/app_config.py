@@ -90,7 +90,7 @@ DEFAULT_CONFIG = {
         "export_carousel_cover": "Ctrl+Shift+B",
         "carousel_view_toggle": "Ctrl+Shift+V",
         "export_sale_bundle": "Ctrl+Shift+A",
-        "collapse_paragraphs": "Ctrl+Shift+.",
+        "collapse_paragraphs": "Ctrl+Shift+Delete",
         "typewriter_toggle": "Ctrl+Shift+W",
         "backup": "Ctrl+B"
     }
@@ -112,6 +112,7 @@ _KEY_MAP = {
     '`': Qt.Key.Key_QuoteLeft,
     'Plus': Qt.Key.Key_Plus, 'Minus': Qt.Key.Key_Minus,
     'S': Qt.Key.Key_S,
+    'Delete': Qt.Key.Key_Delete,
 }
 
 _MOD_MAP = {

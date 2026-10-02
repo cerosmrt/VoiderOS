@@ -65,9 +65,11 @@ class TestParagraphHelpers:
 
 
 class TestCollapseToOneParagraph:
-    """Ctrl+Shift+. — delete every dot in the document so the whole thing
+    """Ctrl+Shift+Delete, with the cursor on the document's FIRST dot only
+    (ring index 0): delete every dot in the document so the whole thing
     becomes one paragraph, and Tab on the single remaining dot
-    (_doc_shuffle_para_lines) shuffles every line in the file at once."""
+    (_doc_shuffle_para_lines) shuffles every line in the file at once.
+    A no-op anywhere else in the document, so it can't fire by accident."""
 
     def test_merges_two_paragraphs_into_one_dot(self):
         app = _collapse_app(['.', 'a', 'b', '.', 'c', 'd'])
@@ -79,9 +81,8 @@ class TestCollapseToOneParagraph:
         app._doc_collapse_to_one_paragraph()
         assert app.line_ring.lines == ['.', 'a', 'b', 'c']
 
-    def test_cursor_lands_on_the_remaining_dot(self):
+    def test_cursor_stays_on_the_remaining_dot(self):
         app = _collapse_app(['.', 'a', 'b', '.', 'c', 'd'])
-        app.line_ring.index = 4
         app._doc_collapse_to_one_paragraph()
         assert app.line_ring.index == 0
 
@@ -96,18 +97,32 @@ class TestCollapseToOneParagraph:
         with open(app.current_file_path, encoding='utf-8') as f:
             assert f.read() == '.\na\nb\n'
 
+    def test_noop_when_cursor_is_not_on_the_first_dot(self):
+        app = _collapse_app(['.', 'a', 'b', '.', 'c', 'd'])
+        app.line_ring.index = 3   # the second dot, not the first
+        before = list(app.line_ring.lines)
+        app._doc_collapse_to_one_paragraph()
+        assert app.line_ring.lines == before
+
+    def test_noop_on_a_content_line_too(self):
+        app = _collapse_app(['.', 'a', 'b', '.', 'c', 'd'])
+        app.line_ring.index = 1   # content line 'a'
+        before = list(app.line_ring.lines)
+        app._doc_collapse_to_one_paragraph()
+        assert app.line_ring.lines == before
+
 
 class TestCollapseParagraphsKeybinding:
 
-    def test_ctrl_shift_dot_is_bound_and_free_of_collisions(self):
+    def test_ctrl_shift_delete_is_bound_and_free_of_collisions(self):
         from app_config import DEFAULT_CONFIG, _parse_keybinding
         kb = DEFAULT_CONFIG['keybindings']
-        assert kb['collapse_paragraphs'] == 'Ctrl+Shift+.'
+        assert kb['collapse_paragraphs'] == 'Ctrl+Shift+Delete'
         parsed = [_parse_keybinding(v) for v in kb.values()]
         mine = _parse_keybinding(kb['collapse_paragraphs'])
-        assert parsed.count(mine) == 1, 'Ctrl+Shift+. ya esta tomada por otra accion'
+        assert parsed.count(mine) == 1, 'Ctrl+Shift+Delete ya esta tomada por otra accion'
 
-    def test_f2_routes_ctrl_shift_dot_to_the_collapse(self):
+    def test_f2_routes_ctrl_shift_delete_to_the_collapse(self):
         from app_config import _parse_keybinding
         from key_router_mixin import KeyRouterMixin
 
@@ -117,7 +132,7 @@ class TestCollapseParagraphsKeybinding:
             current_file_path = '/tmp/x.txt'
             f1_file = '/tmp/other.txt'
             _f2_search_active = False
-            _kb = {'collapse_paragraphs': _parse_keybinding('Ctrl+Shift+.')}
+            _kb = {'collapse_paragraphs': _parse_keybinding('Ctrl+Shift+Delete')}
             def _doc_collapse_to_one_paragraph(self):
                 called.append(True)
 
@@ -125,6 +140,6 @@ class TestCollapseParagraphsKeybinding:
             def accept(self): pass
             def ignore(self): pass
 
-        key, mods = _parse_keybinding('Ctrl+Shift+.')
+        key, mods = _parse_keybinding('Ctrl+Shift+Delete')
         App()._handle_f2_keys(key, mods, Ev())
         assert called

@@ -148,10 +148,12 @@ partir y unir, mandar párrafos a otro lado.
                           set de O/
   Tab (sobre un ".")           Mezcla las líneas dentro de ese párrafo
   Tab (sobre "ø", el inicio)   Mezcla el orden de todos los párrafos
-  Ctrl+Shift+.               Borra todos los "." del archivo, fundiéndolo
-                          en un solo párrafo — Tab sobre el punto que
-                          queda mezcla entonces todas las líneas del
-                          documento, no solo las de un párrafo
+  Ctrl+Shift+Delete          Solo sobre el PRIMER punto ("ø"): borra todos
+                          los "." del archivo, fundiéndolo en un solo
+                          párrafo — Tab sobre el punto que queda mezcla
+                          entonces todas las líneas del documento, no
+                          solo las de un párrafo. En cualquier otra
+                          posición no hace nada
   Ctrl+0                    Rebase de todo el documento desde acá
   Ctrl+Shift+D               Dispatch: los párrafos marcados
                           "/nombre-capitulo" se mandan solos a ese
