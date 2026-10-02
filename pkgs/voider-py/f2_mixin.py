@@ -299,6 +299,18 @@ class F2Mixin:
         self._doc_tab_cand = None
         self._doc_refresh_editor()
 
+    def _doc_collapse_to_one_paragraph(self):
+        """Ctrl+Shift+.: delete every dot separator in the document, merging
+        all paragraphs into one. Tab on the single remaining dot
+        (_doc_shuffle_para_lines) then shuffles every line in the file at
+        once, instead of being limited to one paragraph's worth."""
+        merged = [l for l in self.line_ring.lines if l != '.']
+        self._rebuild_ring_from_paragraphs([merged])
+        self.line_ring.index = 0
+        self.auto_save_circular()
+        self._doc_tab_cand = None
+        self._doc_refresh_editor()
+
     def _doc_insert_fragment(self, line):
         """Insert a raw line as an inline fragment at the cursor / over selection.
 

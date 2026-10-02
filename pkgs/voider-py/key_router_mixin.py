@@ -308,6 +308,9 @@ class KeyRouterMixin:
         elif self._matches(key, mods, 'shuffle_zero'):
             self._shuffle_zero()
             event.accept()
+        elif self._matches(key, mods, 'collapse_paragraphs'):
+            self._doc_collapse_to_one_paragraph()
+            event.accept()
         elif self._matches(key, mods, 'dispatch'):
             self._dispatch_paragraphs()
             event.accept()

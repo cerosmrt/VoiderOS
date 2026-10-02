@@ -132,6 +132,10 @@ and joining, sending paragraphs elsewhere.
   Shift+Tab                Insert a random O/ working-set fragment
   Tab (on a ".")            Shuffle the lines within that paragraph
   Tab (on "ø", the start)   Shuffle the order of all paragraphs
+  Ctrl+Shift+.              Delete every "." in the file, merging it into
+                          one paragraph — Tab on the remaining dot then
+                          shuffles every line in the document, not just
+                          one paragraph's worth
   Ctrl+0                    Rebase the whole document around here
   Ctrl+Shift+D              Dispatch: paragraphs tagged "/chapter-name"
                           get routed out to that chapter automatically

@@ -90,6 +90,7 @@ DEFAULT_CONFIG = {
         "export_carousel_cover": "Ctrl+Shift+B",
         "carousel_view_toggle": "Ctrl+Shift+V",
         "export_sale_bundle": "Ctrl+Shift+A",
+        "collapse_paragraphs": "Ctrl+Shift+.",
         "typewriter_toggle": "Ctrl+Shift+W",
         "backup": "Ctrl+B"
     }
