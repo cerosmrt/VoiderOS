@@ -4,7 +4,7 @@ Where the Rust mirror stands against the Python, measured by the Python's own
 test suite: **63 files, 592 tests**. This is the honest map — what is ported,
 what is partial, and what does not exist here yet.
 
-Rust tests today: **611**. (The Python suite has since grown to ~1079; the
+Rust tests today: **687**. (The Python suite has since grown to ~1079; the
 "63 files, 592 tests" above is the baseline this file was first measured
 against, and the table below is still in terms of it.)
 
@@ -32,6 +32,12 @@ committed on its own. The Python commit is in parentheses.
   `a5430e1`).
 - The send catalogue lists the active chapter, parks on it and shows the dots
   between books (`e3734df`, `5356b73`).
+- Selection in the line: Shift+←/→/Home/End, Ctrl+A/C/X/V, typing replaces it, and
+  Alt+←/→ moves a whole selected block (`53e4fe3`). `TextLine` now has the model
+  `QLineEdit` gave Python for free.
+- The EPUB exporter (`epub.rs`, no new dependency) and the PDF + EPUB + TXT sale
+  bundle on Ctrl+Shift+A in F4, with its name/language prompt (`f9fb6a7`,
+  `fe95779`, `3bc7846`).
 - F5 is drawn like F2: centred, tight, the dots visible, fading by distance
   (`c60a8cd`, `cd198ce`, `c45a132`). **The centring is covered by tests (egui
   centres on the galley's origin, which is easy to get wrong); how it looks in
@@ -41,10 +47,9 @@ committed on its own. The Python commit is in parentheses.
 
 | Python | What | Notes |
 |---|---|---|
-| `53e4fe3` | Alt+←/→ with a selection moves the whole selected block | `TextLine` has no selection at all — that has to exist first |
 | `63913c5`, `c9f9607`, `57165f1`, `5889aa2` | F4 Instagram carousel export, cover/countercover, preview toggle | big; needs image rendering |
-| `f9fb6a7`, `fe95779`, `3bc7846`, `da10d24` | EPUB exporter, PDF+EPUB+TXT sale bundle (Ctrl+Shift+A), F4 PDF fix | big |
-| `2b14105` | first run creates the void folder instead of a dialog | check the Rust first-run path |
+| `3bc7846`, `5f5e128` | Ctrl+Shift+A also offers the site's own book folders (`sale_bundle_dir_es/en`) | the setting exists and is honoured; there is no settings screen for it yet — edit `voider-rs.conf` |
+| `2b14105` | first run creates the void folder instead of a dialog | already how the Rust behaves — it never had the dialog |
 | `6470b1f`, `c384fab`, `6fa2c99`, `2f089d7`, `f7e6997` | F1 gradient, the effects panel, Hyprland dimming | visual; the panel does not exist here |
 | `ec5ed29` | config/state persisting inside a frozen exe | N/A for a single Rust binary |
 
@@ -114,19 +119,20 @@ straight to disk without passing through `load_doc`. Calling the second branch
 
 ## Not built here yet
 
+Checked against the source on 2026-10-05 — several things this table used to list
+(F6–F8, print/PDF, TTS, the pickers, merging stray `0.txt` files, Shift+Tab with a
+working-set fragment) have since been built; see "Landed since" above.
+
 | Feature | Python suite | Notes |
 |---|---|---|
-| F6–F8: the `O/` reader, browser, oracle | `test_working_set`, `test_tab_ws` (26) | needs the corpus |
-| Print / PDF export from F4 | `test_print` | needs a PDF crate + `lp` |
-| Justified, hyphenated setting in F4 | `test_reading_page` | no Spanish hyphenation here |
 | Lock screen | `test_lock_screen` (7) | PAM — see PENDING.md |
-| TTS | — | needs a speech engine decision |
-| Alt+Tab in F2 (working-set fragment) | `test_tab_ws` | needs F7 |
-| Pickers (active file, book folder, void folder) | — | |
-| Merge stray `0.txt` files | — | doesn't fit the flat `I/` model |
-| Be the desktop (wlr-layer-shell) | — | |
+| Justified, *hyphenated* setting in F4 | `test_reading_page` | justified is done; no Spanish hyphenation |
+| F4 carousel export (Instagram slides, cover/countercover) | `test_carousel_*` | needs text rasterised to PNG; no image pipeline here yet |
+| The F1 gradient and the effects panel | — | visual; the panel does not exist here |
+| Be the desktop (wlr-layer-shell) | — | the last milestone |
 
 ## Before pointing this at the real `/void`
+
 
 The mirror writes to a sandbox on purpose. What has to be true first:
 
