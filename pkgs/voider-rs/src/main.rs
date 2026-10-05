@@ -1385,7 +1385,7 @@ impl VoiderApp {
                 painter.text(
                     egui::pos2(centre.x, centre.y + 74.0),
                     egui::Align2::CENTER_CENTER,
-                    "⏎ seguir   ·   esc cancela",
+                    "Enter seguir   ·   Esc cancela",
                     egui::FontId::proportional(12.0),
                     egui::Color32::from_gray(95),
                 );
@@ -1411,7 +1411,7 @@ impl VoiderApp {
                 painter.text(
                     egui::pos2(centre.x, centre.y + 90.0),
                     egui::Align2::CENTER_CENTER,
-                    "⏎ exportar   ↑↓ idioma   ·   esc cancela",
+                    "Enter exportar   ↑↓ idioma   ·   Esc cancela",
                     egui::FontId::proportional(12.0),
                     egui::Color32::from_gray(95),
                 );
@@ -1896,6 +1896,70 @@ mod tests {
             ));
         });
         out.unwrap()
+    }
+
+    // ── what F5 really paints, without a window ──────────────────────────────
+
+    /// Run `draw` for one frame on a 1000x700 screen and return every piece of text
+    /// it painted, as (text, position).
+    fn painted_text(
+        app: &mut VoiderApp,
+        draw: impl Fn(&mut VoiderApp, &egui::Painter, &egui::Context, egui::Rect),
+    ) -> Vec<(String, egui::Pos2)> {
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 700.0))),
+            ..Default::default()
+        };
+        let mut found: Vec<(String, egui::Pos2)> = Vec::new();
+        let out = ctx.run(raw, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let painter = ui.painter().clone();
+                draw(app, &painter, ctx, ui.max_rect());
+            });
+        });
+        for clipped in &out.shapes {
+            collect_text(&clipped.shape, &mut found);
+        }
+        found
+    }
+
+    fn collect_text(shape: &egui::epaint::Shape, out: &mut Vec<(String, egui::Pos2)>) {
+        match shape {
+            egui::epaint::Shape::Text(t) => out.push((t.galley.text().to_string(), t.pos)),
+            egui::epaint::Shape::Vec(v) => v.iter().for_each(|s| collect_text(s, out)),
+            _ => {}
+        }
+    }
+
+    fn f5_app(lines: &[&str]) -> (tempfile::TempDir, VoiderApp) {
+        let d = tempfile::tempdir().unwrap();
+        let f = d.path().join("c.txt");
+        let lines: Vec<String> = lines.iter().map(|s| s.to_string()).collect();
+        void::atomic_write(&f, &lines, false).unwrap();
+        let mut voider = Voider::open(d.path(), &f);
+        voider.switch_to(app::View::F5);
+        (d, VoiderApp { voider, pointer_hidden: true, reading_pages: 1 })
+    }
+
+    #[test]
+    fn f5_paints_the_current_paragraph_at_the_centre_and_its_neighbours() {
+        let (_d, mut app) = f5_app(&[".", "Primer parrafo del libro.", ".", "Segundo parrafo.", ".", "Tercero."]);
+        let drawn = painted_text(&mut app, |a, p, c, r| a.draw_f5(p, c, r));
+        let texts: Vec<&str> = drawn.iter().map(|(t, _)| t.as_str()).collect();
+        assert!(texts.contains(&"Primer parrafo del libro."), "the current paragraph is not painted: {texts:?}");
+        assert!(texts.contains(&"Segundo parrafo."), "its neighbour is not painted: {texts:?}");
+
+        // The current paragraph sits at the vertical middle of the screen and is
+        // centred on the column; the one after it comes below, the dot between
+        // them in between, tight (no blank line).
+        let at = |t: &str| drawn.iter().find(|(s, _)| s == t).map(|(_, p)| *p).unwrap();
+        let (first, second) = (at("Primer parrafo del libro."), at("Segundo parrafo."));
+        assert!((first.x - 500.0).abs() < 1.0, "not centred: {first:?}");
+        assert!((first.y - 350.0).abs() < 25.0, "not vertically centred: {first:?}");
+        assert!(second.y > first.y, "the next paragraph should be below");
+        let gap = second.y - first.y;
+        assert!(gap < 100.0, "units are not packed tight: {gap}");
     }
 
     #[test]
