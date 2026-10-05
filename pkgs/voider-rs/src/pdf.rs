@@ -141,6 +141,8 @@ mod tests {
         Section {
             title: title.to_string(),
             paragraphs: paras.iter().map(|s| s.to_string()).collect(),
+            name: title.to_string(),
+            lines: Vec::new(),
         }
     }
 

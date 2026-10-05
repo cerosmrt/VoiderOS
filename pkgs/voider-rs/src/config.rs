@@ -23,6 +23,10 @@ pub struct Config {
     pub last_view: Option<String>,
     /// The file that was active when `last_view` was saved.
     pub active_file: Option<String>,
+    /// Where the PDF + EPUB + TXT sale bundle goes, by language. Empty (the
+    /// default) means the local `gPTA_books` folder inside the void.
+    pub sale_bundle_dir_es: String,
+    pub sale_bundle_dir_en: String,
 }
 
 impl Default for Config {
@@ -35,6 +39,8 @@ impl Default for Config {
             opacity: 1.0,
             last_view: None,
             active_file: None,
+            sale_bundle_dir_es: String::new(),
+            sale_bundle_dir_en: String::new(),
         }
     }
 }
@@ -86,6 +92,12 @@ impl Config {
         if let Some(f) = &self.active_file {
             lines.push(format!("active_file = {f}"));
         }
+        if !self.sale_bundle_dir_es.is_empty() {
+            lines.push(format!("sale_bundle_dir_es = {}", self.sale_bundle_dir_es));
+        }
+        if !self.sale_bundle_dir_en.is_empty() {
+            lines.push(format!("sale_bundle_dir_en = {}", self.sale_bundle_dir_en));
+        }
         lines
     }
 
@@ -116,6 +128,8 @@ impl Config {
                 }
                 "last_view" if !value.is_empty() => c.last_view = Some(value.to_string()),
                 "active_file" if !value.is_empty() => c.active_file = Some(value.to_string()),
+                "sale_bundle_dir_es" => c.sale_bundle_dir_es = value.to_string(),
+                "sale_bundle_dir_en" => c.sale_bundle_dir_en = value.to_string(),
                 _ => {}
             }
         }
@@ -152,6 +166,27 @@ mod tests {
         lines.iter().map(|s| s.to_string()).collect()
     }
 
+    // Where the sale bundle lands, per language. Empty by default: they are
+    // absolute paths to one machine's site checkout, meaningless on anyone else's
+    // (test_sale_bundle.py), so unset means "use the local fallback".
+
+    #[test]
+    fn the_sale_bundle_folders_are_empty_until_configured() {
+        let c = Config::default();
+        assert_eq!(c.sale_bundle_dir_es, "");
+        assert_eq!(c.sale_bundle_dir_en, "");
+    }
+
+    #[test]
+    fn an_empty_sale_bundle_folder_is_not_written_and_a_set_one_is_read_back() {
+        let mut c = Config::default();
+        assert!(!c.to_lines().iter().any(|l| l.starts_with("sale_bundle_dir")));
+        c.sale_bundle_dir_es = "/a b/libros".into();
+        let back = Config::from_lines(&c.to_lines());
+        assert_eq!(back.sale_bundle_dir_es, "/a b/libros");
+        assert_eq!(back.sale_bundle_dir_en, "");
+    }
+
     #[test]
     fn defaults_are_the_writing_font() {
         let c = Config::default();
@@ -171,6 +206,8 @@ mod tests {
             opacity: 0.6,
             last_view: Some("F2".into()),
             active_file: Some("Capitulo.txt".into()),
+            sale_bundle_dir_es: "/srv/sitio/libros".into(),
+            sale_bundle_dir_en: "/srv/sitio/books".into(),
         };
         c.save(d.path()).unwrap();
         assert_eq!(Config::load(d.path()), c);

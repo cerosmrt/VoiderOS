@@ -99,11 +99,15 @@ pub fn page_of(offsets: &[f32], y: f32) -> usize {
         .unwrap_or(0)
 }
 
-/// What F4 is showing: a title and the paragraphs under it.
+/// What F4 is showing: a title and the paragraphs under it. It also keeps what
+/// the page itself does not need but the sale bundle does: the chapter's own
+/// name (the title is shouted for the page) and its raw dot-model lines.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Section {
     pub title: String,
     pub paragraphs: Vec<String>,
+    pub name: String,
+    pub lines: Vec<String>,
 }
 
 #[cfg(test)]

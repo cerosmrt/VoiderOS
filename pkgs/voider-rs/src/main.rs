@@ -13,6 +13,7 @@
 mod app;
 mod backup;
 mod browse;
+mod bundle;
 mod config;
 mod epub;
 mod corpus;

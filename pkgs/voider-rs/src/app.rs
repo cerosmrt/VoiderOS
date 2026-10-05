@@ -580,6 +580,8 @@ impl Voider {
         self.reading = vec![reading::Section {
             title: file_title(&path).to_uppercase(),
             paragraphs: reformat::lines_to_paragraphs(&lines),
+            name: file_title(&path),
+            lines,
         }];
     }
 
@@ -600,11 +602,14 @@ impl Voider {
             if !library::is_portal(name) {
                 let path = library::chapter_path(&self.void_dir, name);
                 if path.is_file() {
-                    let paragraphs = reformat::lines_to_paragraphs(&void::load_doc(&path).lines);
+                    let lines = void::load_doc(&path).lines;
+                    let paragraphs = reformat::lines_to_paragraphs(&lines);
                     if !paragraphs.is_empty() {
                         out.push(reading::Section {
                             title: library::display_name(name).to_uppercase(),
                             paragraphs,
+                            name: library::display_name(name),
+                            lines,
                         });
                     }
                 }
@@ -5332,6 +5337,19 @@ mod tests {
             v.reading[0].paragraphs,
             vec!["Una frase. Otra frase.".to_string(), "Segundo.".to_string()]
         );
+    }
+
+    #[test]
+    fn a_reading_section_keeps_its_own_name_and_its_raw_lines() {
+        // The sale bundle needs what the page does not: the chapter's name as it is
+        // (not the shouted title) and the file's lines before they are joined.
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.index = v.library.position("Dos.txt").unwrap();
+        v.switch_to(View::F4);
+        assert_eq!(v.reading[0].title, "DOS");
+        assert_eq!(v.reading[0].name, "Dos");
+        assert_eq!(v.reading[0].lines, void::load_doc(&library::chapter_path(&v.void_dir, "Dos.txt")).lines);
     }
 
     #[test]
