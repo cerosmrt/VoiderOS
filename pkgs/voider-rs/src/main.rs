@@ -155,6 +155,10 @@ impl VoiderApp {
                 // character: the key event below handles it, so drop the text or
                 // it would be typed into the line as well.
                 egui::Event::Text(t) if t == "`" => {}
+                // The sale bundle's name is typed into its own prompt, not the line.
+                egui::Event::Text(t) if self.voider.bundle_prompt.is_some() => {
+                    self.voider.bundle_type(&t);
+                }
                 // Ctrl+V reaches us as a Paste event, not as text.
                 egui::Event::Paste(t)
                     if !self.voider.help_open
@@ -215,6 +219,28 @@ impl VoiderApp {
                                 let _ = self.voider.browser_enter(modifiers.shift);
                             }
                             egui::Key::Escape => self.voider.cancel_browser(),
+                            _ => {}
+                        }
+                        continue;
+                    }
+                    // So does the sale-bundle question (name, then language).
+                    if let Some(p) = self.voider.bundle_prompt.clone() {
+                        match key {
+                            egui::Key::Enter => {
+                                let _ = self.voider.bundle_confirm();
+                            }
+                            egui::Key::Escape => self.voider.cancel_bundle(),
+                            egui::Key::Backspace => self.voider.bundle_backspace(),
+                            egui::Key::ArrowUp | egui::Key::ArrowLeft
+                                if p.stage == app::BundleStage::Lang =>
+                            {
+                                self.voider.bundle_cycle_lang(-1)
+                            }
+                            egui::Key::ArrowDown | egui::Key::ArrowRight | egui::Key::Tab
+                                if p.stage == app::BundleStage::Lang =>
+                            {
+                                self.voider.bundle_cycle_lang(1)
+                            }
                             _ => {}
                         }
                         continue;
@@ -689,6 +715,8 @@ impl VoiderApp {
                 self.voider.export_pdf();
             }
             Key::P if m.ctrl => self.voider.print_reading(),
+            // Ctrl+Shift+A: PDF + EPUB + TXT together, ready to put up for sale.
+            Key::A if m.ctrl && m.shift => self.voider.begin_sale_bundle(),
             Key::Home => self.voider.page = 0,
             Key::End => self.voider.page = pages - 1,
             Key::Escape => self.voider.switch_to(View::F2),
@@ -1322,6 +1350,75 @@ impl VoiderApp {
         );
     }
 
+    /// The sale-bundle question: the name of the book (a whole book has no single
+    /// title), then its language. Plain on purpose, like the backup's — it is about
+    /// to write three files, possibly into the site's own folders.
+    fn draw_bundle_prompt(&self, painter: &egui::Painter, rect: egui::Rect) {
+        let Some(p) = &self.voider.bundle_prompt else {
+            return;
+        };
+        painter.rect_filled(rect, 0.0, egui::Color32::from_black_alpha(242));
+        let centre = rect.center();
+        painter.text(
+            egui::pos2(centre.x, centre.y - 70.0),
+            egui::Align2::CENTER_CENTER,
+            "BUNDLE DE VENTA · PDF + EPUB + TXT",
+            egui::FontId::proportional(self.font_size() * 0.7),
+            egui::Color32::from_gray(235),
+        );
+        match p.stage {
+            app::BundleStage::Name => {
+                painter.text(
+                    egui::pos2(centre.x, centre.y - 24.0),
+                    egui::Align2::CENTER_CENTER,
+                    "Nombre para la carpeta del libro:",
+                    egui::FontId::proportional(14.0),
+                    egui::Color32::from_gray(150),
+                );
+                painter.text(
+                    egui::pos2(centre.x, centre.y + 14.0),
+                    egui::Align2::CENTER_CENTER,
+                    format!("{}▏", p.name),
+                    egui::FontId::proportional(self.font_size() * 0.8),
+                    egui::Color32::WHITE,
+                );
+                painter.text(
+                    egui::pos2(centre.x, centre.y + 74.0),
+                    egui::Align2::CENTER_CENTER,
+                    "⏎ seguir   ·   esc cancela",
+                    egui::FontId::proportional(12.0),
+                    egui::Color32::from_gray(95),
+                );
+            }
+            app::BundleStage::Lang => {
+                painter.text(
+                    egui::pos2(centre.x, centre.y - 36.0),
+                    egui::Align2::CENTER_CENTER,
+                    format!("«{}» — idioma del libro:", p.name),
+                    egui::FontId::proportional(14.0),
+                    egui::Color32::from_gray(150),
+                );
+                for (i, l) in bundle::Lang::ALL.iter().enumerate() {
+                    let lit = *l == p.lang;
+                    painter.text(
+                        egui::pos2(centre.x, centre.y + 4.0 + i as f32 * 30.0),
+                        egui::Align2::CENTER_CENTER,
+                        l.label(),
+                        egui::FontId::proportional(self.font_size() * 0.8),
+                        if lit { egui::Color32::WHITE } else { egui::Color32::from_gray(80) },
+                    );
+                }
+                painter.text(
+                    egui::pos2(centre.x, centre.y + 90.0),
+                    egui::Align2::CENTER_CENTER,
+                    "⏎ exportar   ↑↓ idioma   ·   esc cancela",
+                    egui::FontId::proportional(12.0),
+                    egui::Color32::from_gray(95),
+                );
+            }
+        }
+    }
+
     /// F4: the text set in a column and shown a page at a time.
     ///
     /// The whole thing is laid out once as one tall column; a page is a window
@@ -1744,6 +1841,9 @@ impl eframe::App for VoiderApp {
                 self.draw_title(&painter, rect);
                 if self.voider.backup_prompt.is_some() {
                     self.draw_backup_prompt(&painter, rect);
+                }
+                if self.voider.bundle_prompt.is_some() {
+                    self.draw_bundle_prompt(&painter, rect);
                 }
                 if self.voider.browser.is_some() {
                     self.draw_browser(&painter, rect);

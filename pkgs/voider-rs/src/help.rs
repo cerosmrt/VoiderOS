@@ -91,6 +91,7 @@ pub const ROWS: &[Row] = &[
     ("Home / End", Some("First / last page")),
     ("Ctrl+S  (F4)", Some("Save the book as a PDF, justified")),
     ("Ctrl+P  (F4)", Some("Print it (needs CUPS enabled)")),
+    ("Ctrl+Shift+A  (F4)", Some("Bundle for sale: PDF + EPUB + TXT, asks the language")),
     ("", None),
     ("THE CORPUS  (F6 / F7 / F8)", None),
     ("Tab  (F7)", Some("Draw a book into this slot — never one already used")),

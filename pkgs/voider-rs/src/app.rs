@@ -56,6 +56,21 @@ pub fn caps_lock_on() -> bool {
     false
 }
 
+/// Where Ctrl+Shift+A has got to: asking for the book's name (a whole book has no
+/// single title), then for its language.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BundleStage {
+    Name,
+    Lang,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BundlePrompt {
+    pub stage: BundleStage,
+    pub name: String,
+    pub lang: bundle::Lang,
+}
+
 /// Which view is on screen. Both edit the same ring and the same active file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
@@ -169,6 +184,8 @@ pub struct Voider {
     /// Ctrl+B: a backup worked out and waiting to be accepted. Nothing is
     /// written to the drive until it is.
     pub backup_prompt: Option<BackupPrompt>,
+    /// The sale-bundle question (name, then language), while it is open.
+    pub bundle_prompt: Option<BundlePrompt>,
     /// F6: el libro del corpus abierto, como anillo de líneas.
     pub o_ring: LineRing,
     /// F6: qué archivo de O/ es ese (vacío si no hay ninguno).
@@ -276,6 +293,7 @@ impl Voider {
             browser: None,
             help_open: false,
             backup_prompt: None,
+            bundle_prompt: None,
             prose: String::new(),
             prose_dirty: false,
             prose_caret: None,
@@ -545,6 +563,74 @@ impl Voider {
             [only] => Some(if only.name.is_empty() { "capitulo".to_string() } else { only.name.clone() }),
             _ => None,
         }
+    }
+
+    /// Ctrl+Shift+A in F4 starts the question. A single chapter names its own
+    /// bundle, so only the language is asked; a whole book is asked its name first.
+    pub fn begin_sale_bundle(&mut self) {
+        if self.reading.is_empty() {
+            self.status = "Nada para exportar".into();
+            return;
+        }
+        let preset = self.bundle_default_name();
+        self.bundle_prompt = Some(BundlePrompt {
+            stage: if preset.is_some() { BundleStage::Lang } else { BundleStage::Name },
+            name: preset.unwrap_or_default(),
+            lang: bundle::Lang::Es,
+        });
+    }
+
+    /// Text typed into the name, while the name is what is being asked.
+    pub fn bundle_type(&mut self, text: &str) {
+        if let Some(p) = &mut self.bundle_prompt {
+            if p.stage == BundleStage::Name {
+                p.name.push_str(text);
+            }
+        }
+    }
+
+    pub fn bundle_backspace(&mut self) {
+        if let Some(p) = &mut self.bundle_prompt {
+            if p.stage == BundleStage::Name {
+                p.name.pop();
+            }
+        }
+    }
+
+    /// Step the language to the next one offered, wrapping.
+    pub fn bundle_cycle_lang(&mut self, delta: isize) {
+        if let Some(p) = &mut self.bundle_prompt {
+            let all = bundle::Lang::ALL;
+            let at = all.iter().position(|l| *l == p.lang).unwrap_or(0) as isize;
+            p.lang = all[(at + delta).rem_euclid(all.len() as isize) as usize];
+        }
+    }
+
+    /// Enter: on the name, go on to the language (a blank name cancels, as the
+    /// Python's does); on the language, write the bundle.
+    pub fn bundle_confirm(&mut self) -> io::Result<()> {
+        let Some(p) = self.bundle_prompt.clone() else {
+            return Ok(());
+        };
+        match p.stage {
+            BundleStage::Name => {
+                if p.name.trim().is_empty() {
+                    self.bundle_prompt = None;
+                    self.status = "Bundle cancelado (sin nombre)".into();
+                } else if let Some(pr) = &mut self.bundle_prompt {
+                    pr.stage = BundleStage::Lang;
+                }
+                Ok(())
+            }
+            BundleStage::Lang => {
+                self.bundle_prompt = None;
+                self.export_sale_bundle(&p.name, p.lang).map(|_| ())
+            }
+        }
+    }
+
+    pub fn cancel_bundle(&mut self) {
+        self.bundle_prompt = None;
     }
 
     /// Ctrl+Shift+A en F4: PDF + EPUB + TXT juntos, todo lo que hace falta para
@@ -5607,6 +5693,101 @@ mod tests {
         let epub = std::fs::read(bundle_files(&d, "Dos").join("Dos.epub")).unwrap();
         let text = String::from_utf8_lossy(&epub);
         assert!(text.contains("<dc:language>en</dc:language>"));
+    }
+
+    // ── the prompt that asks for the name and the language ───────────────────
+
+    #[test]
+    fn a_single_chapter_skips_the_name_and_asks_only_the_language() {
+        let (_d, mut v) = bundle_app(false);
+        v.begin_sale_bundle();
+        let p = v.bundle_prompt.as_ref().expect("a prompt opens");
+        assert_eq!(p.stage, BundleStage::Lang);
+        assert_eq!(p.name, "Dos");
+    }
+
+    #[test]
+    fn a_whole_book_asks_for_its_name_first() {
+        let (_d, mut v) = bundle_app(true);
+        v.begin_sale_bundle();
+        assert_eq!(v.bundle_prompt.as_ref().unwrap().stage, BundleStage::Name);
+    }
+
+    #[test]
+    fn with_nothing_to_read_no_prompt_opens() {
+        let (_d, mut v) = app(&["."]);
+        v.reading.clear();
+        v.begin_sale_bundle();
+        assert!(v.bundle_prompt.is_none());
+        assert!(v.status.contains("Nada para exportar"));
+    }
+
+    #[test]
+    fn typing_a_name_then_enter_moves_on_to_the_language_and_enter_exports() {
+        let (d, mut v) = bundle_app(true);
+        v.begin_sale_bundle();
+        v.bundle_type("Mi ");
+        v.bundle_type("Libro");
+        v.bundle_confirm().unwrap();
+        assert_eq!(v.bundle_prompt.as_ref().unwrap().stage, BundleStage::Lang);
+        assert!(!d.path().join("gPTA_books").exists(), "nothing is written before the language");
+        v.bundle_confirm().unwrap();
+        assert!(v.bundle_prompt.is_none());
+        assert!(bundle_files(&d, "Mi Libro").join("Mi Libro.epub").is_file());
+    }
+
+    #[test]
+    fn the_language_defaults_to_spanish_and_can_be_cycled() {
+        let (_d, mut v) = bundle_app(false);
+        v.begin_sale_bundle();
+        assert_eq!(v.bundle_prompt.as_ref().unwrap().lang, bundle::Lang::Es);
+        v.bundle_cycle_lang(1);
+        assert_eq!(v.bundle_prompt.as_ref().unwrap().lang, bundle::Lang::En);
+        v.bundle_cycle_lang(1);
+        assert_eq!(v.bundle_prompt.as_ref().unwrap().lang, bundle::Lang::Es); // wraps
+    }
+
+    #[test]
+    fn the_chosen_language_reaches_the_epub() {
+        let (d, mut v) = bundle_app(false);
+        v.begin_sale_bundle();
+        v.bundle_cycle_lang(1); // English
+        v.bundle_confirm().unwrap();
+        let epub = std::fs::read(bundle_files(&d, "Dos").join("Dos.epub")).unwrap();
+        assert!(String::from_utf8_lossy(&epub).contains("<dc:language>en</dc:language>"));
+    }
+
+    #[test]
+    fn enter_on_an_empty_name_cancels_and_writes_nothing() {
+        let (d, mut v) = bundle_app(true);
+        v.begin_sale_bundle();
+        v.bundle_type("   ");
+        v.bundle_confirm().unwrap();
+        assert!(v.bundle_prompt.is_none());
+        assert!(!d.path().join("gPTA_books").exists());
+    }
+
+    #[test]
+    fn escape_cancels_at_either_stage_and_writes_nothing() {
+        let (d, mut v) = bundle_app(true);
+        v.begin_sale_bundle();
+        v.cancel_bundle();
+        assert!(v.bundle_prompt.is_none());
+        v.begin_sale_bundle();
+        v.bundle_type("X");
+        v.bundle_confirm().unwrap(); // now on the language
+        v.cancel_bundle();
+        assert!(v.bundle_prompt.is_none());
+        assert!(!d.path().join("gPTA_books").exists());
+    }
+
+    #[test]
+    fn backspace_edits_the_name() {
+        let (_d, mut v) = bundle_app(true);
+        v.begin_sale_bundle();
+        v.bundle_type("Libros");
+        v.bundle_backspace();
+        assert_eq!(v.bundle_prompt.as_ref().unwrap().name, "Libro");
     }
 
     #[test]
