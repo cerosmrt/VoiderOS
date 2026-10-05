@@ -154,7 +154,7 @@ pub fn typeset(
 
 /// A word that is wider than the whole column, cut into pieces that each fit —
 /// so a line can never run out of the column. Ordinary words come back whole.
-fn split_to_fit(font: &TypeFont, px: f32, width: f32, word: &str) -> Vec<String> {
+pub(crate) fn split_to_fit(font: &TypeFont, px: f32, width: f32, word: &str) -> Vec<String> {
     if font.advance(word, px) <= width || width <= 0.0 {
         return vec![word.to_string()];
     }

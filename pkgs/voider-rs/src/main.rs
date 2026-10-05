@@ -30,6 +30,7 @@ mod position;
 mod reading;
 mod reformat;
 mod shot;
+mod slides;
 mod split;
 mod text_line;
 mod tts;
