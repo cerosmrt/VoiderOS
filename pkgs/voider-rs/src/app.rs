@@ -3743,6 +3743,34 @@ impl Voider {
         self.persist_config();
     }
 
+    /// F10, Tab: step the carousel's frame through the presets and `custom`,
+    /// wrapping. Remembered, and a preview that is open is laid out again.
+    pub fn settings_step_carousel(&mut self, delta: isize) {
+        let at = carousel::FRAMES
+            .iter()
+            .position(|f| *f == self.config.carousel_preset)
+            .unwrap_or_else(|| carousel::FRAMES.iter().position(|f| *f == carousel::DEFAULT_PRESET).unwrap_or(0));
+        let n = carousel::FRAMES.len() as isize;
+        self.config.carousel_preset = carousel::FRAMES[(at as isize + delta).rem_euclid(n) as usize].to_string();
+        self.persist_config();
+        self.rebuild_carousel_plan();
+    }
+
+    /// F10, Ctrl+arrows: nudge a `custom` frame's width and height by `dw` / `dh`
+    /// steps of ten pixels. A named preset is not edited, and a side never goes
+    /// below the minimum or above the maximum.
+    pub fn settings_step_carousel_size(&mut self, dw: i32, dh: i32) {
+        if self.config.carousel_preset != "custom" {
+            return;
+        }
+        let step = |v: u32, d: i32| (v as i64 + d as i64 * carousel::SIZE_STEP as i64)
+            .clamp(carousel::SIZE_MIN as i64, carousel::SIZE_MAX as i64) as u32;
+        self.config.carousel_w = step(self.config.carousel_w, dw);
+        self.config.carousel_h = step(self.config.carousel_h, dh);
+        self.persist_config();
+        self.rebuild_carousel_plan();
+    }
+
     pub fn settings_step_size(&mut self, delta: isize) {
         self.config.step_size(delta);
         self.persist_config();
@@ -6097,6 +6125,72 @@ mod tests {
         let epub = std::fs::read(bundle_files(&d, "Dos").join("Dos.epub")).unwrap();
         let text = String::from_utf8_lossy(&epub);
         assert!(text.contains("<dc:language>en</dc:language>"));
+    }
+
+    // ── F10: the carousel's frame (test_settings_panel_carousel.py) ──────────
+
+    #[test]
+    fn the_frame_starts_at_4_5_and_cycles_through_every_preset_then_custom() {
+        let (_d, mut v) = app(&["."]);
+        assert_eq!(v.config.carousel_preset, "4:5");
+        let mut seen = vec![v.config.carousel_preset.clone()];
+        for _ in 0..4 {
+            v.settings_step_carousel(1);
+            seen.push(v.config.carousel_preset.clone());
+        }
+        assert_eq!(seen, vec!["4:5", "1.91:1", "custom", "1:1", "4:5"]);
+    }
+
+    #[test]
+    fn stepping_back_goes_the_other_way_and_wraps() {
+        let (_d, mut v) = app(&["."]);
+        v.settings_step_carousel(-1);
+        assert_eq!(v.config.carousel_preset, "1:1");
+        v.settings_step_carousel(-1);
+        assert_eq!(v.config.carousel_preset, "custom"); // wraps round
+    }
+
+    #[test]
+    fn the_chosen_frame_is_remembered_across_runs_and_sets_the_size() {
+        let (d, mut v) = app(&["."]);
+        v.settings_step_carousel(-1); // 1:1
+        assert_eq!(v.carousel_size(), (1080, 1080));
+        assert_eq!(Config::load(&v.void_dir).carousel_preset, "1:1");
+        let _ = d;
+    }
+
+    #[test]
+    fn a_custom_frame_takes_its_size_from_the_config_and_can_be_nudged() {
+        let (_d, mut v) = app(&["."]);
+        v.config.carousel_preset = "custom".into();
+        v.settings_step_carousel_size(1, 0);
+        assert_eq!(v.config.carousel_w, 1080 + 10);
+        v.settings_step_carousel_size(0, -1);
+        assert_eq!(v.config.carousel_h, 1350 - 10);
+        assert_eq!(v.carousel_size(), (1090, 1340));
+    }
+
+    #[test]
+    fn the_size_cannot_be_nudged_unless_the_frame_is_custom_and_never_below_the_minimum() {
+        let (_d, mut v) = app(&["."]);
+        v.settings_step_carousel_size(1, 1);
+        assert_eq!((v.config.carousel_w, v.config.carousel_h), (1080, 1350)); // a preset is not edited
+        v.config.carousel_preset = "custom".into();
+        v.config.carousel_w = 120;
+        for _ in 0..50 {
+            v.settings_step_carousel_size(-1, 0);
+        }
+        assert!(v.config.carousel_w >= 100, "{}", v.config.carousel_w);
+    }
+
+    #[test]
+    fn changing_the_frame_while_previewing_redraws_the_preview() {
+        let (_d, mut v) = bundle_app(false);
+        v.toggle_carousel_view();
+        v.settings_step_carousel(-1); // 1:1
+        v.switch_to(View::F4);
+        assert_eq!(v.carousel_size(), (1080, 1080));
+        assert!(!v.carousel_slides.is_empty());
     }
 
     // ── Ctrl+Shift+V: the carousel preview in F4 (test_f4_carousel_view.py) ──

@@ -25,7 +25,7 @@ pub const ROWS: &[Row] = &[
     ("F7", Some("The working set — the books picked by hand")),
     ("F8", Some("The oracle — a random line from the corpus")),
     ("F9", Some("Prose — the active file as one editable block")),
-    ("F10", Some("Settings — the writing font and its size (←→)")),
+    ("F10", Some("Settings — the writing font and its size (←→); Tab: the carousel frame")),
     ("F11", Some("This help")),
     ("", None),
     ("MOVING", None),

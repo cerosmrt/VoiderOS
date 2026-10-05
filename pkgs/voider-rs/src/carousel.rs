@@ -30,6 +30,15 @@ pub const PRESETS: [(&str, (u32, u32)); 3] = [
     ("1.91:1", (1080, 566)),
 ];
 
+/// What F10 offers for the frame, in the order Tab steps through them.
+pub const FRAMES: [&str; 4] = ["1:1", "4:5", "1.91:1", "custom"];
+
+/// A `custom` frame is nudged in steps of this many pixels, and kept between
+/// these bounds — an absurd size would be a gigabyte of slides.
+pub const SIZE_STEP: u32 = 10;
+pub const SIZE_MIN: u32 = 100;
+pub const SIZE_MAX: u32 = 4000;
+
 /// The preset a fresh install uses.
 pub const DEFAULT_PRESET: &str = "4:5";
 

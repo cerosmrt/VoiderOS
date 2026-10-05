@@ -347,7 +347,7 @@ impl VoiderApp {
                         View::F8 => self.handle_f8_key(key),
                         View::F5 => self.handle_f5_key(key, modifiers),
                         View::F9 => self.handle_f9_key(key, modifiers),
-                        View::F10 => self.handle_f10_key(key),
+                        View::F10 => self.handle_f10_key(key, modifiers),
                     }
                 }
                 _ => {}
@@ -738,9 +738,16 @@ impl VoiderApp {
 
     /// F10: ↑↓ walks the fonts (adopting each as you land on it, so you see it),
     /// ←→ the size. Escape goes back to writing.
-    fn handle_f10_key(&mut self, key: egui::Key) {
+    fn handle_f10_key(&mut self, key: egui::Key, m: egui::Modifiers) {
         use egui::Key;
         match key {
+            // Tab steps the carousel's frame; Ctrl+arrows size a custom one.
+            Key::Tab if m.shift => self.voider.settings_step_carousel(-1),
+            Key::Tab => self.voider.settings_step_carousel(1),
+            Key::ArrowLeft if m.ctrl => self.voider.settings_step_carousel_size(-1, 0),
+            Key::ArrowRight if m.ctrl => self.voider.settings_step_carousel_size(1, 0),
+            Key::ArrowUp if m.ctrl => self.voider.settings_step_carousel_size(0, 1),
+            Key::ArrowDown if m.ctrl => self.voider.settings_step_carousel_size(0, -1),
             Key::ArrowUp => self.voider.settings_step_family(-1),
             Key::ArrowDown => self.voider.settings_step_family(1),
             Key::ArrowLeft => self.voider.settings_step_size(-1),
@@ -1287,10 +1294,19 @@ impl VoiderApp {
             egui::FontId::proportional(self.font_size()),
             egui::Color32::from_gray(200),
         );
+        // The carousel's frame, with the size it comes to.
+        let (fw, fh) = self.voider.carousel_size();
+        painter.text(
+            egui::pos2(centre.x, rect.bottom() - 112.0),
+            egui::Align2::CENTER_CENTER,
+            format!("carrusel  ‹ {} ›  {fw}×{fh}", self.voider.config.carousel_preset),
+            egui::FontId::proportional(14.0),
+            egui::Color32::from_gray(150),
+        );
         painter.text(
             egui::pos2(centre.x, rect.bottom() - 28.0),
             egui::Align2::CENTER_CENTER,
-            "↑↓ fuente   ←→ tamaño   ⏎ volver",
+            "↑↓ fuente   ←→ tamaño   Tab carrusel   Ctrl+flechas medida propia   Enter volver",
             egui::FontId::proportional(12.0),
             egui::Color32::from_gray(70),
         );
