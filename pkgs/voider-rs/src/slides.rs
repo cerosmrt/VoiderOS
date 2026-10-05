@@ -254,6 +254,46 @@ pub fn render_cover_slide(image_path: &Path, w: u32, h: u32, font: &TypeFont, fo
     canvas
 }
 
+/// One slide of a carousel, before it is drawn.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Slide {
+    /// A chapter's title, alone on its slide.
+    Title(String),
+    /// One page of a chapter's body.
+    Body(Vec<Line>),
+}
+
+/// Every slide a set of sections makes, in order: each chapter's title slide and
+/// then its body pages, set for a `w` × `h` frame. This is the ONE place that
+/// decides what a carousel is, so the on-screen preview and the files written to
+/// disk cannot disagree.
+pub fn plan(sections: &[(String, Vec<String>)], font: &TypeFont, w: u32, h: u32) -> Vec<Slide> {
+    let geo = crate::carousel::geometry(w, h);
+    let line_h = leading(font, geo.font_px);
+    let mut out = Vec::new();
+    for (name, lines) in sections {
+        // The title has a slide of its own; the body starts on the next one.
+        out.push(Slide::Title(name.clone()));
+        let paragraphs = crate::reformat::lines_to_paragraphs(lines);
+        let set = crate::typeset::typeset(font, geo.font_px, geo.block_w, geo.indent, line_h, &paragraphs);
+        for page in crate::typeset::paginate(set, line_h, geo.block_h) {
+            out.push(Slide::Body(page));
+        }
+    }
+    out
+}
+
+
+/// Draw one slide of a plan onto a `w` × `h` canvas.
+pub fn render_slide(slide: &Slide, font: &TypeFont, w: u32, h: u32) -> Canvas {
+    let geo = crate::carousel::geometry(w, h);
+    match slide {
+        Slide::Title(title) => render_title_slide(title, font, w, h, geo.font_px, PAPER, INK),
+        Slide::Body(lines) => render_body_page(font, &geo, lines, PAPER, INK),
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,6 +375,76 @@ mod tests {
         let junk = d.path().join("junk.png");
         std::fs::write(&junk, b"not a png at all").unwrap();
         assert!(read_png(&junk).is_none());
+    }
+
+    // ── the plan: what a carousel is, shared by the preview and the export ───
+
+    fn sec(name: &str, lines: &[&str]) -> (String, Vec<String>) {
+        (name.to_string(), lines.iter().map(|l| l.to_string()).collect())
+    }
+
+    fn kinds(plan: &[Slide]) -> Vec<&'static str> {
+        plan.iter().map(|s| match s { Slide::Title(_) => "title", Slide::Body(_) => "body" }).collect()
+    }
+
+    #[test]
+    fn a_chapter_is_its_title_slide_and_then_its_body() {
+        let p = plan(&[sec("Uno", &[".", "Un parrafo corto."])], &font(), 1080, 1350);
+        assert_eq!(kinds(&p), vec!["title", "body"]);
+        assert_eq!(p[0], Slide::Title("Uno".into()));
+    }
+
+    #[test]
+    fn several_chapters_each_get_their_own_title_slide_in_order() {
+        let p = plan(&[sec("Uno", &[".", "a."]), sec("Dos", &[".", "b."])], &font(), 1080, 1350);
+        assert_eq!(kinds(&p), vec!["title", "body", "title", "body"]);
+        assert_eq!(p[2], Slide::Title("Dos".into()));
+    }
+
+    #[test]
+    fn a_long_chapter_spills_onto_several_body_slides() {
+        let lines: Vec<String> = (0..120)
+            .flat_map(|i| [format!("Parrafo numero {i} con texto suficiente para ocupar espacio real en la pagina."), ".".to_string()])
+            .collect();
+        let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+        let p = plan(&[sec("Largo", &refs)], &font(), 1080, 1350);
+        assert!(kinds(&p).iter().filter(|k| **k == "body").count() > 1);
+        assert_eq!(kinds(&p)[0], "title");
+    }
+
+    #[test]
+    fn a_wider_frame_fits_fewer_lines_per_slide_so_more_slides() {
+        let lines: Vec<String> = (0..60).map(|i| format!("Parrafo numero {i} con texto suficiente para ocupar espacio real en la pagina.")).collect();
+        let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+        let tall = plan(&[sec("L", &refs)], &font(), 1080, 1350).len();
+        let short = plan(&[sec("L", &refs)], &font(), 1080, 566).len();
+        assert!(short > tall, "{short} slides at 1.91:1 vs {tall} at 4:5");
+    }
+
+    #[test]
+    fn no_sections_is_no_slides_and_an_empty_chapter_is_a_title_and_a_blank_body() {
+        assert!(plan(&[], &font(), 1080, 1350).is_empty());
+        let p = plan(&[sec("Vacio", &["."])], &font(), 1080, 1350);
+        assert_eq!(kinds(&p), vec!["title", "body"]);
+    }
+
+    #[test]
+    fn rendering_a_plan_gives_slides_of_the_frames_size() {
+        let p = plan(&[sec("Uno", &[".", "Un parrafo."])], &font(), 800, 600);
+        for slide in &p {
+            let c = render_slide(slide, &font(), 800, 600);
+            assert_eq!((c.w, c.h), (800, 600));
+            assert!(!c.is_blank(PAPER));
+        }
+    }
+
+    #[test]
+    fn a_title_slide_renders_as_the_title_slide_does() {
+        let f = font();
+        let geo = geometry(1080, 1350);
+        let a = render_slide(&Slide::Title("Titulo".into()), &f, 1080, 1350);
+        let b = render_title_slide("Titulo", &f, 1080, 1350, geo.font_px, PAPER, INK);
+        assert_eq!(a.to_png(), b.to_png());
     }
 
     // ── test_carousel_render.py ──────────────────────────────────────────────

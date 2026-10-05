@@ -586,9 +586,15 @@ impl Voider {
         carousel::dimensions(&self.config.carousel_preset, self.config.carousel_w, self.config.carousel_h)
     }
 
-    /// Write every section's title slide and its body slides into `out_dir`,
-    /// numbered continuously from `start_n`. Returns the next free number and how
-    /// many body slides there were.
+    /// The sections F4 is showing, as (name, raw lines) — what a carousel is made of.
+    fn carousel_sections(&self) -> Vec<(String, Vec<String>)> {
+        self.reading.iter().map(|s| (s.name.clone(), s.lines.clone())).collect()
+    }
+
+    /// Write every slide of the carousel into `out_dir`, numbered continuously
+    /// from `start_n`. The slides are the plan the preview shows (`slides::plan`),
+    /// so what is written is exactly what was previewed. Returns the next free
+    /// number and how many body slides there were.
     fn write_carousel_chapters(
         &self,
         out_dir: &Path,
@@ -596,22 +602,18 @@ impl Voider {
         start_n: usize,
     ) -> io::Result<(usize, usize)> {
         let (w, h) = self.carousel_size();
-        let geo = carousel::geometry(w, h);
-        let line_h = font.natural_height(geo.font_px) * carousel::LINE_HEIGHT_PCT / 100.0;
         let (mut n, mut body_slides) = (start_n, 0);
-        for section in &self.reading {
-            // The title has a slide of its own; the body starts on the next one.
-            slides::render_title_slide(&section.name, font, w, h, geo.font_px, slides::PAPER, slides::INK)
-                .save_png(&out_dir.join(carousel::file_name(n, &carousel::SlideKind::Title)))?;
+        for slide in slides::plan(&self.carousel_sections(), font, w, h) {
+            let kind = match slide {
+                slides::Slide::Title(_) => carousel::SlideKind::Title,
+                slides::Slide::Body(_) => {
+                    body_slides += 1;
+                    carousel::SlideKind::Body
+                }
+            };
+            slides::render_slide(&slide, font, w, h)
+                .save_png(&out_dir.join(carousel::file_name(n, &kind)))?;
             n += 1;
-            let paragraphs = reformat::lines_to_paragraphs(&section.lines);
-            let set = typeset::typeset(font, geo.font_px, geo.block_w, geo.indent, line_h, &paragraphs);
-            for page in typeset::paginate(set, line_h, geo.block_h) {
-                slides::render_body_page(font, &geo, &page, slides::PAPER, slides::INK)
-                    .save_png(&out_dir.join(carousel::file_name(n, &carousel::SlideKind::Body)))?;
-                n += 1;
-                body_slides += 1;
-            }
         }
         Ok((n, body_slides))
     }
