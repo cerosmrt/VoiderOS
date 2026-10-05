@@ -415,6 +415,12 @@ impl VoiderApp {
             // trash cascade (other file → 0.txt → trash → gone). Anywhere else it
             // deletes the next word, like any editor. Ctrl+Backspace has no such
             // exception: it is always one word back, even at the end of the line.
+            // Ctrl+Shift+Delete flattens the document into one paragraph (only on
+            // its first dot). Before the arms below, which would otherwise take
+            // it for the delete-this-line command.
+            Key::Delete if m.ctrl && m.shift => {
+                let _ = self.voider.doc_collapse_to_one_paragraph();
+            }
             Key::Delete if m.ctrl && self.voider.entry.caret() == 0 => {
                 let _ = self.voider.delete_line_to_zero();
             }

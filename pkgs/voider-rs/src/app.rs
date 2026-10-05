@@ -3039,6 +3039,29 @@ impl Voider {
         Ok(())
     }
 
+    /// Ctrl+Shift+Delete in F2, with the cursor on the document's FIRST dot:
+    /// delete every dot separator, merging all paragraphs into one. Tab on the
+    /// single remaining dot then shuffles every line of the file at once instead
+    /// of one paragraph's worth. A no-op anywhere else, so it cannot fire by
+    /// accident mid-edit.
+    pub fn doc_collapse_to_one_paragraph(&mut self) -> io::Result<()> {
+        if self.ring.index != 0 {
+            return Ok(());
+        }
+        let mut after = vec![".".to_string()];
+        after.extend(self.ring.lines.iter().filter(|l| *l != ".").cloned());
+        if after == self.ring.lines {
+            return Ok(());
+        }
+        self.ring.lines = after;
+        self.ring.index = 0;
+        self.sync_entry();
+        self.entry.home();
+        self.save()?;
+        self.status = "Collapsed into one paragraph".into();
+        Ok(())
+    }
+
     /// Alt+Shift+↑/↓ in F2: duplicate and put the copy where the arrow points —
     /// before the original going up, after it going down — with the cursor on
     /// the copy. Standing on a line it copies that line; standing on a dot, the
@@ -4595,6 +4618,58 @@ mod tests {
     // ── Remembering position across runs ────────────────────────────────────────
 
     // ── Alt+F4: a clean quit (test_quit_app.py) ──────────────────────────────
+
+    // ── Ctrl+Shift+Delete: collapse the document into ONE paragraph ──────────
+    // Mirrors TestCollapseToOneParagraph in test_paragraphs.py: Tab on the single
+    // remaining dot then shuffles every line of the file at once.
+
+    #[test]
+    fn collapsing_merges_two_paragraphs_into_one_dot() {
+        let (_d, mut v) = app(&[".", "a", "b", ".", "c", "d"]);
+        v.ring.index = 0;
+        v.doc_collapse_to_one_paragraph().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "a", "b", "c", "d"]);
+    }
+
+    #[test]
+    fn collapsing_keeps_the_order_across_three_paragraphs() {
+        let (_d, mut v) = app(&[".", "a", ".", "b", ".", "c"]);
+        v.ring.index = 0;
+        v.doc_collapse_to_one_paragraph().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "a", "b", "c"]);
+        assert_eq!(v.ring.index, 0); // the cursor stays on the remaining dot
+    }
+
+    #[test]
+    fn collapsing_a_single_paragraph_changes_nothing() {
+        let (_d, mut v) = app(&[".", "a", "b"]);
+        v.ring.index = 0;
+        v.doc_collapse_to_one_paragraph().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "a", "b"]);
+    }
+
+    #[test]
+    fn collapsing_reaches_the_disk_and_can_be_undone() {
+        let (_d, mut v) = app(&[".", "a", ".", "b"]);
+        v.ring.index = 0;
+        v.doc_collapse_to_one_paragraph().unwrap();
+        assert_eq!(std::fs::read_to_string(&v.current_file).unwrap(), ".\na\nb\n");
+        v.undo().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "a", ".", "b"]);
+    }
+
+    #[test]
+    fn collapsing_only_works_on_the_first_dot() {
+        // so it can't fire by accident in the middle of editing
+        let (_d, mut v) = app(&[".", "a", "b", ".", "c", "d"]);
+        let before = v.ring.lines.clone();
+        v.ring.index = 3; // the second dot
+        v.doc_collapse_to_one_paragraph().unwrap();
+        assert_eq!(v.ring.lines, before);
+        v.ring.index = 1; // a content line
+        v.doc_collapse_to_one_paragraph().unwrap();
+        assert_eq!(v.ring.lines, before);
+    }
 
     #[test]
     fn requesting_a_quit_asks_the_window_to_close_and_remembers_the_line() {

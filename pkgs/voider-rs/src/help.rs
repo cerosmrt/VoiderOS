@@ -57,6 +57,7 @@ pub const ROWS: &[Row] = &[
     ("Ctrl+Shift+S", Some("Seal what is below each /name marker into its own chapter")),
     ("Ctrl+Shift+D", Some("Dispatch: send each /name-marked paragraph to its file")),
     ("Ctrl+Shift+E", Some("Split on spaces: each space becomes a line break (on a dot: the paragraph)")),
+    ("Ctrl+Shift+Delete", Some("Collapse the document into one paragraph (on the first dot) — then Tab shuffles it all")),
     ("Enter  (on a dot)", Some("Focus that paragraph alone; Enter again releases it")),
     ("Enter  (mid-line)", Some("Split the line in two")),
     ("Ctrl+Delete / Ctrl+⌫", Some("Send the line down: file → scratch → trash → gone")),
