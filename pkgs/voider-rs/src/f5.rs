@@ -114,8 +114,10 @@ pub fn units(lines: &[String]) -> Vec<Unit> {
     units
 }
 
-/// Ordinal of the paragraph containing `line_idx`. A `.`/`/name`/blank line maps
-/// to the paragraph before it, so entering F5 lands where you were in F2.
+/// Ordinal of the paragraph at `line_idx`. A `.` maps to the paragraph it OPENS
+/// — the one right after it, F2's own rule for standing on a dot — so a
+/// trailing dot with nothing after yields one past the last (callers clamp). A
+/// `/name` fence or blank line maps to the paragraph before it.
 pub fn para_at_line(lines: &[String], line_idx: usize) -> usize {
     if lines.is_empty() {
         return 0;
@@ -138,11 +140,40 @@ pub fn para_at_line(lines: &[String], line_idx: usize) -> usize {
             is_text = true;
         }
         if i == target {
-            let v = if is_text { ordinal } else { last };
+            let v = if is_text {
+                ordinal
+            } else if s == "." {
+                ordinal + 1
+            } else {
+                last
+            };
             return v.max(0) as usize;
         }
     }
     last.max(0) as usize
+}
+
+/// Character offset, in F9's prose text (`lines_to_paragraphs` joined with a
+/// blank line), of the block that starts the paragraph holding `line_idx` —
+/// where F9 should park the caret so you land in the paragraph you were in.
+///
+/// `lines_to_paragraphs` can split one F5 paragraph into several blocks (lines
+/// with no closing punctuation), so the ordinal can't index its output; the
+/// paragraph's first raw line is matched against where each block starts.
+pub fn f9_entry_offset(lines: &[String], line_idx: usize) -> usize {
+    if lines.is_empty() {
+        return 0;
+    }
+    let start_line = line_of_para(lines, para_at_line(lines, line_idx));
+    let target = lines.get(start_line).map(|l| l.trim()).unwrap_or("");
+    let mut offset = 0;
+    for p in crate::reformat::lines_to_paragraphs(lines) {
+        if !target.is_empty() && p.starts_with(target) {
+            return offset;
+        }
+        offset += p.chars().count() + 2; // the blank-line joiner
+    }
+    0
 }
 
 /// First line index of the paragraph with this ordinal.
@@ -304,6 +335,58 @@ mod tests {
         assert_eq!(para_at_line(&lines, 5), 2); // 'c'
         assert_eq!(line_of_para(&lines, 0), 1);
         assert_eq!(line_of_para(&lines, 2), 5);
+    }
+
+    #[test]
+    fn a_dot_maps_to_the_paragraph_it_opens_not_the_one_before() {
+        // F2's rule for standing on a dot: the paragraph AFTER it.
+        let lines = v(&[".", "a", ".", "b", ".", "c"]);
+        assert_eq!(para_at_line(&lines, 2), 1); // the dot before 'b'
+        assert_eq!(para_at_line(&lines, 4), 2); // the dot before 'c'
+    }
+
+    #[test]
+    fn the_leading_dot_opens_the_first_paragraph() {
+        let lines = v(&[".", "a", ".", "b"]);
+        assert_eq!(para_at_line(&lines, 0), 0);
+    }
+
+    // ── F9 entry offset (test_f9_position.py) ────────────────────────────────
+
+    fn prose_of(lines: &[String]) -> String {
+        crate::reformat::lines_to_paragraphs(lines).join("\n\n")
+    }
+
+    fn tail_from(text: &str, char_offset: usize) -> String {
+        text.chars().skip(char_offset).collect()
+    }
+
+    #[test]
+    fn f9_offset_lands_on_the_right_paragraph_block() {
+        let lines = v(&[".", "Primero.", ".", "Segundo.", ".", "Tercero."]);
+        let off = f9_entry_offset(&lines, 3); // on 'Segundo.'
+        assert!(tail_from(&prose_of(&lines), off).starts_with("Segundo."));
+    }
+
+    #[test]
+    fn f9_offset_on_a_dot_lands_on_the_paragraph_it_opens() {
+        let lines = v(&[".", "Primero.", ".", "Segundo.", ".", "Tercero."]);
+        let off = f9_entry_offset(&lines, 2);
+        assert!(tail_from(&prose_of(&lines), off).starts_with("Segundo."));
+    }
+
+    #[test]
+    fn f9_offset_inside_a_split_paragraph_lands_on_its_first_block() {
+        // No closing punctuation: lines_to_paragraphs keeps them as separate
+        // blocks although F5 treats them as ONE paragraph.
+        let lines = v(&[".", "fragmento uno", "fragmento dos", "fragmento tres", ".", "Otro."]);
+        let off = f9_entry_offset(&lines, 3);
+        assert!(tail_from(&prose_of(&lines), off).starts_with("fragmento uno"));
+    }
+
+    #[test]
+    fn f9_offset_is_zero_when_there_is_nothing() {
+        assert_eq!(f9_entry_offset(&[], 0), 0);
     }
 
     #[test]

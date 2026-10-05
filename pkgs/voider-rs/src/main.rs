@@ -1136,6 +1136,15 @@ impl VoiderApp {
             egui::pos2(rect.max.x - margin, rect.max.y - 56.0),
         );
         let font = egui::FontId::proportional(self.font_size());
+        let edit_id = egui::Id::new("f9_prose");
+        // Entering F9 parks the caret on the paragraph you were in, once.
+        if let Some(off) = self.voider.prose_caret.take() {
+            let mut state = egui::TextEdit::load_state(ui.ctx(), edit_id).unwrap_or_default();
+            state
+                .cursor
+                .set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(off))));
+            egui::TextEdit::store_state(ui.ctx(), edit_id, state);
+        }
         let mut buffer = self.voider.prose.clone();
 
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner));
@@ -1144,6 +1153,7 @@ impl VoiderApp {
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
             .show(&mut child, |ui| {
                 let edit = egui::TextEdit::multiline(&mut buffer)
+                    .id(edit_id)
                     .frame(false)
                     .desired_width(f32::INFINITY)
                     .font(font)

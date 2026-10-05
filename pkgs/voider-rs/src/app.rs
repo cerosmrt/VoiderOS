@@ -188,6 +188,9 @@ pub struct Voider {
     pub prose: String,
     /// Whether that prose was actually edited — viewing it saves nothing.
     pub prose_dirty: bool,
+    /// Where F9 should park its caret on entry (a character offset into `prose`);
+    /// the view takes it once and applies it.
+    pub prose_caret: Option<usize>,
     /// Ctrl+F in F2: filtering the ring to matching lines.
     pub f2_search: Option<SearchState>,
     /// Ctrl+F in F3: filtering the library to matching chapters.
@@ -271,6 +274,7 @@ impl Voider {
             backup_prompt: None,
             prose: String::new(),
             prose_dirty: false,
+            prose_caret: None,
             f2_search: None,
             f3_search: None,
         }
@@ -1212,6 +1216,7 @@ impl Voider {
     /// looking at a file and leaving writes nothing.
     pub fn enter_prose_editor(&mut self) {
         self.prose = reformat::lines_to_paragraphs(&self.ring.lines).join("\n\n");
+        self.prose_caret = Some(f5::f9_entry_offset(&self.ring.lines, self.ring.index));
         self.prose_dirty = false;
     }
 
@@ -5245,6 +5250,32 @@ mod tests {
         v.switch_to(View::F9);
         assert_eq!(v.prose, "Una frase. Otra frase.\n\nSegundo parrafo.");
         assert!(!v.prose_dirty); // merely looking is not editing
+    }
+
+    #[test]
+    fn entering_f9_parks_the_caret_on_the_paragraph_you_were_in() {
+        let (_d, mut v) = app(&[".", "Primero.", ".", "Segundo.", ".", "Tercero."]);
+        v.ring.index = 3; // on 'Segundo.'
+        v.switch_to(View::F9);
+        let off = v.prose_caret.expect("a caret position is set on entry");
+        let tail: String = v.prose.chars().skip(off).collect();
+        assert!(tail.starts_with("Segundo."));
+    }
+
+    #[test]
+    fn entering_f5_on_a_dot_lands_on_the_paragraph_it_opens() {
+        let (_d, mut v) = app(&[".", "a", ".", "b", ".", "c"]);
+        v.ring.index = 2; // the dot before 'b'
+        v.switch_to(View::F5);
+        assert_eq!(v.para_idx, 1);
+    }
+
+    #[test]
+    fn entering_f5_on_a_trailing_dot_falls_back_to_the_last_paragraph() {
+        let (_d, mut v) = app(&[".", "a", ".", "b", "."]);
+        v.ring.index = 4;
+        v.switch_to(View::F5);
+        assert_eq!(v.para_idx, 1); // nothing to open — stay put
     }
 
     #[test]
