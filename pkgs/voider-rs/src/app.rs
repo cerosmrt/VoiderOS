@@ -3001,14 +3001,66 @@ impl Voider {
 
     /// Alt+Left/Right in F2: move the word under the caret along the line.
     pub fn doc_swap_words(&mut self, direction: isize) -> io::Result<()> {
-        if let Some((text, caret)) =
-            words::swap_words(&self.entry.text(), self.entry.caret(), direction)
-        {
-            self.entry.set_text(&text);
-            self.entry.set_caret(caret);
+        if let Some(r) = words::swap_block(
+            &self.entry.text(),
+            self.entry.caret(),
+            self.entry.selection(),
+            direction,
+        ) {
+            self.entry.set_text(&r.text);
+            match r.selection {
+                // A selected block stays selected, wherever it landed.
+                Some((s, e)) => self.entry.select_range(s, e),
+                None => self.entry.set_caret(r.caret),
+            }
             self.doc_live_save()?;
         }
         Ok(())
+    }
+
+    /// Ctrl+C: what is selected in the line if anything is, else the contextual
+    /// copy (`smart_copy`) — the Python's `_smart_copy` only ever runs "with
+    /// nothing selected".
+    pub fn copy_text(&self) -> Option<String> {
+        if matches!(self.view, View::F1 | View::F2) {
+            if self.entry.selection().is_some() {
+                return Some(self.entry.selected_text());
+            }
+        }
+        self.smart_copy()
+    }
+
+    /// Ctrl+V: paste into the line, replacing a selection. A line stays a line,
+    /// so a line break in the pasted text becomes a space. In F2 it is saved as
+    /// it lands; in F1 it waits in the entry for Enter like anything typed.
+    pub fn paste_text(&mut self, text: &str) -> io::Result<()> {
+        if !matches!(self.view, View::F1 | View::F2) {
+            return Ok(());
+        }
+        let flat: String = text
+            .chars()
+            .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
+            .collect();
+        self.entry.insert(&flat);
+        if self.view == View::F2 {
+            self.doc_live_save()?;
+        }
+        Ok(())
+    }
+
+    /// Ctrl+X: take the selection out of the line and hand it back. Nothing
+    /// selected, nothing happens. In F2 the change is saved as it is made, like
+    /// every other edit there.
+    pub fn cut_selection(&mut self) -> io::Result<Option<String>> {
+        if !matches!(self.view, View::F1 | View::F2) || self.entry.selection().is_none() {
+            return Ok(None);
+        }
+        let cut = self.entry.selected_text();
+        self.entry.delete_selection();
+        if self.view == View::F2 {
+            self.doc_live_save()?;
+        }
+        Ok(Some(cut))
     }
 
     /// Ctrl+Shift+E in F2: split the current line on its spaces — or, standing
@@ -3195,6 +3247,18 @@ impl Voider {
             library::display_name(&new_name)
         );
         Ok(())
+    }
+
+    /// Backspace in F2: delete the selection or the character before the caret —
+    /// and only at the very start of a line, with nothing selected, join it onto
+    /// the one above. A selection made backwards to the start (caret at 0) is
+    /// still a selection to delete, not a request to join.
+    pub fn doc_backspace(&mut self) -> io::Result<()> {
+        if self.entry.selection().is_none() && self.entry.caret() == 0 {
+            return self.doc_join_prev();
+        }
+        self.entry.backspace();
+        self.doc_live_save()
     }
 
     /// Backspace at the start of a line joins it onto the one above, with the
@@ -4645,6 +4709,102 @@ mod tests {
     // ── Remembering position across runs ────────────────────────────────────────
 
     // ── Alt+F4: a clean quit (test_quit_app.py) ──────────────────────────────
+
+    // ── a text selection in the entry line ───────────────────────────────────
+
+    #[test]
+    fn alt_arrow_with_a_selection_moves_the_whole_block_and_keeps_it_selected() {
+        // test_swap_words_selection.py: the word glued to its comma must not stay behind.
+        let (_d, mut v) = app(&[".", "eje aplica a la realidad, funciona bien"]);
+        v.ring.index = 1;
+        v.sync_entry();
+        let start = "eje ".chars().count();
+        v.entry.select_range(start, start + "aplica a la realidad".chars().count());
+        v.doc_swap_words(-1).unwrap();
+        assert_eq!(v.entry.text(), "aplica a la realidad, eje funciona bien");
+        assert_eq!(v.entry.selection(), Some((0, "aplica a la realidad,".chars().count())));
+        assert_eq!(v.ring.lines[1], "aplica a la realidad, eje funciona bien");
+    }
+
+    #[test]
+    fn copying_with_a_selection_copies_the_selection_not_the_whole_line() {
+        let (_d, mut v) = app(&[".", "hola mundo"]);
+        v.view = View::F2;
+        v.ring.index = 1;
+        v.sync_entry();
+        assert_eq!(v.copy_text(), Some("hola mundo".to_string())); // nothing selected: the line
+        v.entry.select_range(5, 10);
+        assert_eq!(v.copy_text(), Some("mundo".to_string()));
+    }
+
+    #[test]
+    fn cutting_takes_the_selection_out_and_saves() {
+        let (_d, mut v) = app(&[".", "hola mundo"]);
+        v.view = View::F2;
+        v.ring.index = 1;
+        v.sync_entry();
+        v.entry.select_range(4, 10); // " mundo"
+        assert_eq!(v.cut_selection().unwrap(), Some(" mundo".to_string()));
+        assert_eq!(v.entry.text(), "hola");
+        assert_eq!(void::load_doc(&v.current_file).lines[1], "hola");
+    }
+
+    #[test]
+    fn pasting_replaces_the_selection_and_keeps_the_line_a_line() {
+        let (_d, mut v) = app(&[".", "hola mundo"]);
+        v.view = View::F2;
+        v.ring.index = 1;
+        v.sync_entry();
+        v.entry.select_range(5, 10);
+        v.paste_text("tierra\nvasta").unwrap();
+        assert_eq!(v.entry.text(), "hola tierra vasta"); // a newline becomes a space
+        assert_eq!(v.entry.selection(), None);
+        assert_eq!(void::load_doc(&v.current_file).lines[1], "hola tierra vasta");
+    }
+
+    #[test]
+    fn pasting_in_f1_goes_into_the_entry_without_being_committed() {
+        let (_d, mut v) = app(&[".", "a"]);
+        v.view = View::F1;
+        v.entry.clear();
+        v.paste_text("sin enter").unwrap();
+        assert_eq!(v.entry.text(), "sin enter");
+        assert_eq!(void::load_doc(&v.current_file).lines, vec![".", "a"]); // nothing written yet
+    }
+
+    #[test]
+    fn backspace_on_a_selection_that_reaches_the_start_deletes_it_instead_of_joining_lines() {
+        let (_d, mut v) = app(&[".", "arriba", "hola mundo"]);
+        v.view = View::F2;
+        v.ring.index = 2;
+        v.sync_entry();
+        v.entry.set_caret(4);
+        v.entry.extend_home(); // selected "hola", the caret now at 0
+        v.doc_backspace().unwrap();
+        assert_eq!(v.entry.text(), " mundo");
+        assert_eq!(v.ring.lines, vec![".", "arriba", " mundo"]); // not glued onto "arriba"
+    }
+
+    #[test]
+    fn backspace_at_the_start_with_nothing_selected_still_joins_the_line_above() {
+        let (_d, mut v) = app(&[".", "arriba", "abajo"]);
+        v.view = View::F2;
+        v.ring.index = 2;
+        v.sync_entry();
+        v.entry.home();
+        v.doc_backspace().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "arribaabajo"]);
+    }
+
+    #[test]
+    fn cutting_with_nothing_selected_does_nothing() {
+        let (_d, mut v) = app(&[".", "hola"]);
+        v.view = View::F2;
+        v.ring.index = 1;
+        v.sync_entry();
+        assert_eq!(v.cut_selection().unwrap(), None);
+        assert_eq!(v.entry.text(), "hola");
+    }
 
     #[test]
     fn in_f5_the_voice_reads_the_paragraph_you_are_on_not_the_nth_unit() {

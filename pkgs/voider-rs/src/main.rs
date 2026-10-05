@@ -153,6 +153,14 @@ impl VoiderApp {
                 // character: the key event below handles it, so drop the text or
                 // it would be typed into the line as well.
                 egui::Event::Text(t) if t == "`" => {}
+                // Ctrl+V reaches us as a Paste event, not as text.
+                egui::Event::Paste(t)
+                    if !self.voider.help_open
+                        && self.voider.browser.is_none()
+                        && self.voider.f2_search.is_none() =>
+                {
+                    let _ = self.voider.paste_text(&t);
+                }
                 // While the help is up nothing types: the keypress that closes
                 // it must not also land in the text underneath.
                 egui::Event::Text(_) if self.voider.help_open => {}
@@ -223,20 +231,37 @@ impl VoiderApp {
                         }
                         continue;
                     }
-                    // There is no text selection to fall back to here, so
-                    // Ctrl+C always means the contextual copy — unless a search
-                    // bar has focus (a 'c' belongs in the query) or we're in F9,
-                    // where the prose box has a real selection and its own copy.
+                    // Ctrl+C copies what is selected in the line, and with nothing
+                    // selected the contextual unit — unless a search bar has focus
+                    // (a 'c' belongs in the query) or we're in F9, where the prose
+                    // box has a real selection and its own copy.
+                    let no_search =
+                        self.voider.f2_search.is_none() && self.voider.f3_search.is_none();
                     if key == egui::Key::C
                         && modifiers.ctrl
                         && self.voider.view != View::F9
-                        && self.voider.f2_search.is_none()
-                        && self.voider.f3_search.is_none()
+                        && no_search
                     {
-                        if let Some(text) = self.voider.smart_copy() {
+                        if let Some(text) = self.voider.copy_text() {
                             ctx.output_mut(|o| o.copied_text = text);
                         }
                         continue;
+                    }
+                    // Ctrl+X and Ctrl+A work on the line in F1 and F2 only.
+                    if modifiers.ctrl
+                        && no_search
+                        && matches!(self.voider.view, View::F1 | View::F2)
+                    {
+                        if key == egui::Key::X {
+                            if let Ok(Some(text)) = self.voider.cut_selection() {
+                                ctx.output_mut(|o| o.copied_text = text);
+                            }
+                            continue;
+                        }
+                        if key == egui::Key::A {
+                            self.voider.entry.select_all();
+                            continue;
+                        }
                     }
                     if self.handle_global_key(key, modifiers) {
                         continue;
@@ -339,6 +364,10 @@ impl VoiderApp {
             Key::Delete => {
                 self.voider.entry.delete();
             }
+            Key::ArrowLeft if m.shift => self.voider.entry.extend_caret(-1),
+            Key::ArrowRight if m.shift => self.voider.entry.extend_caret(1),
+            Key::Home if m.shift => self.voider.entry.extend_home(),
+            Key::End if m.shift => self.voider.entry.extend_end(),
             Key::ArrowLeft => self.voider.entry.move_caret(-1),
             Key::ArrowRight => self.voider.entry.move_caret(1),
             Key::Home => self.voider.entry.home(),
@@ -433,14 +462,9 @@ impl VoiderApp {
                 let _ = self.voider.doc_live_save();
             }
             Key::Backspace => {
-                if caps {
-                    // scriptio continua: type and send, no editing
-                } else if self.voider.entry.caret() == 0 {
-                    let _ = self.voider.doc_join_prev();
-                } else {
-                    self.voider.entry.backspace();
-                    let _ = self.voider.doc_live_save();
-                }
+                if !caps {
+                    let _ = self.voider.doc_backspace();
+                } // scriptio continua: type and send, no editing
             }
             Key::Delete => {
                 self.voider.entry.delete();
@@ -478,6 +502,10 @@ impl VoiderApp {
             Key::ArrowDown => {
                 let _ = self.voider.doc_navigate(1);
             }
+            Key::ArrowLeft if m.shift => self.voider.entry.extend_caret(-1),
+            Key::ArrowRight if m.shift => self.voider.entry.extend_caret(1),
+            Key::Home if m.shift => self.voider.entry.extend_home(),
+            Key::End if m.shift => self.voider.entry.extend_end(),
             Key::ArrowLeft => self.voider.entry.move_caret(-1),
             Key::ArrowRight => self.voider.entry.move_caret(1),
             Key::Home => self.voider.doc_jump_edge(false),
@@ -758,6 +786,23 @@ impl VoiderApp {
         let top_y = centre.y - size.y / 2.0;
 
         let p = painter.with_clip_rect(clip);
+        // A selection is a pale band behind the letters.
+        if let Some((s, e)) = self.voider.entry.selection() {
+            let chars: Vec<char> = self.voider.entry.text().chars().collect();
+            let width_of = |n: usize| {
+                let t: String = chars[..n].iter().collect();
+                ctx.fonts(|f| {
+                    f.layout_no_wrap(t, egui::FontId::proportional(self.font_size()), egui::Color32::WHITE)
+                        .size()
+                        .x
+                })
+            };
+            let band = egui::Rect::from_min_max(
+                egui::pos2(left_x + width_of(s), top_y),
+                egui::pos2(left_x + width_of(e), top_y + size.y),
+            );
+            p.rect_filled(band, 2.0, egui::Color32::from_white_alpha(70));
+        }
         p.galley(egui::pos2(left_x, top_y), galley, egui::Color32::WHITE);
 
         // The caret blinks only while the line is empty; once there is text it
