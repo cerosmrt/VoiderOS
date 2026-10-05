@@ -438,6 +438,14 @@ impl VoiderApp {
                 self.voider.entry.delete();
                 let _ = self.voider.doc_live_save();
             }
+            // Alt+Shift duplicates, the copy going where the arrow points. Before
+            // the plain Alt arms below or they would swallow it.
+            Key::ArrowUp if m.alt && m.shift => {
+                let _ = self.voider.doc_duplicate(-1);
+            }
+            Key::ArrowDown if m.alt && m.shift => {
+                let _ = self.voider.doc_duplicate(1);
+            }
             // Alt moves things: the line up/down, the word left/right.
             Key::ArrowUp if m.alt => {
                 let _ = self.voider.doc_swap_line(-1);
@@ -554,6 +562,14 @@ impl VoiderApp {
                 if self.voider.pending_new || self.voider.pending_merge {
                     self.voider.entry.backspace();
                 }
+            }
+            // Alt+Shift+↑/↓ duplicates the chapter, the copy going where the arrow
+            // points. Before the plain arrows or they would just move the cursor.
+            Key::ArrowUp if m.alt && m.shift => {
+                let _ = self.voider.book_duplicate(-1);
+            }
+            Key::ArrowDown if m.alt && m.shift => {
+                let _ = self.voider.book_duplicate(1);
             }
             // Moving away settles a named entry instead of losing it.
             Key::ArrowUp => {

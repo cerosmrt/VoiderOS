@@ -3020,6 +3020,114 @@ impl Voider {
         Ok(())
     }
 
+    /// Alt+Shift+↑/↓ in F2: duplicate and put the copy where the arrow points —
+    /// before the original going up, after it going down — with the cursor on
+    /// the copy. Standing on a line it copies that line; standing on a dot, the
+    /// whole paragraph the dot opens, with a dot of its own.
+    pub fn doc_duplicate(&mut self, direction: isize) -> io::Result<()> {
+        let n = self.ring.lines.len();
+        if n == 0 {
+            return Ok(());
+        }
+        let idx = self.ring.index;
+        let (start, end) = if self.ring.lines[idx] == "." {
+            let mut fin = idx + 1;
+            while fin < n && self.ring.lines[fin] != "." {
+                fin += 1;
+            }
+            (idx, fin)
+        } else {
+            (idx, idx + 1)
+        };
+        let block: Vec<String> = self.ring.lines[start..end].to_vec();
+        let insert_at = if direction < 0 { start } else { end };
+
+        // A line duplicated inside a focused paragraph must stay inside it: the
+        // same index shift `doc_split_line` applies when it inserts mid-focus.
+        // (Only a single line can happen here — focus never sits on a dot.)
+        if self.para_focus && end - start == 1 {
+            let k = block.len();
+            let orig_new = if insert_at > idx { idx } else { idx + k };
+            let mut shifted: Vec<usize> = self
+                .para_focus_content
+                .iter()
+                .map(|&i| if i < insert_at { i } else { i + k })
+                .collect();
+            if let Some(pos) = shifted.iter().position(|&i| i == orig_new) {
+                shifted.insert(if direction < 0 { pos } else { pos + 1 }, insert_at);
+            }
+            self.para_focus_content = shifted;
+        }
+
+        for (offset, line) in block.iter().enumerate() {
+            self.ring.lines.insert(insert_at + offset, line.clone());
+        }
+        self.ring.index = insert_at;
+        self.sync_entry();
+        self.entry.home();
+        self.save()?;
+        self.status = format!(
+            "⧉ {} line(s) duplicated {}",
+            block.len(),
+            if direction < 0 { "up" } else { "down" }
+        );
+        Ok(())
+    }
+
+    /// Alt+Shift+↑/↓ in F3: duplicate the highlighted chapter as a new file,
+    /// named with the same `-2`, `-3` pattern the merge uses, listed just before
+    /// or after the original, with the cursor on the copy. Nothing happens on a
+    /// dot (not a chapter), on the `0` portal (a marker, not a file) or while a
+    /// new entry is being named.
+    pub fn book_duplicate(&mut self, direction: isize) -> io::Result<()> {
+        if self.pending_new || self.pending_merge {
+            return Ok(());
+        }
+        let idx = self.library.index;
+        let Some(fname) = self.library.entries.get(idx).cloned() else {
+            return Ok(());
+        };
+        if library::is_separator(&fname) || library::is_portal(&fname) {
+            return Ok(());
+        }
+        let fpath = library::chapter_path(&self.void_dir, &fname);
+        let Ok(content) = std::fs::read_to_string(&fpath) else {
+            self.status = format!("Could not read {fname}");
+            return Ok(());
+        };
+
+        let (stem, ext) = match fname.rsplit_once('.') {
+            Some((s, e)) => (s.to_string(), format!(".{e}")),
+            None => (fname.clone(), String::new()),
+        };
+        let mut new_name = fname.clone();
+        let mut new_path = fpath.clone();
+        let mut k = 2;
+        while new_path.exists() || self.library.entries.contains(&new_name) {
+            new_name = format!("{stem}-{k}{ext}");
+            new_path = library::chapter_path(&self.void_dir, &new_name);
+            k += 1;
+        }
+
+        let after: Vec<String> = content.lines().map(|l| l.trim_end().to_string()).collect();
+        void::atomic_write(&new_path, &after, false)?;
+        let insert_at = if direction < 0 { idx } else { idx + 1 };
+        self.library.entries.insert(insert_at, new_name.clone());
+        self.library.index = insert_at;
+        self.save_library()?;
+        self.undo.record_transaction(
+            vec![undo::FileChange { path: new_path, before: Vec::new(), after }],
+            Some("duplicate".into()),
+        );
+        self.entry.clear();
+        self.status = format!(
+            "⧉ {} → {}",
+            library::display_name(&fname),
+            library::display_name(&new_name)
+        );
+        Ok(())
+    }
+
     /// Backspace at the start of a line joins it onto the one above, with the
     /// caret left at the seam. Separators are never swallowed.
     pub fn doc_join_prev(&mut self) -> io::Result<()> {
@@ -6015,6 +6123,195 @@ mod tests {
         v.doc_split_line_on_spaces().unwrap();
         let bare: Vec<String> = v.ring.lines.iter().filter(|l| *l != ".").cloned().collect();
         assert_eq!(reformat::lines_to_paragraphs(&v.ring.lines), bare);
+    }
+
+    // ── Alt+Shift+↑/↓: duplicate, and put the copy where the arrow points ────
+    // Mirrors test_doc_duplicate.py (F2) and test_book_duplicate.py (F3).
+
+    #[test]
+    fn duplicating_down_puts_the_copy_right_after() {
+        let (_d, mut v) = app(&[".", "uno.", "dos."]);
+        v.ring.index = 1;
+        v.doc_duplicate(1).unwrap();
+        assert_eq!(v.ring.lines, vec![".", "uno.", "uno.", "dos."]);
+        assert_eq!(v.ring.index, 2); // the cursor follows the copy
+    }
+
+    #[test]
+    fn duplicating_up_puts_the_copy_right_before_and_the_cursor_stays_on_it() {
+        let (_d, mut v) = app(&[".", "uno.", "dos."]);
+        v.ring.index = 1;
+        v.doc_duplicate(-1).unwrap();
+        assert_eq!(v.ring.lines, vec![".", "uno.", "uno.", "dos."]);
+        assert_eq!(v.ring.index, 1);
+    }
+
+    #[test]
+    fn a_duplicated_line_reaches_the_disk() {
+        let (_d, mut v) = app(&[".", "uno."]);
+        v.ring.index = 1;
+        v.doc_duplicate(1).unwrap();
+        assert_eq!(void::load_doc(&v.current_file).lines, vec![".", "uno.", "uno."]);
+    }
+
+    #[test]
+    fn duplicating_on_a_dot_copies_the_whole_paragraph_with_its_own_dot() {
+        let (_d, mut v) = app(&[".", "uno.", "dos.", ".", "otro."]);
+        v.ring.index = 0;
+        v.doc_duplicate(1).unwrap();
+        assert_eq!(v.ring.lines, vec![".", "uno.", "dos.", ".", "uno.", "dos.", ".", "otro."]);
+        assert_eq!(v.ring.lines.iter().filter(|l| *l == ".").count(), 3);
+    }
+
+    #[test]
+    fn duplicating_a_paragraph_up_leaves_the_cursor_on_the_copys_dot() {
+        let (_d, mut v) = app(&[".", "uno.", "dos.", ".", "otro."]);
+        v.ring.index = 0;
+        v.doc_duplicate(-1).unwrap();
+        assert_eq!(v.ring.lines, vec![".", "uno.", "dos.", ".", "uno.", "dos.", ".", "otro."]);
+        assert_eq!(v.ring.index, 0);
+    }
+
+    #[test]
+    fn the_paragraph_scope_never_crosses_into_the_next() {
+        let (_d, mut v) = app(&[".", "uno.", ".", "dos.", "tres."]);
+        v.ring.index = 0;
+        v.doc_duplicate(1).unwrap();
+        assert_eq!(v.ring.lines, vec![".", "uno.", ".", "uno.", ".", "dos.", "tres."]);
+    }
+
+    #[test]
+    fn an_empty_paragraph_still_duplicates_its_dot() {
+        let (_d, mut v) = app(&[".", ".", "algo."]);
+        v.ring.index = 0;
+        v.doc_duplicate(1).unwrap();
+        assert_eq!(v.ring.lines, vec![".", ".", ".", "algo."]);
+    }
+
+    #[test]
+    fn duplicating_inside_a_focused_paragraph_keeps_the_copy_in_focus() {
+        let (_d, mut v) = app(&[".", "uno.", "dos.", "tres."]);
+        v.ring.index = 0;
+        v.enter_para_focus(); // content = [1, 2, 3], on 'uno.'
+        v.doc_duplicate(1).unwrap();
+        assert_eq!(v.ring.lines, vec![".", "uno.", "uno.", "dos.", "tres."]);
+        let mut focus = v.para_focus_content.clone();
+        focus.sort();
+        assert_eq!(focus, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn duplicating_a_line_is_one_undo_step() {
+        let (_d, mut v) = app(&[".", "uno."]);
+        v.ring.index = 1;
+        v.doc_duplicate(1).unwrap();
+        v.undo().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "uno."]);
+    }
+
+    fn dup_book_app(
+        library: &[&str],
+        contents: &[(&str, &str)],
+    ) -> (tempfile::TempDir, Voider) {
+        let d = tempfile::tempdir().unwrap();
+        let i = d.path().join("I");
+        std::fs::create_dir_all(&i).unwrap();
+        for (name, text) in contents {
+            std::fs::write(i.join(name), text).unwrap();
+        }
+        for name in library {
+            if *name != "." && !i.join(name).exists() && !library::is_portal(name) {
+                std::fs::write(i.join(name), format!("{}\n", library::display_name(name))).unwrap();
+            }
+        }
+        let first = library.iter().find(|n| **n != ".").unwrap();
+        let mut v = Voider::open(d.path(), i.join(first));
+        v.library = Library { entries: library.iter().map(|s| s.to_string()).collect(), index: 0 };
+        (d, v)
+    }
+
+    fn i_files(d: &tempfile::TempDir) -> Vec<String> {
+        let mut f: Vec<String> = std::fs::read_dir(d.path().join("I"))
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.ends_with(".txt"))
+            .collect();
+        f.sort();
+        f
+    }
+
+    #[test]
+    fn duplicating_a_chapter_makes_a_new_file_with_the_same_content() {
+        let (d, mut v) = dup_book_app(&[".", "Uno.txt", "Dos.txt"], &[("Uno.txt", "a.\nb.\n")]);
+        v.library.index = 1;
+        v.book_duplicate(1).unwrap();
+        assert!(i_files(&d).contains(&"Uno-2.txt".to_string()));
+        assert_eq!(std::fs::read_to_string(d.path().join("I/Uno-2.txt")).unwrap(), "a.\nb.\n");
+        assert_eq!(std::fs::read_to_string(d.path().join("I/Uno.txt")).unwrap(), "a.\nb.\n");
+    }
+
+    #[test]
+    fn a_duplicated_chapters_name_steps_on_a_collision() {
+        let (d, mut v) = dup_book_app(&[".", "Uno.txt", "Uno-2.txt"], &[]);
+        v.library.index = 1;
+        v.book_duplicate(1).unwrap();
+        assert!(i_files(&d).contains(&"Uno-3.txt".to_string()));
+    }
+
+    #[test]
+    fn duplicating_down_lists_the_copy_right_after_and_the_cursor_follows() {
+        let (_d, mut v) = dup_book_app(&[".", "Uno.txt", "Dos.txt"], &[]);
+        v.library.index = 1;
+        v.book_duplicate(1).unwrap();
+        assert_eq!(v.library.entries, vec![".", "Uno.txt", "Uno-2.txt", "Dos.txt"]);
+        assert_eq!(v.library.index, 2);
+    }
+
+    #[test]
+    fn duplicating_up_lists_the_copy_right_before_and_the_cursor_follows() {
+        let (_d, mut v) = dup_book_app(&[".", "Uno.txt", "Dos.txt"], &[]);
+        v.library.index = 1;
+        v.book_duplicate(-1).unwrap();
+        assert_eq!(v.library.entries, vec![".", "Uno-2.txt", "Uno.txt", "Dos.txt"]);
+        assert_eq!(v.library.index, 1);
+    }
+
+    #[test]
+    fn a_duplicated_chapter_persists_in_the_library_file() {
+        let (d, mut v) = dup_book_app(&[".", "Uno.txt"], &[]);
+        v.library.index = 1;
+        v.book_duplicate(1).unwrap();
+        assert_eq!(Library::load(d.path()).entries, vec![".", "Uno.txt", "Uno-2.txt"]);
+    }
+
+    #[test]
+    fn duplicating_a_dot_or_the_portal_does_nothing() {
+        let (d, mut v) = dup_book_app(&[".", "0.txt", "Uno.txt"], &[]);
+        v.library.index = 0;
+        v.book_duplicate(1).unwrap();
+        v.library.index = 1;
+        v.book_duplicate(1).unwrap();
+        assert_eq!(v.library.entries, vec![".", "0.txt", "Uno.txt"]);
+        assert_eq!(i_files(&d), vec!["Uno.txt"]);
+    }
+
+    #[test]
+    fn duplicating_while_naming_a_pending_entry_does_nothing() {
+        let (_d, mut v) = dup_book_app(&[".", "Uno.txt"], &[]);
+        v.library.index = 1;
+        v.pending_new = true;
+        v.book_duplicate(1).unwrap();
+        assert_eq!(v.library.entries, vec![".", "Uno.txt"]);
+    }
+
+    #[test]
+    fn a_duplicated_chapter_can_be_undone() {
+        let (d, mut v) = dup_book_app(&[".", "Uno.txt"], &[]);
+        v.library.index = 1;
+        v.book_duplicate(1).unwrap();
+        v.undo().unwrap();
+        assert!(!d.path().join("I/Uno-2.txt").exists());
     }
 
     #[test]

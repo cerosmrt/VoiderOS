@@ -33,6 +33,8 @@ pub const ROWS: &[Row] = &[
     ("Alt+↑ / Alt+↓", Some("Move the line itself (a paragraph, on a dot)")),
     ("Alt+← / Alt+→", Some("Move the word under the caret")),
     ("Alt+Shift+→  (F2)", Some("Send this line — or this paragraph, on a dot — to a chapter")),
+    ("Alt+Shift+↑/↓  (F2)", Some("Duplicate this line — or this paragraph, on a dot — up or down")),
+    ("Alt+Shift+↑/↓  (F3)", Some("Duplicate the chapter, the copy going where the arrow points")),
     ("PageUp / PageDown", Some("Jump to the previous / next paragraph")),
     ("Home / End", Some("Jump to the document's first / last line")),
     ("Alt+↑ / Alt+↓  (F1)", Some("Previous / next file in the library")),
