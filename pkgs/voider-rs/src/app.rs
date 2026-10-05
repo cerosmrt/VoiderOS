@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use crate::backup;
 use crate::browse;
+use crate::bundle;
 use crate::config::Config;
 use crate::corpus;
 use crate::f5;
@@ -534,6 +535,69 @@ impl Voider {
                 None
             }
         }
+    }
+
+    /// The name a sale bundle takes by itself: the chapter's own when F4 shows
+    /// exactly one. A whole book has no single title, so it has to be asked
+    /// for — `None` means ask.
+    pub fn bundle_default_name(&self) -> Option<String> {
+        match self.reading.as_slice() {
+            [only] => Some(if only.name.is_empty() { "capitulo".to_string() } else { only.name.clone() }),
+            _ => None,
+        }
+    }
+
+    /// Ctrl+Shift+A en F4: PDF + EPUB + TXT juntos, todo lo que hace falta para
+    /// subir el libro a la venta. El alcance es el de F4: el capítulo que se ve, o
+    /// el libro entero si F3 estaba sobre un punto. Devuelve la carpeta donde
+    /// quedó, o `None` si no había nada que exportar o el nombre vino vacío.
+    ///
+    /// Si el PDF falla (por ejemplo, un build sin esa función) el EPUB y el TXT se
+    /// escriben igual, y el estado lo dice en vez de dar el bundle por completo.
+    pub fn export_sale_bundle(&mut self, out_name: &str, lang: bundle::Lang) -> io::Result<Option<PathBuf>> {
+        if self.reading.is_empty() {
+            self.status = "Nada para exportar".into();
+            return Ok(None);
+        }
+        let out_name = out_name.trim();
+        if out_name.is_empty() {
+            self.status = "Bundle cancelado (sin nombre)".into();
+            return Ok(None);
+        }
+        let dir = bundle::bundle_dir(&self.void_dir, &self.config, lang, out_name);
+        std::fs::create_dir_all(&dir)?;
+
+        let sections: Vec<(String, Vec<String>)> = self
+            .reading
+            .iter()
+            .map(|s| (s.name.clone(), s.lines.clone()))
+            .collect();
+
+        let mut pdf_note = String::new();
+        let family = self.config.font_family.clone();
+        let html = pdf::book_html(&self.reading, &family);
+        match pdf::render(&html, &family, fonts::load_family(&family)) {
+            Ok(bytes) => std::fs::write(dir.join(format!("{out_name}.pdf")), bytes)?,
+            Err(e) => pdf_note = format!(" (sin PDF: {e})"),
+        }
+        crate::epub::write_epub(
+            &dir.join(format!("{out_name}.epub")),
+            &sections,
+            out_name,
+            "",
+            lang.code(),
+        )?;
+        std::fs::write(
+            dir.join(format!("{out_name}.txt")),
+            bundle::sections_as_txt(&sections),
+        )?;
+
+        self.status = format!(
+            "Bundle de venta: {} capítulo(s) → {}{pdf_note}",
+            sections.len(),
+            dir.display()
+        );
+        Ok(Some(dir))
     }
 
     /// Ctrl+P en F4: lo mismo, y después a la impresora.
@@ -5437,6 +5501,112 @@ mod tests {
         let bytes = std::fs::read(&dest).unwrap();
         assert!(bytes.starts_with(b"%PDF"), "lo que quedó no es un PDF");
         assert!(v.status.contains("PDF"));
+    }
+
+    // ── Ctrl+Shift+A: the sale bundle — PDF + EPUB + TXT (test_sale_bundle.py) ──
+
+    /// F4 open on one chapter ("Dos") or on the whole book, from `book()`.
+    fn bundle_app(whole_book: bool) -> (tempfile::TempDir, Voider) {
+        let (d, mut v) = book();
+        v.library = Library {
+            entries: vec![".".into(), "Uno.txt".into(), "Dos.txt".into()],
+            index: if whole_book { 0 } else { 2 },
+        };
+        v.save_library().unwrap();
+        v.view = View::F3;
+        v.switch_to(View::F4);
+        (d, v)
+    }
+
+    fn bundle_files(d: &tempfile::TempDir, name: &str) -> std::path::PathBuf {
+        d.path().join("gPTA_books").join(name)
+    }
+
+    #[test]
+    fn a_single_chapter_names_its_own_bundle_and_a_whole_book_asks() {
+        let (_d, v) = bundle_app(false);
+        assert_eq!(v.bundle_default_name(), Some("Dos".to_string()));
+        let (_d, v) = bundle_app(true);
+        assert_eq!(v.bundle_default_name(), None); // a whole book has no single title
+    }
+
+    #[test]
+    fn a_single_chapter_writes_all_three_formats() {
+        let (d, mut v) = bundle_app(false);
+        let out = v.export_sale_bundle("Dos", bundle::Lang::Es).unwrap().unwrap();
+        assert_eq!(out, bundle_files(&d, "Dos"));
+        for ext in ["pdf", "epub", "txt"] {
+            assert!(out.join(format!("Dos.{ext}")).is_file(), "no Dos.{ext}");
+        }
+    }
+
+    #[test]
+    fn the_pdf_and_the_epub_are_real_files_not_empty_shells() {
+        let (d, mut v) = bundle_app(false);
+        v.export_sale_bundle("Dos", bundle::Lang::Es).unwrap();
+        let dir = bundle_files(&d, "Dos");
+        let pdf = std::fs::read(dir.join("Dos.pdf")).unwrap();
+        let epub = std::fs::read(dir.join("Dos.epub")).unwrap();
+        assert!(pdf.starts_with(b"%PDF") && pdf.len() > 500, "{} bytes", pdf.len());
+        assert!(epub.starts_with(b"PK") && epub.len() > 500, "{} bytes", epub.len());
+    }
+
+    #[test]
+    fn the_txt_holds_the_chapters_real_text() {
+        let (d, mut v) = bundle_app(false);
+        v.export_sale_bundle("Dos", bundle::Lang::Es).unwrap();
+        let txt = std::fs::read_to_string(bundle_files(&d, "Dos").join("Dos.txt")).unwrap();
+        assert!(txt.contains("de dos"));
+        assert!(!txt.contains("de uno")); // only the chapter that was shown
+    }
+
+    #[test]
+    fn a_whole_book_bundles_every_chapter_with_fences_in_the_txt() {
+        let (d, mut v) = bundle_app(true);
+        v.export_sale_bundle("MiLibro", bundle::Lang::Es).unwrap();
+        let dir = bundle_files(&d, "MiLibro");
+        for ext in ["pdf", "epub", "txt"] {
+            assert!(dir.join(format!("MiLibro.{ext}")).is_file(), "no MiLibro.{ext}");
+        }
+        let txt = std::fs::read_to_string(dir.join("MiLibro.txt")).unwrap();
+        assert!(txt.contains("/Uno") && txt.contains("/Dos"));
+        assert!(txt.contains("de uno") && txt.contains("de dos"));
+    }
+
+    #[test]
+    fn an_empty_or_blank_name_writes_nothing() {
+        let (d, mut v) = bundle_app(true);
+        assert!(v.export_sale_bundle("", bundle::Lang::Es).unwrap().is_none());
+        assert!(v.export_sale_bundle("   ", bundle::Lang::Es).unwrap().is_none());
+        assert!(!d.path().join("gPTA_books").exists());
+    }
+
+    #[test]
+    fn nothing_to_read_means_nothing_to_bundle() {
+        let (d, mut v) = app(&["."]);
+        v.reading.clear();
+        assert!(v.export_sale_bundle("X", bundle::Lang::Es).unwrap().is_none());
+        assert!(v.status.contains("Nada para exportar"));
+        assert!(!d.path().join("gPTA_books").exists());
+    }
+
+    #[test]
+    fn a_configured_folder_receives_the_bundle_instead_of_the_local_one() {
+        let (d, mut v) = bundle_app(false);
+        let dest = d.path().join("sitio").join("libros");
+        v.config.sale_bundle_dir_es = dest.to_string_lossy().to_string();
+        v.export_sale_bundle("Dos", bundle::Lang::Es).unwrap();
+        assert!(dest.join("Dos").join("Dos.pdf").is_file());
+        assert!(!d.path().join("gPTA_books").exists());
+    }
+
+    #[test]
+    fn the_epub_declares_the_language_it_was_asked_for() {
+        let (d, mut v) = bundle_app(false);
+        v.export_sale_bundle("Dos", bundle::Lang::En).unwrap();
+        let epub = std::fs::read(bundle_files(&d, "Dos").join("Dos.epub")).unwrap();
+        let text = String::from_utf8_lossy(&epub);
+        assert!(text.contains("<dc:language>en</dc:language>"));
     }
 
     #[test]
