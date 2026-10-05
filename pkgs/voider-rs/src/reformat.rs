@@ -142,6 +142,13 @@ fn split_paragraphs(text: &str) -> Vec<String> {
 
 /// The dot-model → paragraph strings, for showing a file as flowing prose.
 /// A port of `lines_to_paragraphs` from `reading_page.py`.
+/// Characters that let a line join the one after it into a paragraph.
+const PARAGRAPH_JOIN_ENDERS: [char; 5] = [',', '.', '?', '!', '…'];
+
+/// A line joins the NEXT one only if it ends in one of `PARAGRAPH_JOIN_ENDERS`:
+/// reformatted prose (a sentence per line) rebuilds its paragraph, but
+/// unpunctuated scriptio-continua fragments stay as separate blocks instead of
+/// fusing into one giant line.
 pub fn lines_to_paragraphs(lines: &[String]) -> Vec<String> {
     let mut paras: Vec<String> = Vec::new();
     let mut cur: Vec<String> = Vec::new();
@@ -153,6 +160,14 @@ pub fn lines_to_paragraphs(lines: &[String]) -> Vec<String> {
                 cur.clear();
             }
         } else if !s.is_empty() && s != "ø" {
+            let last_closes = cur
+                .last()
+                .and_then(|l| l.chars().last())
+                .is_some_and(|c| PARAGRAPH_JOIN_ENDERS.contains(&c));
+            if !cur.is_empty() && !last_closes {
+                paras.push(cur.join(" "));
+                cur.clear();
+            }
             cur.push(s.to_string());
         }
     }
@@ -501,10 +516,62 @@ mod tests {
 
     // ── the dot model as prose ────────────────────────────────────────────────
 
+    // test_lines_to_paragraphs_join.py: a line joins the next ONLY if it ends in
+    // one of `,.?!…`. Unpunctuated scriptio-continua fragments stay separate —
+    // the old behaviour fused a whole session into one line on opening F9.
+
     #[test]
-    fn lines_join_into_a_paragraph_per_dot_group() {
-        let paras = lines_to_paragraphs(&v(&[".", "a", "b", ".", "c"]));
-        assert_eq!(paras, v(&["a b", "c"]));
+    fn unpunctuated_fragments_stay_separate() {
+        assert_eq!(lines_to_paragraphs(&v(&["uno", "dos", "tres"])), v(&["uno", "dos", "tres"]));
+        assert_eq!(lines_to_paragraphs(&v(&[".", "a", "b", ".", "c"])), v(&["a", "b", "c"]));
+    }
+
+    #[test]
+    fn a_line_ending_in_a_closer_joins_the_next() {
+        assert_eq!(lines_to_paragraphs(&v(&["Uno.", "Dos."])), v(&["Uno. Dos."]));
+        assert_eq!(lines_to_paragraphs(&v(&["uno,", "dos."])), v(&["uno, dos."]));
+        assert_eq!(lines_to_paragraphs(&v(&["¿Uno?", "Dos."])), v(&["¿Uno? Dos."]));
+        assert_eq!(lines_to_paragraphs(&v(&["¡Uno!", "Dos."])), v(&["¡Uno! Dos."]));
+        assert_eq!(lines_to_paragraphs(&v(&["Uno…", "Dos."])), v(&["Uno… Dos."]));
+    }
+
+    #[test]
+    fn fragments_and_sentences_coexist_in_one_dot_group() {
+        assert_eq!(
+            lines_to_paragraphs(&v(&["fragmento", "suelto", "Una oración.", "que sigue."])),
+            v(&["fragmento", "suelto", "Una oración. que sigue."])
+        );
+    }
+
+    #[test]
+    fn a_dot_separator_breaks_whatever_the_punctuation() {
+        assert_eq!(lines_to_paragraphs(&v(&["Uno.", ".", "Dos."])), v(&["Uno.", "Dos."]));
+        assert_eq!(
+            lines_to_paragraphs(&v(&[".", "Uno.", ".", ".", "Dos."])),
+            v(&["Uno.", "Dos."])
+        );
+    }
+
+    #[test]
+    fn the_zero_glyph_and_blanks_are_ignored_when_joining() {
+        assert_eq!(lines_to_paragraphs(&v(&["ø", "Uno.", "", "Dos."])), v(&["Uno. Dos."]));
+    }
+
+    #[test]
+    fn a_real_scriptio_session_survives_unfused() {
+        let frags = v(&["ICANNOTSTOPLUSTINGFOROTHERWOMEN", "ILUSTFOREVERYWOMANIMEET", "ISEETHEBEAUTYINTHEM"]);
+        assert_eq!(lines_to_paragraphs(&frags), frags);
+    }
+
+    #[test]
+    fn properly_reformatted_prose_still_rebuilds_the_whole_paragraph() {
+        let lines = v(&[
+            "La primera oración del párrafo.",
+            "¿Y la segunda, una pregunta?",
+            "¡La tercera, una exclamación!",
+            "La cuarta cierra normal.",
+        ]);
+        assert_eq!(lines_to_paragraphs(&lines), vec![lines.join(" ")]);
     }
 
     #[test]

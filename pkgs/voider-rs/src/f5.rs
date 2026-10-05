@@ -380,6 +380,7 @@ mod tests {
         // No closing punctuation: lines_to_paragraphs keeps them as separate
         // blocks although F5 treats them as ONE paragraph.
         let lines = v(&[".", "fragmento uno", "fragmento dos", "fragmento tres", ".", "Otro."]);
+        assert!(prose_of(&lines).starts_with("fragmento uno\n\nfragmento dos\n\nfragmento tres"));
         let off = f9_entry_offset(&lines, 3);
         assert!(tail_from(&prose_of(&lines), off).starts_with("fragmento uno"));
     }
