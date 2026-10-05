@@ -29,6 +29,8 @@ pub fn load_doc(path: &Path) -> Doc {
     let mut read_failed = false;
     match fs::read_to_string(path) {
         Ok(text) => {
+            // A byte-order mark at the very start is an encoding marker, not text.
+            let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
             for raw in text.lines() {
                 let s = raw.trim();
                 if !s.is_empty() {
@@ -212,6 +214,37 @@ mod tests {
 
     fn write(path: &Path, text: &str) {
         fs::write(path, text).unwrap();
+    }
+
+    // A byte-order mark (U+FEFF) left at the start of a file by some old editor or
+    // import is not text: `trim` does not count it as whitespace, so it used to
+    // stay glued to the first line — and show up in a copy, a search, a title.
+
+    #[test]
+    fn a_byte_order_mark_at_the_start_is_not_part_of_the_first_line() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("c.txt");
+        write(&p, "\u{feff}Nadie me enseñó.\n.\nSegunda.\n");
+        let doc = load_doc(&p);
+        assert_eq!(doc.lines, vec![".", "Nadie me enseñó.", ".", "Segunda."]);
+    }
+
+    #[test]
+    fn a_byte_order_mark_before_the_leading_dot_does_not_hide_it() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("c.txt");
+        write(&p, "\u{feff}.\nTexto.\n");
+        assert_eq!(load_doc(&p).lines, vec![".", "Texto."]); // not a second dot on top
+    }
+
+    #[test]
+    fn a_mark_in_the_middle_of_a_line_is_left_alone() {
+        // Only the one at the very start of the file is a BOM; elsewhere it is
+        // the writer's character and is not ours to remove.
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("c.txt");
+        write(&p, ".\nuno\u{feff}dos\n");
+        assert_eq!(load_doc(&p).lines, vec![".", "uno\u{feff}dos"]);
     }
 
     #[test]
