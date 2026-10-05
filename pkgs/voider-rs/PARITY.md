@@ -4,7 +4,7 @@ Where the Rust mirror stands against the Python, measured by the Python's own
 test suite: **63 files, 592 tests**. This is the honest map — what is ported,
 what is partial, and what does not exist here yet.
 
-Rust tests today: **687**. (The Python suite has since grown to ~1079; the
+Rust tests today: **831**. (The Python suite has since grown to ~1079; the
 "63 files, 592 tests" above is the baseline this file was first measured
 against, and the table below is still in terms of it.)
 
@@ -35,9 +35,27 @@ committed on its own. The Python commit is in parentheses.
 - Selection in the line: Shift+←/→/Home/End, Ctrl+A/C/X/V, typing replaces it, and
   Alt+←/→ moves a whole selected block (`53e4fe3`). `TextLine` now has the model
   `QLineEdit` gave Python for free.
+- **Ctrl+C / Ctrl+X / Ctrl+V were being listened for as keys, and egui-winit never sends them
+  that way**: it turns each into a `Copy` / `Cut` / `Paste` event and drops the key (with or
+  without Shift, and `Paste` not at all when the clipboard is empty). The contextual Ctrl+C
+  therefore had no way to fire before; it is now driven from `Event::Copy` (with Shift in F4
+  it means the carousel). Checked in the real window against the real clipboard.
 - The EPUB exporter (`epub.rs`, no new dependency) and the PDF + EPUB + TXT sale
   bundle on Ctrl+Shift+A in F4, with its name/language prompt (`f9fb6a7`,
   `fe95779`, `3bc7846`).
+- The Instagram carousel (`carousel.rs`, `typeset.rs`, `slides.rs`): Ctrl+Shift+C
+  exports a chapter or the whole book as PNG slides (a title slide per chapter, then
+  its body, justified, in the writing font), Ctrl+Shift+B wraps them in a cover
+  picked from a `.png` browser and a countercover, V previews the slides in F4
+  exactly as they would be written, and F10 (Tab) picks the frame — 1:1, 4:5,
+  1.91:1 or a custom size (`63913c5`, `c9f9607`, `57165f1`, `5889aa2`). The text is
+  set by hand with `ab_glyph` and written with `png`; both were already in the
+  dependency graph through egui. **No hyphenation** (the Python's `auto`), so right
+  edges are a little looser than the book's.
+- Shift+F12: a 1:1 crop of the window into `covers/`, located through `hyprctl`
+  (`a8bda0e`). The command runner is injected, so it is tested without either tool.
+- A byte-order mark at the start of a file is no longer part of the first line.
+
 - F5 is drawn like F2: centred, tight, the dots visible, fading by distance
   (`c60a8cd`, `cd198ce`, `c45a132`). **The centring is covered by tests (egui
   centres on the galley's origin, which is easy to get wrong); how it looks in
@@ -47,7 +65,6 @@ committed on its own. The Python commit is in parentheses.
 
 | Python | What | Notes |
 |---|---|---|
-| `63913c5`, `c9f9607`, `57165f1`, `5889aa2` | F4 Instagram carousel export, cover/countercover, preview toggle | big; needs image rendering |
 | `3bc7846`, `5f5e128` | Ctrl+Shift+A also offers the site's own book folders (`sale_bundle_dir_es/en`) | the setting exists and is honoured; there is no settings screen for it yet — edit `voider-rs.conf` |
 | `2b14105` | first run creates the void folder instead of a dialog | already how the Rust behaves — it never had the dialog |
 | `6470b1f`, `c384fab`, `6fa2c99`, `2f089d7`, `f7e6997` | F1 gradient, the effects panel, Hyprland dimming | visual; the panel does not exist here |
@@ -127,7 +144,9 @@ working-set fragment) have since been built; see "Landed since" above.
 |---|---|---|
 | Lock screen | `test_lock_screen` (7) | PAM — see PENDING.md |
 | Justified, *hyphenated* setting in F4 | `test_reading_page` | justified is done; no Spanish hyphenation |
-| F4 carousel export (Instagram slides, cover/countercover) | `test_carousel_*` | needs text rasterised to PNG; no image pipeline here yet |
+| Hyphenation in the carousel slides | `hyphenate_text` | the slides are justified but never hyphenated |
+| Ctrl+Shift+V for the carousel preview | `test_f4_carousel_view` | it is the bare key `V` instead: egui-winit turns Ctrl+Shift+V into a Paste event, and sends nothing when the clipboard is empty |
+| A cover from a `.jpg` | `render_cover_slide` | covers are `.png` only (what `grim` writes); there is no JPEG decoder here |
 | The F1 gradient and the effects panel | — | visual; the panel does not exist here |
 | Be the desktop (wlr-layer-shell) | — | the last milestone |
 
