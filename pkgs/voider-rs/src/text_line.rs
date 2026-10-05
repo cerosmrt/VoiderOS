@@ -90,6 +90,50 @@ impl TextLine {
         true
     }
 
+    /// Delete from the caret to the start of the next word, as QLineEdit's
+    /// Ctrl+Delete does: the rest of the current word (or punctuation run) and
+    /// the spaces after it. Returns whether anything went.
+    pub fn delete_word_forward(&mut self) -> bool {
+        let n = self.chars.len();
+        if self.caret >= n {
+            return false;
+        }
+        let mut end = self.caret;
+        let class = char_class(self.chars[end]);
+        if class != CharClass::Space {
+            while end < n && char_class(self.chars[end]) == class {
+                end += 1;
+            }
+        }
+        while end < n && char_class(self.chars[end]) == CharClass::Space {
+            end += 1;
+        }
+        self.chars.drain(self.caret..end);
+        true
+    }
+
+    /// Delete from the start of the word before the caret up to the caret, as
+    /// QLineEdit's Ctrl+Backspace does: spaces first, then one word (or
+    /// punctuation run). Never the whole line. Returns whether anything went.
+    pub fn delete_word_back(&mut self) -> bool {
+        if self.caret == 0 {
+            return false;
+        }
+        let mut start = self.caret;
+        while start > 0 && char_class(self.chars[start - 1]) == CharClass::Space {
+            start -= 1;
+        }
+        if start > 0 {
+            let class = char_class(self.chars[start - 1]);
+            while start > 0 && char_class(self.chars[start - 1]) == class {
+                start -= 1;
+            }
+        }
+        self.chars.drain(start..self.caret);
+        self.caret = start;
+        true
+    }
+
     /// Move by `delta` characters, clamped — a line has ends, it doesn't wrap.
     pub fn move_caret(&mut self, delta: isize) {
         let n = self.chars.len() as isize;
@@ -108,6 +152,25 @@ impl TextLine {
     /// far to slide the line so the caret lands on its fixed point.
     pub fn before_caret(&self) -> String {
         self.chars[..self.caret].iter().collect()
+    }
+}
+
+/// What a character is for word-wise editing: letters and digits make words,
+/// whitespace separates them, everything else is a run of punctuation.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CharClass {
+    Word,
+    Space,
+    Punct,
+}
+
+fn char_class(c: char) -> CharClass {
+    if c.is_whitespace() {
+        CharClass::Space
+    } else if c.is_alphanumeric() || c == '_' {
+        CharClass::Word
+    } else {
+        CharClass::Punct
     }
 }
 
@@ -251,5 +314,81 @@ mod tests {
         assert_eq!(neutralize_caps("A", false), "A"); // untouched
         assert_eq!(neutralize_caps("5-", true), "5-"); // non-letters untouched
         assert_eq!(neutralize_caps("Ñ", true), "ñ"); // accents too
+    }
+
+    // ── Ctrl+Delete / Ctrl+Backspace: one word, as QLineEdit does ───────────
+    // Mirrors test_ctrl_delete_word.py and test_ctrl_backspace_word.py.
+
+    #[test]
+    fn delete_word_forward_takes_the_next_word_and_its_trailing_space() {
+        let mut l = TextLine::new("hola mundo bonito");
+        l.set_caret(5); // right after "hola "
+        assert!(l.delete_word_forward());
+        assert_eq!(l.text(), "hola bonito");
+        assert_eq!(l.caret(), 5);
+    }
+
+    #[test]
+    fn delete_word_forward_from_inside_a_word_takes_the_rest_of_it() {
+        let mut l = TextLine::new("hola mundo");
+        l.set_caret(2);
+        assert!(l.delete_word_forward());
+        assert_eq!(l.text(), "homundo");
+        assert_eq!(l.caret(), 2);
+    }
+
+    #[test]
+    fn delete_word_forward_at_the_end_does_nothing() {
+        let mut l = TextLine::new("hola");
+        assert!(!l.delete_word_forward());
+        assert_eq!(l.text(), "hola");
+    }
+
+    #[test]
+    fn delete_word_back_takes_the_word_before_the_caret() {
+        let mut l = TextLine::new("hola mundo");
+        assert!(l.delete_word_back());
+        assert_eq!(l.text(), "hola ");
+        assert_eq!(l.caret(), 5);
+    }
+
+    #[test]
+    fn delete_word_back_skips_trailing_spaces_first() {
+        let mut l = TextLine::new("hola mundo ");
+        assert!(l.delete_word_back());
+        assert_eq!(l.text(), "hola ");
+        assert_eq!(l.caret(), 5);
+    }
+
+    #[test]
+    fn delete_word_back_at_the_end_takes_only_the_last_word_not_the_line() {
+        // the bug the Python fixed: at the end of the line this used to wipe it all
+        let mut l = TextLine::new("una frase entera");
+        assert!(l.delete_word_back());
+        assert_eq!(l.text(), "una frase ");
+    }
+
+    #[test]
+    fn delete_word_back_at_the_start_does_nothing() {
+        let mut l = TextLine::new("hola");
+        l.set_caret(0);
+        assert!(!l.delete_word_back());
+        assert_eq!(l.text(), "hola");
+    }
+
+    #[test]
+    fn punctuation_is_a_stop_of_its_own() {
+        let mut l = TextLine::new("dijo: hola");
+        assert!(l.delete_word_back());
+        assert_eq!(l.text(), "dijo: ");
+        assert!(l.delete_word_back()); // spaces, then the colon
+        assert_eq!(l.text(), "dijo");
+    }
+
+    #[test]
+    fn accented_words_are_whole_words() {
+        let mut l = TextLine::new("el niño");
+        assert!(l.delete_word_back());
+        assert_eq!(l.text(), "el ");
     }
 }

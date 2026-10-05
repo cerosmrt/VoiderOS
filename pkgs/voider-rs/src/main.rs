@@ -325,8 +325,14 @@ impl VoiderApp {
             Key::Enter => {
                 let _ = self.voider.commit_line();
             }
+            Key::Backspace if m.ctrl && !caps => {
+                self.voider.entry.delete_word_back();
+            }
             Key::Backspace => {
                 self.voider.backspace(caps);
+            }
+            Key::Delete if m.ctrl => {
+                self.voider.entry.delete_word_forward();
             }
             Key::Delete => {
                 self.voider.entry.delete();
@@ -403,14 +409,20 @@ impl VoiderApp {
             Key::Enter => {
                 let _ = self.voider.doc_split_line();
             }
-            // Ctrl+Delete at the start, or Ctrl+Backspace at the end: send the
-            // whole line down the trash cascade (other file → 0.txt → trash →
-            // gone). At any other caret position they edit normally, below.
+            // Ctrl+Delete at the START of the line sends the whole line down the
+            // trash cascade (other file → 0.txt → trash → gone). Anywhere else it
+            // deletes the next word, like any editor. Ctrl+Backspace has no such
+            // exception: it is always one word back, even at the end of the line.
             Key::Delete if m.ctrl && self.voider.entry.caret() == 0 => {
                 let _ = self.voider.delete_line_to_zero();
             }
-            Key::Backspace if m.ctrl && self.voider.entry.caret() == self.voider.entry.len() => {
-                let _ = self.voider.delete_line_to_zero();
+            Key::Delete if m.ctrl => {
+                self.voider.entry.delete_word_forward();
+                let _ = self.voider.doc_live_save();
+            }
+            Key::Backspace if m.ctrl && !caps && self.voider.entry.caret() > 0 => {
+                self.voider.entry.delete_word_back();
+                let _ = self.voider.doc_live_save();
             }
             Key::Backspace => {
                 if caps {
