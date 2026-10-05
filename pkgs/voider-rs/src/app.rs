@@ -1827,14 +1827,18 @@ impl Voider {
         if name.is_empty() {
             return Ok(None);
         }
-        let file = format!("{name}.txt");
-        if self.library.position(&file).is_some() {
-            return Ok(None); // an existing name keeps its file; never clobber it
+        // A name already taken — listed, or a file sitting on disk — never
+        // shares that file: two rows behind one file edit each other. It steps
+        // to "name-2", "name-3", ... like a merge does, and the original stays.
+        let mut file = format!("{name}.txt");
+        let mut path = library::chapter_path(&self.void_dir, &file);
+        let mut k = 2;
+        while path.exists() || self.library.position(&file).is_some() {
+            file = format!("{name}-{k}.txt");
+            path = library::chapter_path(&self.void_dir, &file);
+            k += 1;
         }
-        let path = library::chapter_path(&self.void_dir, &file);
-        if !path.exists() {
-            void::atomic_write(&path, &[".".to_string()], false)?;
-        }
+        void::atomic_write(&path, &[".".to_string()], false)?;
         let at = self.library.index;
         self.library.insert_below(at, file);
         self.library.index = (at + 1).min(self.library.entries.len() - 1);
@@ -3729,13 +3733,65 @@ mod tests {
         assert_eq!(v.library.entries.len(), n);
     }
 
+    // A repeated name makes a genuinely SEPARATE file — "<name>-2.txt" — never a
+    // second row pointing at the old one (test_f3_pending_entry.py).
+
     #[test]
-    fn an_existing_name_never_clobbers_its_file() {
+    fn a_colliding_name_gets_its_own_separate_file() {
         let (_d, mut v) = book();
         v.switch_to(View::F3);
-        assert!(v.new_chapter("Dos").unwrap().is_none());
+        let path = v.new_chapter("Dos").unwrap().unwrap();
+        assert_eq!(path, library::chapter_path(&v.void_dir, "Dos-2.txt"));
+        assert!(v.library.entries.contains(&"Dos-2.txt".to_string()));
+        assert_eq!(v.library.current(), "Dos-2.txt");
+    }
+
+    #[test]
+    fn the_existing_chapter_is_never_touched_by_a_colliding_name() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.new_chapter("Dos").unwrap();
         let doc = void::load_doc(&library::chapter_path(&v.void_dir, "Dos.txt"));
         assert!(doc.lines.contains(&"de dos".to_string())); // untouched
+    }
+
+    #[test]
+    fn the_new_file_is_empty_of_the_old_one() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.new_chapter("Dos").unwrap();
+        let fresh = void::load_doc(&library::chapter_path(&v.void_dir, "Dos-2.txt"));
+        assert!(!fresh.lines.contains(&"de dos".to_string()));
+        assert!(fresh.lines.iter().all(|l| l == "."));
+    }
+
+    #[test]
+    fn a_second_collision_keeps_incrementing() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.new_chapter("Dos").unwrap(); // Dos-2
+        v.new_chapter("Dos").unwrap(); // Dos-3
+        assert!(v.library.entries.contains(&"Dos-3.txt".to_string()));
+    }
+
+    #[test]
+    fn a_file_on_disk_but_unlisted_is_not_adopted_either() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        let stray = library::chapter_path(&v.void_dir, "Suelto.txt");
+        void::atomic_write(&stray, &["viejo".to_string()], false).unwrap();
+        v.new_chapter("Suelto").unwrap();
+        assert!(v.library.entries.contains(&"Suelto-2.txt".to_string()));
+        assert_eq!(void::load_doc(&stray).lines, vec![".", "viejo"].iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn a_name_that_does_not_collide_is_unaffected() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.new_chapter("Nombre Nuevo").unwrap();
+        assert!(v.library.entries.contains(&"Nombre Nuevo.txt".to_string()));
+        assert!(!v.library.entries.contains(&"Nombre Nuevo-2.txt".to_string()));
     }
 
     // ── F3 Tab: shuffle a book / jump to a random chapter ────────────────────
