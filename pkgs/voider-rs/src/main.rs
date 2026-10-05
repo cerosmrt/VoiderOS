@@ -14,6 +14,7 @@ mod app;
 mod backup;
 mod browse;
 mod config;
+mod epub;
 mod corpus;
 mod f5;
 mod fonts;
