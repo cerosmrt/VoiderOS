@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use crate::backup;
 use crate::browse;
 use crate::bundle;
+use crate::carousel;
 use crate::config::Config;
 use crate::corpus;
 use crate::f5;
@@ -24,10 +25,12 @@ use crate::position;
 use crate::reading;
 use crate::reformat;
 use crate::shot;
+use crate::slides;
 use crate::split;
 use crate::line_ring::LineRing;
 use crate::text_line::{self, TextLine};
 use crate::tts::Tts;
+use crate::typeset;
 use crate::undo::{self, UndoManager};
 use crate::void;
 use chrono::Datelike;
@@ -65,11 +68,23 @@ pub enum BundleStage {
     Lang,
 }
 
+/// What the name and language are being asked FOR.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PromptKind {
+    /// PDF + EPUB + TXT: name, then language.
+    Bundle,
+    /// Instagram slides: just a name.
+    Carousel,
+    /// The same, wrapped in a cover and a countercover; the picture is already chosen.
+    CarouselCover(PathBuf),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BundlePrompt {
     pub stage: BundleStage,
     pub name: String,
     pub lang: bundle::Lang,
+    pub kind: PromptKind,
 }
 
 /// Which view is on screen. Both edit the same ring and the same active file.
@@ -566,6 +581,153 @@ impl Voider {
         }
     }
 
+    /// The slide size the configuration asks for.
+    pub fn carousel_size(&self) -> (u32, u32) {
+        carousel::dimensions(&self.config.carousel_preset, self.config.carousel_w, self.config.carousel_h)
+    }
+
+    /// Write every section's title slide and its body slides into `out_dir`,
+    /// numbered continuously from `start_n`. Returns the next free number and how
+    /// many body slides there were.
+    fn write_carousel_chapters(
+        &self,
+        out_dir: &Path,
+        font: &typeset::TypeFont,
+        start_n: usize,
+    ) -> io::Result<(usize, usize)> {
+        let (w, h) = self.carousel_size();
+        let geo = carousel::geometry(w, h);
+        let line_h = font.natural_height(geo.font_px) * carousel::LINE_HEIGHT_PCT / 100.0;
+        let (mut n, mut body_slides) = (start_n, 0);
+        for section in &self.reading {
+            // The title has a slide of its own; the body starts on the next one.
+            slides::render_title_slide(&section.name, font, w, h, geo.font_px, slides::PAPER, slides::INK)
+                .save_png(&out_dir.join(carousel::file_name(n, &carousel::SlideKind::Title)))?;
+            n += 1;
+            let paragraphs = reformat::lines_to_paragraphs(&section.lines);
+            let set = typeset::typeset(font, geo.font_px, geo.block_w, geo.indent, line_h, &paragraphs);
+            for page in typeset::paginate(set, line_h, geo.block_h) {
+                slides::render_body_page(font, &geo, &page, slides::PAPER, slides::INK)
+                    .save_png(&out_dir.join(carousel::file_name(n, &carousel::SlideKind::Body)))?;
+                n += 1;
+                body_slides += 1;
+            }
+        }
+        Ok((n, body_slides))
+    }
+
+    /// Where a carousel goes, or `None` when there is nothing to export or no
+    /// usable name. A typed name stays one folder inside `void/carousel/`.
+    fn carousel_dir(&mut self, out_name: &str) -> Option<PathBuf> {
+        if self.reading.is_empty() {
+            self.status = "Nada para exportar".into();
+            return None;
+        }
+        let name = bundle::safe_folder_name(out_name);
+        if name.is_empty() {
+            self.status = "Carrusel cancelado (sin nombre)".into();
+            return None;
+        }
+        Some(self.void_dir.join("carousel").join(name))
+    }
+
+    /// Ctrl+Shift+C en F4: lo que se está leyendo, como slides de Instagram. El
+    /// alcance es el de F4 (el capítulo o el libro entero); cada capítulo tiene un
+    /// slide de título propio y después su cuerpo, paginado a la proporción
+    /// configurada. Va a `void/carousel/<nombre>/`.
+    pub fn export_carousel(&mut self, out_name: &str) -> io::Result<Option<PathBuf>> {
+        let Some(dir) = self.carousel_dir(out_name) else {
+            return Ok(None);
+        };
+        std::fs::create_dir_all(&dir)?;
+        let font = typeset::TypeFont::load(&self.config.font_family);
+        let (_, body) = self.write_carousel_chapters(&dir, &font, 1)?;
+        self.status = format!(
+            "Carrusel: {} capítulo(s), {body} slides + títulos → {}",
+            self.reading.len(),
+            dir.display()
+        );
+        Ok(Some(dir))
+    }
+
+    /// Ctrl+Shift+B en F4: lo mismo, envuelto en una portada (la imagen elegida,
+    /// con la marca «I» encima) y una contratapa con el título. Un comando aparte
+    /// para que un Ctrl+Shift+C nunca necesite una portada. Una imagen que no se
+    /// pueda leer deja la portada sobre papel liso, como el Python.
+    pub fn export_carousel_with_cover(&mut self, out_name: &str, cover: &Path) -> io::Result<Option<PathBuf>> {
+        let Some(dir) = self.carousel_dir(out_name) else {
+            return Ok(None);
+        };
+        std::fs::create_dir_all(&dir)?;
+        let (w, h) = self.carousel_size();
+        let font = typeset::TypeFont::load(&self.config.font_family);
+        let font_px = carousel::geometry(w, h).font_px;
+        let back_title = match self.reading.as_slice() {
+            [only] => only.name.clone(),
+            _ => out_name.trim().to_string(),
+        };
+
+        slides::render_cover_slide(cover, w, h, &font, font_px, "I", slides::PAPER, slides::INK)
+            .save_png(&dir.join(carousel::file_name(1, &carousel::SlideKind::Cover)))?;
+        let (n, body) = self.write_carousel_chapters(&dir, &font, 2)?;
+        slides::render_title_slide(&back_title, &font, w, h, font_px, slides::PAPER, slides::INK)
+            .save_png(&dir.join(carousel::file_name(n, &carousel::SlideKind::Back)))?;
+        self.status = format!(
+            "Carrusel con tapa: {} capítulo(s), {body} slides + portada + contratapa → {}",
+            self.reading.len(),
+            dir.display()
+        );
+        Ok(Some(dir))
+    }
+
+    /// Ctrl+Shift+C en F4: el carrusel. Un capítulo suelto nombra su propia carpeta
+    /// y sale de una; un libro entero no tiene un solo título, así que se pregunta.
+    pub fn begin_carousel(&mut self) {
+        if self.reading.is_empty() {
+            self.status = "Nada para exportar".into();
+            return;
+        }
+        match self.bundle_default_name() {
+            Some(name) => {
+                let _ = self.export_carousel(&name);
+            }
+            None => {
+                self.bundle_prompt = Some(BundlePrompt {
+                    stage: BundleStage::Name,
+                    name: String::new(),
+                    lang: bundle::Lang::Es,
+                    kind: PromptKind::Carousel,
+                });
+            }
+        }
+    }
+
+    /// Ctrl+Shift+B en F4: lo mismo, con portada. Primero se elige la imagen.
+    pub fn begin_carousel_with_cover(&mut self) {
+        if self.reading.is_empty() {
+            self.status = "Nada para exportar".into();
+            return;
+        }
+        self.open_browser(browse::Purpose::Cover);
+    }
+
+    /// La portada ya está elegida: un capítulo suelto exporta de una, un libro
+    /// entero pide el nombre.
+    fn cover_chosen(&mut self, cover: PathBuf) -> io::Result<()> {
+        match self.bundle_default_name() {
+            Some(name) => self.export_carousel_with_cover(&name, &cover).map(|_| ()),
+            None => {
+                self.bundle_prompt = Some(BundlePrompt {
+                    stage: BundleStage::Name,
+                    name: String::new(),
+                    lang: bundle::Lang::Es,
+                    kind: PromptKind::CarouselCover(cover),
+                });
+                Ok(())
+            }
+        }
+    }
+
     /// Ctrl+Shift+A in F4 starts the question. A single chapter names its own
     /// bundle, so only the language is asked; a whole book is asked its name first.
     pub fn begin_sale_bundle(&mut self) {
@@ -578,6 +740,7 @@ impl Voider {
             stage: if preset.is_some() { BundleStage::Lang } else { BundleStage::Name },
             name: preset.unwrap_or_default(),
             lang: bundle::Lang::Es,
+            kind: PromptKind::Bundle,
         });
     }
 
@@ -617,9 +780,29 @@ impl Voider {
             BundleStage::Name => {
                 if p.name.trim().is_empty() {
                     self.bundle_prompt = None;
-                    self.status = "Bundle cancelado (sin nombre)".into();
-                } else if let Some(pr) = &mut self.bundle_prompt {
-                    pr.stage = BundleStage::Lang;
+                    self.status = match p.kind {
+                        PromptKind::Bundle => "Bundle cancelado (sin nombre)",
+                        _ => "Carrusel cancelado (sin nombre)",
+                    }
+                    .into();
+                    return Ok(());
+                }
+                match p.kind {
+                    // The bundle still has to ask the language...
+                    PromptKind::Bundle => {
+                        if let Some(pr) = &mut self.bundle_prompt {
+                            pr.stage = BundleStage::Lang;
+                        }
+                    }
+                    // ...a carousel has none to ask: the name is the last answer.
+                    PromptKind::Carousel => {
+                        self.bundle_prompt = None;
+                        self.export_carousel(&p.name)?;
+                    }
+                    PromptKind::CarouselCover(cover) => {
+                        self.bundle_prompt = None;
+                        self.export_carousel_with_cover(&p.name, &cover)?;
+                    }
                 }
                 Ok(())
             }
@@ -646,7 +829,8 @@ impl Voider {
             self.status = "Nada para exportar".into();
             return Ok(None);
         }
-        let out_name = out_name.trim();
+        let out_name = bundle::safe_folder_name(out_name);
+        let out_name = out_name.as_str();
         if out_name.is_empty() {
             self.status = "Bundle cancelado (sin nombre)".into();
             return Ok(None);
@@ -1249,6 +1433,9 @@ impl Voider {
     pub fn open_browser(&mut self, purpose: browse::Purpose) {
         let start = match purpose {
             browse::Purpose::ActiveFile | browse::Purpose::BookDir => self.void_dir.join("I"),
+            // Covers are kept in `covers/` (Shift+F12 puts them there); with none yet,
+            // the void itself is the next best place to look.
+            browse::Purpose::Cover => self.void_dir.join("covers"),
             browse::Purpose::VoidDir => self
                 .void_dir
                 .parent()
@@ -1280,7 +1467,7 @@ impl Voider {
             browser.descend();
             return Ok(());
         }
-        if browser.looking == browse::Looking::File {
+        if matches!(browser.looking, browse::Looking::File | browse::Looking::Image) {
             if let Some(entry) = browser.current() {
                 if entry.is_dir {
                     browser.descend();
@@ -1315,6 +1502,7 @@ impl Voider {
                 self.retarget_void(void)?;
             }
             browse::Purpose::VoidDir => self.retarget_void(chosen)?,
+            browse::Purpose::Cover => self.cover_chosen(chosen)?,
         }
         Ok(())
     }
@@ -5867,6 +6055,303 @@ mod tests {
         let epub = std::fs::read(bundle_files(&d, "Dos").join("Dos.epub")).unwrap();
         let text = String::from_utf8_lossy(&epub);
         assert!(text.contains("<dc:language>en</dc:language>"));
+    }
+
+    // ── Ctrl+Shift+C: the Instagram carousel (test_carousel_export.py) ───────
+
+    fn slides_in(d: &tempfile::TempDir, folder: &str) -> Vec<String> {
+        let dir = d.path().join("carousel").join(folder);
+        let mut names: Vec<String> = match std::fs::read_dir(&dir) {
+            Ok(rd) => rd.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.ends_with(".png")).collect(),
+            Err(_) => Vec::new(),
+        };
+        // by the number each starts with, so 10 comes after 9
+        names.sort_by_key(|n| n.split(|c: char| !c.is_ascii_digit()).next().and_then(|d| d.parse::<u32>().ok()).unwrap_or(0));
+        names
+    }
+
+    fn size_of(d: &tempfile::TempDir, folder: &str, name: &str) -> (u32, u32) {
+        let img = slides::read_png(&d.path().join("carousel").join(folder).join(name)).expect("a readable png");
+        (img.w, img.h)
+    }
+
+    #[test]
+    fn a_single_chapter_writes_its_own_title_slide_and_body() {
+        let (d, mut v) = bundle_app(false); // highlights Dos
+        v.export_carousel("Dos").unwrap().unwrap();
+        let slides = slides_in(&d, "Dos");
+        assert!(slides.contains(&"1_titulo.png".to_string()));
+        assert!(slides.contains(&"2.png".to_string()));
+        assert!(!d.path().join("carousel").join("Uno").exists());
+    }
+
+    #[test]
+    fn a_whole_book_numbers_its_slides_continuously_across_chapters() {
+        let (d, mut v) = bundle_app(true);
+        v.export_carousel("MiLibro").unwrap();
+        // Uno's title (1), Uno's body (2), Dos's title (3), Dos's body (4) — no gaps
+        assert_eq!(slides_in(&d, "MiLibro"), vec!["1_titulo.png", "2.png", "3_titulo.png", "4.png"]);
+    }
+
+    #[test]
+    fn a_blank_name_writes_nothing() {
+        let (d, mut v) = bundle_app(true);
+        assert!(v.export_carousel("   ").unwrap().is_none());
+        assert!(!d.path().join("carousel").exists());
+    }
+
+    #[test]
+    fn with_nothing_to_read_there_is_nothing_to_export() {
+        let (d, mut v) = app(&["."]);
+        v.reading.clear();
+        assert!(v.export_carousel("X").unwrap().is_none());
+        assert!(v.status.contains("Nada para exportar"));
+        assert!(!d.path().join("carousel").exists());
+    }
+
+    #[test]
+    fn the_default_frame_is_4_5() {
+        let (d, mut v) = bundle_app(false);
+        v.export_carousel("Dos").unwrap();
+        assert_eq!(size_of(&d, "Dos", "1_titulo.png"), (1080, 1350));
+        assert_eq!(size_of(&d, "Dos", "2.png"), (1080, 1350));
+    }
+
+    #[test]
+    fn the_configured_preset_sets_the_size() {
+        let (d, mut v) = bundle_app(false);
+        v.config.carousel_preset = "1:1".into();
+        v.export_carousel("Dos").unwrap();
+        assert_eq!(size_of(&d, "Dos", "1_titulo.png"), (1080, 1080));
+    }
+
+    #[test]
+    fn custom_dimensions_are_honoured() {
+        let (d, mut v) = bundle_app(false);
+        v.config.carousel_preset = "custom".into();
+        v.config.carousel_w = 800;
+        v.config.carousel_h = 600;
+        v.export_carousel("Dos").unwrap();
+        assert_eq!(size_of(&d, "Dos", "1_titulo.png"), (800, 600));
+        assert_eq!(size_of(&d, "Dos", "2.png"), (800, 600));
+    }
+
+    #[test]
+    fn the_title_slide_and_the_body_slide_are_not_blank_and_not_the_same() {
+        let (d, mut v) = bundle_app(false);
+        v.export_carousel("Dos").unwrap();
+        let dir = d.path().join("carousel").join("Dos");
+        let title = slides::read_png(&dir.join("1_titulo.png")).unwrap();
+        let body = slides::read_png(&dir.join("2.png")).unwrap();
+        assert!(title.rgb.iter().any(|&b| b != 0), "the title slide is blank");
+        assert!(body.rgb.iter().any(|&b| b != 0), "the body slide is blank");
+        assert_ne!(title.rgb, body.rgb);
+    }
+
+    #[test]
+    fn a_long_chapter_produces_several_body_slides() {
+        let (d, mut v) = book();
+        let lines: Vec<String> = (0..120)
+            .flat_map(|i| [format!("Parrafo numero {i} con texto suficiente para ocupar espacio real en la pagina de verdad."), ".".to_string()])
+            .collect();
+        void::atomic_write(&d.path().join("I").join("Largo.txt"), &lines, false).unwrap();
+        v.library = Library { entries: vec![".".into(), "Largo.txt".into()], index: 1 };
+        v.save_library().unwrap();
+        v.view = View::F3;
+        v.switch_to(View::F4);
+        v.export_carousel("Largo").unwrap();
+        let body: Vec<String> = slides_in(&d, "Largo").into_iter().filter(|s| s != "1_titulo.png").collect();
+        assert!(body.len() > 1, "a long chapter should spill onto several slides, got {body:?}");
+        assert_eq!(body.first().unwrap(), "2.png");
+    }
+
+    #[test]
+    fn exporting_twice_replaces_the_slides_it_wrote_before() {
+        let (d, mut v) = bundle_app(false);
+        v.export_carousel("Dos").unwrap();
+        v.export_carousel("Dos").unwrap();
+        assert_eq!(slides_in(&d, "Dos"), vec!["1_titulo.png", "2.png"]);
+    }
+
+    // ── Ctrl+Shift+B: with a cover and a countercover (test_carousel_export_cover.py)
+
+    fn cover_png(d: &tempfile::TempDir) -> PathBuf {
+        let p = d.path().join("portada.png");
+        slides::Canvas::new(300, 300, [0x20, 0x40, 0x60]).save_png(&p).unwrap();
+        p
+    }
+
+    #[test]
+    fn a_single_chapter_gets_a_cover_and_a_countercover() {
+        let (d, mut v) = bundle_app(false);
+        let cover = cover_png(&d);
+        v.export_carousel_with_cover("Dos", &cover).unwrap().unwrap();
+        let slides = slides_in(&d, "Dos");
+        assert_eq!(slides.first().unwrap(), "1_portada.png");
+        assert!(slides.last().unwrap().ends_with("_contratapa.png"));
+        assert!(slides.contains(&"2_titulo.png".to_string()));
+        assert!(slides.contains(&"3.png".to_string()));
+    }
+
+    #[test]
+    fn a_whole_book_with_a_cover_is_named_by_what_was_typed() {
+        let (d, mut v) = bundle_app(true);
+        let cover = cover_png(&d);
+        v.export_carousel_with_cover("MiLibro", &cover).unwrap();
+        let slides = slides_in(&d, "MiLibro");
+        assert_eq!(slides.first().unwrap(), "1_portada.png");
+        assert!(slides.last().unwrap().ends_with("_contratapa.png"));
+        // cover, [Uno: title, body], [Dos: title, body], countercover
+        assert_eq!(slides, vec!["1_portada.png", "2_titulo.png", "3.png", "4_titulo.png", "5.png", "6_contratapa.png"]);
+    }
+
+    #[test]
+    fn the_countercover_follows_the_configured_ratio() {
+        let (d, mut v) = bundle_app(false);
+        v.config.carousel_preset = "1:1".into();
+        let cover = cover_png(&d);
+        v.export_carousel_with_cover("Dos", &cover).unwrap();
+        let last = slides_in(&d, "Dos").pop().unwrap();
+        assert_eq!(size_of(&d, "Dos", &last), (1080, 1080));
+        assert_eq!(size_of(&d, "Dos", "1_portada.png"), (1080, 1080));
+    }
+
+    #[test]
+    fn a_typed_name_cannot_write_outside_the_carousel_folder() {
+        let (d, mut v) = bundle_app(false);
+        let out = v.export_carousel("../escape").unwrap().unwrap();
+        assert_eq!(out.parent().unwrap(), d.path().join("carousel"));
+        assert!(!d.path().join("escape").exists());
+        assert_eq!(v.export_carousel("..").unwrap(), None); // nothing but dots is no name
+    }
+
+    #[test]
+    fn a_typed_name_cannot_write_outside_the_bundle_folder() {
+        let (d, mut v) = bundle_app(false);
+        let out = v.export_sale_bundle("../escape", bundle::Lang::Es).unwrap().unwrap();
+        assert_eq!(out.parent().unwrap(), d.path().join("gPTA_books"));
+        assert!(!d.path().join("escape").exists());
+    }
+
+    #[test]
+    fn a_cover_that_cannot_be_read_still_exports_on_plain_paper() {
+        let (d, mut v) = bundle_app(false);
+        v.export_carousel_with_cover("Dos", &d.path().join("no-existe.png")).unwrap().unwrap();
+        assert!(slides_in(&d, "Dos").contains(&"1_portada.png".to_string()));
+    }
+
+    #[test]
+    fn the_cover_carries_the_mark() {
+        let (d, mut v) = bundle_app(false);
+        let black = d.path().join("negra.png");
+        slides::Canvas::new(300, 300, [0, 0, 0]).save_png(&black).unwrap();
+        v.export_carousel_with_cover("Dos", &black).unwrap();
+        let cover = slides::read_png(&d.path().join("carousel").join("Dos").join("1_portada.png")).unwrap();
+        assert!(cover.rgb.iter().any(|&b| b != 0), "the 'I' mark was not drawn on the cover");
+    }
+
+    // ── Ctrl+Shift+C / Ctrl+Shift+B: how the carousel is asked for ───────────
+
+    #[test]
+    fn a_single_chapter_exports_its_carousel_straight_away() {
+        let (d, mut v) = bundle_app(false);
+        v.begin_carousel();
+        assert!(v.bundle_prompt.is_none(), "a lone chapter names its own folder");
+        assert_eq!(slides_in(&d, "Dos"), vec!["1_titulo.png", "2.png"]);
+        assert!(v.status.contains("Carrusel"));
+    }
+
+    #[test]
+    fn a_whole_book_asks_for_a_name_and_then_exports_with_no_language_step() {
+        let (d, mut v) = bundle_app(true);
+        v.begin_carousel();
+        assert_eq!(v.bundle_prompt.as_ref().unwrap().stage, BundleStage::Name);
+        v.bundle_type("MiLibro");
+        v.bundle_confirm().unwrap();
+        assert!(v.bundle_prompt.is_none(), "a carousel has no language to ask");
+        assert_eq!(slides_in(&d, "MiLibro").len(), 4);
+    }
+
+    #[test]
+    fn a_blank_name_cancels_the_carousel() {
+        let (d, mut v) = bundle_app(true);
+        v.begin_carousel();
+        v.bundle_type("  ");
+        v.bundle_confirm().unwrap();
+        assert!(v.bundle_prompt.is_none());
+        assert!(!d.path().join("carousel").exists());
+    }
+
+    #[test]
+    fn nothing_to_read_opens_neither_a_prompt_nor_a_browser() {
+        let (_d, mut v) = app(&["."]);
+        v.reading.clear();
+        v.begin_carousel();
+        v.begin_carousel_with_cover();
+        assert!(v.bundle_prompt.is_none() && v.browser.is_none());
+        assert!(v.status.contains("Nada para exportar"));
+    }
+
+    #[test]
+    fn the_cover_picker_opens_where_the_covers_are_kept() {
+        let (d, mut v) = bundle_app(false);
+        std::fs::create_dir_all(d.path().join("covers")).unwrap();
+        std::fs::write(d.path().join("covers").join("cover_1.png"), "x").unwrap();
+        v.begin_carousel_with_cover();
+        let b = v.browser.as_ref().expect("the browser opens");
+        assert_eq!(b.purpose, browse::Purpose::Cover);
+        assert_eq!(b.dir, d.path().join("covers"));
+        assert!(!d.path().join("carousel").exists(), "nothing is written before a cover is chosen");
+    }
+
+    #[test]
+    fn the_cover_picker_falls_back_to_the_void_when_there_is_no_covers_folder() {
+        let (d, mut v) = bundle_app(false);
+        v.begin_carousel_with_cover();
+        assert_eq!(v.browser.as_ref().unwrap().dir, d.path().to_path_buf());
+    }
+
+    #[test]
+    fn cancelling_the_cover_picker_writes_nothing() {
+        let (d, mut v) = bundle_app(false);
+        v.begin_carousel_with_cover();
+        v.cancel_browser();
+        assert!(!d.path().join("carousel").exists());
+    }
+
+    fn pick(v: &mut Voider, file: &str) {
+        let b = v.browser.as_mut().expect("a browser is open");
+        b.index = b.entries.iter().position(|e| e.name == file).expect("the file is listed");
+        v.browser_enter(false).unwrap();
+    }
+
+    #[test]
+    fn choosing_a_cover_for_a_single_chapter_exports_with_it_right_away() {
+        let (d, mut v) = bundle_app(false);
+        std::fs::create_dir_all(d.path().join("covers")).unwrap();
+        slides::Canvas::new(200, 200, [30, 60, 90]).save_png(&d.path().join("covers").join("c.png")).unwrap();
+        v.begin_carousel_with_cover();
+        pick(&mut v, "c.png");
+        assert!(v.browser.is_none());
+        let slides = slides_in(&d, "Dos");
+        assert_eq!(slides.first().unwrap(), "1_portada.png");
+        assert!(slides.last().unwrap().ends_with("_contratapa.png"));
+    }
+
+    #[test]
+    fn choosing_a_cover_for_a_whole_book_then_asks_for_the_name() {
+        let (d, mut v) = bundle_app(true);
+        std::fs::create_dir_all(d.path().join("covers")).unwrap();
+        slides::Canvas::new(200, 200, [30, 60, 90]).save_png(&d.path().join("covers").join("c.png")).unwrap();
+        v.begin_carousel_with_cover();
+        pick(&mut v, "c.png");
+        assert_eq!(v.bundle_prompt.as_ref().unwrap().stage, BundleStage::Name);
+        assert!(!d.path().join("carousel").exists(), "nothing before the name");
+        v.bundle_type("MiLibro");
+        v.bundle_confirm().unwrap();
+        let slides = slides_in(&d, "MiLibro");
+        assert_eq!(slides.first().unwrap(), "1_portada.png");
+        assert!(slides.last().unwrap().ends_with("_contratapa.png"));
     }
 
     // ── the prompt that asks for the name and the language ───────────────────

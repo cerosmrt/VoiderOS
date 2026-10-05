@@ -21,6 +21,8 @@ pub enum Looking {
     File,
     /// Una carpeta — la del libro, o la del void.
     Dir,
+    /// Una imagen `.png` — la portada de un carrusel.
+    Image,
 }
 
 /// Una entrada de la lista.
@@ -64,6 +66,9 @@ pub fn list(dir: &Path, looking: Looking) -> Vec<Entry> {
                 dirs.push(Entry { name, path, is_dir });
             } else if looking == Looking::File && name.to_lowercase().ends_with(".txt") {
                 files.push(Entry { name, path, is_dir });
+            } else if looking == Looking::Image && name.to_lowercase().ends_with(".png") {
+                // Sólo PNG: es lo que se sabe leer, y lo que saca `grim`.
+                files.push(Entry { name, path, is_dir });
             }
         }
     }
@@ -100,12 +105,15 @@ pub enum Purpose {
     ActiveFile,
     BookDir,
     VoidDir,
+    /// La imagen de portada de un carrusel.
+    Cover,
 }
 
 impl Purpose {
     pub fn looking(self) -> Looking {
         match self {
             Purpose::ActiveFile => Looking::File,
+            Purpose::Cover => Looking::Image,
             _ => Looking::Dir,
         }
     }
@@ -115,6 +123,7 @@ impl Purpose {
             Purpose::ActiveFile => "ARCHIVO ACTIVO",
             Purpose::BookDir => "CARPETA DEL LIBRO",
             Purpose::VoidDir => "EL VOID",
+            Purpose::Cover => "PORTADA",
         }
     }
 }
@@ -159,7 +168,7 @@ impl Browser {
     /// carpeta en la que uno ESTÁ.
     pub fn selection(&self) -> Option<PathBuf> {
         match self.looking {
-            Looking::File => self.current().filter(|e| !e.is_dir).map(|e| e.path.clone()),
+            Looking::File | Looking::Image => self.current().filter(|e| !e.is_dir).map(|e| e.path.clone()),
             Looking::Dir => Some(self.dir.clone()),
         }
     }
@@ -276,6 +285,40 @@ mod tests {
         let mut b = Browser::open(d.path(), Purpose::VoidDir);
         b.index = 0; // sobre '..'
         assert_eq!(b.selection(), Some(d.path().to_path_buf()));
+    }
+
+    // ── elegir una portada: imágenes ─────────────────────────────────────────
+
+    fn con_imagenes() -> tempfile::TempDir {
+        let d = tree();
+        std::fs::write(d.path().join("portada.png"), "x").unwrap();
+        std::fs::write(d.path().join("Otra.PNG"), "x").unwrap();
+        std::fs::write(d.path().join("foto.jpg"), "x").unwrap();
+        d
+    }
+
+    #[test]
+    fn buscando_una_imagen_se_listan_los_png_y_las_carpetas() {
+        let d = con_imagenes();
+        let got = names(&list(d.path(), Looking::Image));
+        // El decodificador de portadas lee PNG; un .jpg listado no se podría usar.
+        assert_eq!(got, vec!["..", "alfa", "Beta", "Otra.PNG", "portada.png"]);
+    }
+
+    #[test]
+    fn la_portada_busca_una_imagen_y_se_llama_portada() {
+        assert_eq!(Purpose::Cover.looking(), Looking::Image);
+        assert_eq!(Purpose::Cover.title(), "PORTADA");
+    }
+
+    #[test]
+    fn buscando_una_imagen_se_elige_el_archivo_y_no_una_carpeta() {
+        let d = con_imagenes();
+        let mut b = Browser::open(d.path(), Purpose::Cover);
+        b.index = b.entries.iter().position(|e| e.name == "portada.png").unwrap();
+        assert_eq!(b.selection(), Some(d.path().join("portada.png")));
+        b.index = b.entries.iter().position(|e| e.name == "alfa").unwrap();
+        assert_eq!(b.selection(), None);
     }
 
     #[test]

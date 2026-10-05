@@ -27,6 +27,11 @@ pub struct Config {
     /// default) means the local `gPTA_books` folder inside the void.
     pub sale_bundle_dir_es: String,
     pub sale_bundle_dir_en: String,
+    /// The carousel's frame: a preset name (`1:1`, `4:5`, `1.91:1`) or `custom`,
+    /// which takes `carousel_w` × `carousel_h`.
+    pub carousel_preset: String,
+    pub carousel_w: u32,
+    pub carousel_h: u32,
 }
 
 impl Default for Config {
@@ -41,6 +46,9 @@ impl Default for Config {
             active_file: None,
             sale_bundle_dir_es: String::new(),
             sale_bundle_dir_en: String::new(),
+            carousel_preset: crate::carousel::DEFAULT_PRESET.to_string(),
+            carousel_w: 1080,
+            carousel_h: 1350,
         }
     }
 }
@@ -98,6 +106,15 @@ impl Config {
         if !self.sale_bundle_dir_en.is_empty() {
             lines.push(format!("sale_bundle_dir_en = {}", self.sale_bundle_dir_en));
         }
+        if self.carousel_preset != crate::carousel::DEFAULT_PRESET {
+            lines.push(format!("carousel_preset = {}", self.carousel_preset));
+        }
+        if self.carousel_w != 1080 {
+            lines.push(format!("carousel_w = {}", self.carousel_w));
+        }
+        if self.carousel_h != 1350 {
+            lines.push(format!("carousel_h = {}", self.carousel_h));
+        }
         lines
     }
 
@@ -130,6 +147,21 @@ impl Config {
                 "active_file" if !value.is_empty() => c.active_file = Some(value.to_string()),
                 "sale_bundle_dir_es" => c.sale_bundle_dir_es = value.to_string(),
                 "sale_bundle_dir_en" => c.sale_bundle_dir_en = value.to_string(),
+                "carousel_preset" if !value.is_empty() => c.carousel_preset = value.to_string(),
+                "carousel_w" => {
+                    if let Ok(v) = value.parse::<u32>() {
+                        if v > 0 {
+                            c.carousel_w = v;
+                        }
+                    }
+                }
+                "carousel_h" => {
+                    if let Ok(v) = value.parse::<u32>() {
+                        if v > 0 {
+                            c.carousel_h = v;
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -170,6 +202,27 @@ mod tests {
     // absolute paths to one machine's site checkout, meaningless on anyone else's
     // (test_sale_bundle.py), so unset means "use the local fallback".
 
+    // The carousel's frame: a named preset, or "custom" with its own size.
+
+    #[test]
+    fn the_carousel_defaults_to_the_4_5_frame() {
+        let c = Config::default();
+        assert_eq!(c.carousel_preset, "4:5");
+        assert_eq!((c.carousel_w, c.carousel_h), (1080, 1350));
+    }
+
+    #[test]
+    fn the_carousel_frame_is_read_back_and_a_nonsense_size_is_ignored() {
+        let mut c = Config::default();
+        c.carousel_preset = "1:1".into();
+        c.carousel_w = 800;
+        c.carousel_h = 600;
+        let back = Config::from_lines(&c.to_lines());
+        assert_eq!((back.carousel_preset.as_str(), back.carousel_w, back.carousel_h), ("1:1", 800, 600));
+        let bad = Config::from_lines(&["carousel_w = abc".to_string(), "carousel_h = 0".to_string()]);
+        assert_eq!((bad.carousel_w, bad.carousel_h), (1080, 1350)); // kept the defaults
+    }
+
     #[test]
     fn the_sale_bundle_folders_are_empty_until_configured() {
         let c = Config::default();
@@ -208,6 +261,9 @@ mod tests {
             active_file: Some("Capitulo.txt".into()),
             sale_bundle_dir_es: "/srv/sitio/libros".into(),
             sale_bundle_dir_en: "/srv/sitio/books".into(),
+            carousel_preset: "custom".into(),
+            carousel_w: 800,
+            carousel_h: 600,
         };
         c.save(d.path()).unwrap();
         assert_eq!(Config::load(d.path()), c);

@@ -57,6 +57,24 @@ pub fn sections_as_txt(sections: &[(String, Vec<String>)]) -> String {
     txt
 }
 
+/// A typed name made safe to be ONE folder: path separators and control
+/// characters become `-`, and a name that is nothing but dots (`.`, `..`) or blank
+/// comes back empty, which the exporters treat as "no name". Without this a
+/// `../x` typed at the prompt would write outside the folder it was meant for.
+pub fn safe_folder_name(name: &str) -> String {
+    let cleaned: String = name
+        .trim()
+        .chars()
+        .map(|c| if c == '/' || c == '\\' || c.is_control() { '-' } else { c })
+        .collect();
+    let cleaned = cleaned.trim().to_string();
+    if cleaned.chars().all(|c| c == '.') {
+        String::new()
+    } else {
+        cleaned
+    }
+}
+
 /// Where the bundle for `out_name` lands: the folder configured for `lang`, or —
 /// when that is empty, as it is on anyone else's machine — `gPTA_books` inside
 /// the void.
@@ -155,6 +173,34 @@ mod tests {
     fn a_folder_of_only_spaces_counts_as_not_configured() {
         let d = bundle_dir(Path::new("/v"), &cfg("   ", ""), Lang::Es, "A");
         assert_eq!(d, Path::new("/v/gPTA_books/A"));
+    }
+
+    // ── a typed name stays one folder ────────────────────────────────────────
+
+    #[test]
+    fn an_ordinary_name_is_untouched() {
+        assert_eq!(safe_folder_name("Mi Libro"), "Mi Libro");
+        assert_eq!(safe_folder_name("Capítulo 1: el principio"), "Capítulo 1: el principio");
+    }
+
+    #[test]
+    fn path_separators_cannot_climb_out_of_the_folder() {
+        assert_eq!(safe_folder_name("../../etc/x"), "..-..-etc-x");
+        assert_eq!(safe_folder_name("a\\b"), "a-b");
+        assert!(!safe_folder_name("../x").contains('/'));
+    }
+
+    #[test]
+    fn a_name_of_only_dots_or_blanks_is_no_name() {
+        assert_eq!(safe_folder_name(".."), "");
+        assert_eq!(safe_folder_name("."), "");
+        assert_eq!(safe_folder_name("   "), "");
+        assert_eq!(safe_folder_name(""), "");
+    }
+
+    #[test]
+    fn surrounding_space_is_trimmed() {
+        assert_eq!(safe_folder_name("  Libro  "), "Libro");
     }
 
     #[test]

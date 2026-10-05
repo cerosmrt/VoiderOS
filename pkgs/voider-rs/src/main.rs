@@ -150,6 +150,15 @@ impl VoiderApp {
         }
     }
 
+    /// Whether Copy / Cut belong to the views rather than to something sitting on
+    /// top of them (the help, a browser, a question being asked).
+    fn clipboard_keys_free(&self) -> bool {
+        !self.voider.help_open
+            && self.voider.browser.is_none()
+            && self.voider.bundle_prompt.is_none()
+            && self.voider.backup_prompt.is_none()
+    }
+
     fn handle_input(&mut self, ctx: &egui::Context) {
         let caps = caps_lock_on();
         let events = ctx.input(|i| i.events.clone());
@@ -162,6 +171,32 @@ impl VoiderApp {
                 // The sale bundle's name is typed into its own prompt, not the line.
                 egui::Event::Text(t) if self.voider.bundle_prompt.is_some() => {
                     self.voider.bundle_type(&t);
+                }
+                // Ctrl+C and Ctrl+X reach us as Copy and Cut events — egui-winit drops
+                // the key for them — so what they mean is decided from the view and
+                // the modifiers held (Ctrl+Shift+C is the carousel, in F4).
+                egui::Event::Copy if self.clipboard_keys_free() => {
+                    let shift = ctx.input(|i| i.modifiers.shift);
+                    let searching =
+                        self.voider.f2_search.is_some() || self.voider.f3_search.is_some();
+                    match copy_action(self.voider.view, shift, searching) {
+                        CopyAction::Copy => {
+                            if let Some(text) = self.voider.copy_text() {
+                                ctx.output_mut(|o| o.copied_text = text);
+                            }
+                        }
+                        CopyAction::Carousel => self.voider.begin_carousel(),
+                        CopyAction::Nothing => {}
+                    }
+                }
+                egui::Event::Cut
+                    if self.clipboard_keys_free()
+                        && self.voider.f2_search.is_none()
+                        && self.voider.f3_search.is_none() =>
+                {
+                    if let Ok(Some(text)) = self.voider.cut_selection() {
+                        ctx.output_mut(|o| o.copied_text = text);
+                    }
                 }
                 // Ctrl+V reaches us as a Paste event, not as text.
                 egui::Event::Paste(t)
@@ -263,37 +298,18 @@ impl VoiderApp {
                         }
                         continue;
                     }
-                    // Ctrl+C copies what is selected in the line, and with nothing
-                    // selected the contextual unit — unless a search bar has focus
-                    // (a 'c' belongs in the query) or we're in F9, where the prose
-                    // box has a real selection and its own copy.
+                    // Ctrl+A selects the whole line in F1 and F2. (Ctrl+C / X / V never
+                    // get here as keys: egui-winit turns them into Copy / Cut / Paste
+                    // events, handled above.)
                     let no_search =
                         self.voider.f2_search.is_none() && self.voider.f3_search.is_none();
-                    if key == egui::Key::C
-                        && modifiers.ctrl
-                        && self.voider.view != View::F9
-                        && no_search
-                    {
-                        if let Some(text) = self.voider.copy_text() {
-                            ctx.output_mut(|o| o.copied_text = text);
-                        }
-                        continue;
-                    }
-                    // Ctrl+X and Ctrl+A work on the line in F1 and F2 only.
                     if modifiers.ctrl
                         && no_search
+                        && key == egui::Key::A
                         && matches!(self.voider.view, View::F1 | View::F2)
                     {
-                        if key == egui::Key::X {
-                            if let Ok(Some(text)) = self.voider.cut_selection() {
-                                ctx.output_mut(|o| o.copied_text = text);
-                            }
-                            continue;
-                        }
-                        if key == egui::Key::A {
-                            self.voider.entry.select_all();
-                            continue;
-                        }
+                        self.voider.entry.select_all();
+                        continue;
                     }
                     if self.handle_global_key(key, modifiers) {
                         continue;
@@ -365,7 +381,8 @@ impl VoiderApp {
             Key::G if m.ctrl && m.shift => self.voider.commit_void(),
             // Ctrl+B only ASKS: it works out the copy and shows it, and the
             // drive is not touched until that is accepted with Enter.
-            Key::B if m.ctrl => self.voider.begin_backup(),
+            // Ctrl+Shift+B is the carousel with a cover (F4), so only the plain one is the backup.
+            Key::B if m.ctrl && !m.shift => self.voider.begin_backup(),
             // Undo / redo of text content, from any view.
             Key::Z if m.ctrl && m.shift => {
                 let _ = self.voider.redo();
@@ -724,6 +741,10 @@ impl VoiderApp {
                 self.voider.export_pdf();
             }
             Key::P if m.ctrl => self.voider.print_reading(),
+            // Ctrl+Shift+C: the book as Instagram slides; Ctrl+Shift+B: the same, with
+            // a cover chosen first.
+            Key::C if m.ctrl && m.shift => self.voider.begin_carousel(),
+            Key::B if m.ctrl && m.shift => self.voider.begin_carousel_with_cover(),
             // Ctrl+Shift+A: PDF + EPUB + TXT together, ready to put up for sale.
             Key::A if m.ctrl && m.shift => self.voider.begin_sale_bundle(),
             Key::Home => self.voider.page = 0,
@@ -1371,7 +1392,11 @@ impl VoiderApp {
         painter.text(
             egui::pos2(centre.x, centre.y - 70.0),
             egui::Align2::CENTER_CENTER,
-            "BUNDLE DE VENTA · PDF + EPUB + TXT",
+            match p.kind {
+                app::PromptKind::Bundle => "BUNDLE DE VENTA · PDF + EPUB + TXT",
+                app::PromptKind::Carousel => "CARRUSEL · SLIDES PARA INSTAGRAM",
+                app::PromptKind::CarouselCover(_) => "CARRUSEL CON PORTADA",
+            },
             egui::FontId::proportional(self.font_size() * 0.7),
             egui::Color32::from_gray(235),
         );
@@ -1394,7 +1419,11 @@ impl VoiderApp {
                 painter.text(
                     egui::pos2(centre.x, centre.y + 74.0),
                     egui::Align2::CENTER_CENTER,
-                    "Enter seguir   ·   Esc cancela",
+                    if p.kind == app::PromptKind::Bundle {
+                        "Enter seguir   ·   Esc cancela"
+                    } else {
+                        "Enter exportar   ·   Esc cancela"
+                    },
                     egui::FontId::proportional(12.0),
                     egui::Color32::from_gray(95),
                 );
@@ -1874,6 +1903,29 @@ impl eframe::App for VoiderApp {
     }
 }
 
+/// What an `Event::Copy` (Ctrl+C, whatever else is held) means in a view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CopyAction {
+    /// Ctrl+C: what is selected, or else the line / paragraph / chapter.
+    Copy,
+    /// Ctrl+Shift+C in F4: the book as Instagram slides.
+    Carousel,
+    Nothing,
+}
+
+/// Decide it. F9 has its own text box with its own copy; a search bar keeps its
+/// letters; Shift only means something in F4.
+fn copy_action(view: View, shift: bool, searching: bool) -> CopyAction {
+    if searching || view == View::F9 {
+        return CopyAction::Nothing;
+    }
+    match (view, shift) {
+        (View::F4, true) => CopyAction::Carousel,
+        (View::F1 | View::F2 | View::F3, false) => CopyAction::Copy,
+        _ => CopyAction::Nothing,
+    }
+}
+
 /// A paragraph laid out for F5: wrapped at `wrap_w` and CENTRED, the way F2
 /// centres its lines. egui centres each row on the galley's ORIGIN (x = 0), not
 /// on its left edge, so the galley has to be drawn at the MIDDLE of the column.
@@ -1949,6 +2001,70 @@ mod tests {
         let mut voider = Voider::open(d.path(), &f);
         voider.switch_to(app::View::F5);
         (d, VoiderApp { voider, pointer_hidden: true, reading_pages: 1 })
+    }
+
+    // ── keys that share a letter must not shadow each other ──────────────────
+
+    fn ctrl() -> egui::Modifiers {
+        egui::Modifiers { ctrl: true, command: true, ..Default::default() }
+    }
+
+    fn ctrl_shift() -> egui::Modifiers {
+        egui::Modifiers { ctrl: true, command: true, shift: true, ..Default::default() }
+    }
+
+    // egui-winit turns every Ctrl+C into `Event::Copy` and drops the key event, so
+    // what Ctrl+C means has to be decided from the view and the modifiers.
+
+    #[test]
+    fn copy_event_is_the_contextual_copy_in_the_views_that_have_one() {
+        for view in [app::View::F1, app::View::F2, app::View::F3] {
+            assert_eq!(copy_action(view, false, false), CopyAction::Copy, "{view:?}");
+        }
+    }
+
+    #[test]
+    fn ctrl_shift_c_in_f4_is_the_carousel_and_nowhere_else() {
+        assert_eq!(copy_action(app::View::F4, true, false), CopyAction::Carousel);
+        for view in [app::View::F1, app::View::F2, app::View::F3, app::View::F5] {
+            assert_eq!(copy_action(view, true, false), CopyAction::Nothing, "{view:?}");
+        }
+    }
+
+    #[test]
+    fn f9_keeps_its_own_copy_and_a_search_bar_keeps_its_letters() {
+        assert_eq!(copy_action(app::View::F9, false, false), CopyAction::Nothing);
+        assert_eq!(copy_action(app::View::F2, false, true), CopyAction::Nothing);
+    }
+
+    #[test]
+    fn plain_ctrl_c_in_f4_copies_nothing_in_particular() {
+        // F4 has no contextual copy; only Ctrl+Shift+C means something there.
+        assert_eq!(copy_action(app::View::F4, false, false), CopyAction::Nothing);
+    }
+
+    #[test]
+    fn ctrl_shift_b_is_the_carousel_with_cover_not_the_backup() {
+        let (_d, mut app) = f5_app(&[".", "Un parrafo."]);
+        assert!(!app.handle_global_key(egui::Key::B, ctrl_shift()), "the global arm took Ctrl+Shift+B");
+        assert!(app.voider.backup_prompt.is_none());
+    }
+
+    #[test]
+    fn plain_ctrl_b_is_still_the_backup() {
+        let (_d, mut app) = f5_app(&[".", "Un parrafo."]);
+        assert!(app.handle_global_key(egui::Key::B, ctrl()));
+    }
+
+    #[test]
+    fn f4_routes_ctrl_shift_c_and_ctrl_shift_b_to_the_carousel() {
+        let (_d, mut app) = f5_app(&[".", "Un parrafo."]);
+        app.voider.switch_to(app::View::F4);
+        app.handle_f4_key(egui::Key::C, ctrl_shift());
+        // one chapter shown: it exports at once, into void/carousel/<name>/
+        assert!(app.voider.void_dir.join("carousel").join("c").join("1_titulo.png").is_file());
+        app.handle_f4_key(egui::Key::B, ctrl_shift());
+        assert_eq!(app.voider.browser.as_ref().map(|b| b.purpose), Some(browse::Purpose::Cover));
     }
 
     #[test]
