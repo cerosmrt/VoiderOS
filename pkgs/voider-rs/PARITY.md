@@ -4,7 +4,49 @@ Where the Rust mirror stands against the Python, measured by the Python's own
 test suite: **63 files, 592 tests**. This is the honest map — what is ported,
 what is partial, and what does not exist here yet.
 
-Rust tests today: **136**.
+Rust tests today: **611**. (The Python suite has since grown to ~1079; the
+"63 files, 592 tests" above is the baseline this file was first measured
+against, and the table below is still in terms of it.)
+
+## Caught up with the Python's changes since 2026-08-30
+
+Each below was read from the Python commit AND its tests, ported test-first, and
+committed on its own. The Python commit is in parentheses.
+
+- Ctrl+Delete deletes the next word (only at the start of a line it is the
+  trash command); Ctrl+Backspace is always one word back — never the whole
+  line, not even at the end (`257695a`, `41b6090`).
+- F5 maps a dot to the paragraph it OPENS; F9 opens with the caret on the
+  paragraph you were in (`90ca934`).
+- F9 only joins a line onto the next when it ends in `,.?!…`, so scriptio
+  continua no longer fuses into one line (`a08e5d8`).
+- Ctrl+Shift+E splits a line on its spaces (on a dot: the paragraph).
+- Alt+Shift+↑/↓ duplicates a line, a paragraph (F2) or a chapter (F3) (`7abdb14`).
+- `/name` seals what is BELOW it, not above; merge prepends the marker so it
+  stays the exact inverse (`262365c`).
+- A repeated chapter name makes a separate `-2` file instead of a second row on
+  the same one (`4b2f7a0`).
+- Ctrl+C in F3 puts a `── TITLE ──` heading above the chapter (`5db18ae`).
+- Alt+F4 quits cleanly (`c0d7a7c`).
+- Ctrl+Shift+Delete collapses the document into one paragraph (`4a118e6`,
+  `a5430e1`).
+- The send catalogue lists the active chapter, parks on it and shows the dots
+  between books (`e3734df`, `5356b73`).
+- F5 is drawn like F2: centred, tight, the dots visible, fading by distance
+  (`c60a8cd`, `cd198ce`, `c45a132`). **The centring is covered by tests (egui
+  centres on the galley's origin, which is easy to get wrong); how it looks in
+  the real window has not been looked at.**
+
+## Python changes since 2026-08-30 NOT ported yet
+
+| Python | What | Notes |
+|---|---|---|
+| `53e4fe3` | Alt+←/→ with a selection moves the whole selected block | `TextLine` has no selection at all — that has to exist first |
+| `63913c5`, `c9f9607`, `57165f1`, `5889aa2` | F4 Instagram carousel export, cover/countercover, preview toggle | big; needs image rendering |
+| `f9fb6a7`, `fe95779`, `3bc7846`, `da10d24` | EPUB exporter, PDF+EPUB+TXT sale bundle (Ctrl+Shift+A), F4 PDF fix | big |
+| `2b14105` | first run creates the void folder instead of a dialog | check the Rust first-run path |
+| `6470b1f`, `c384fab`, `6fa2c99`, `2f089d7`, `f7e6997` | F1 gradient, the effects panel, Hyprland dimming | visual; the panel does not exist here |
+| `ec5ed29` | config/state persisting inside a frozen exe | N/A for a single Rust binary |
 
 ## Ported, with tests
 
