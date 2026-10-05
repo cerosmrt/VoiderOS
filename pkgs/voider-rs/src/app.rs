@@ -118,6 +118,8 @@ pub struct Voider {
     pub entry: TextLine,
     /// Typewriter mode: the caret is pinned and the text slides under it.
     pub typewriter: bool,
+    /// Alt+F4 was pressed: the window should close once this frame is done.
+    pub quit_requested: bool,
     /// The pinned, centred title at the top of the view (a toggle).
     pub show_title: bool,
     /// F3 is holding a blank entry waiting to be named.
@@ -234,6 +236,7 @@ impl Voider {
         ring.index = restored_index(&void_dir, &current_file, ring.lines.len());
         Self {
             typewriter: config.typewriter,
+            quit_requested: false,
             show_title: config.show_title,
             config,
             void_dir,
@@ -1765,6 +1768,14 @@ impl Voider {
         if let Some(name) = self.current_file.file_name().and_then(|n| n.to_str()) {
             position::save_last_line(&self.void_dir, name, self.ring.index);
         }
+    }
+
+    /// Alt+F4: quit cleanly. Voider takes every keypress itself, so the window
+    /// manager's own close handling may never see this one; the position is kept
+    /// and the window asked to close, rather than the process being killed.
+    pub fn request_quit(&mut self) {
+        self.save_last_line();
+        self.quit_requested = true;
     }
 
     /// Remember which file is active, independent of which view is showing it.
@@ -4582,6 +4593,20 @@ mod tests {
     }
 
     // ── Remembering position across runs ────────────────────────────────────────
+
+    // ── Alt+F4: a clean quit (test_quit_app.py) ──────────────────────────────
+
+    #[test]
+    fn requesting_a_quit_asks_the_window_to_close_and_remembers_the_line() {
+        let (_d, mut v) = app(&[".", "a", "b", "c"]);
+        v.ring.index = 2;
+        assert!(!v.quit_requested);
+        v.request_quit();
+        assert!(v.quit_requested);
+        // a clean quit, not a kill: where you were is kept
+        let reopened = Voider::open(&v.void_dir, &v.current_file);
+        assert_eq!(reopened.ring.index, 2);
+    }
 
     #[test]
     fn reopening_a_file_restores_its_saved_line() {

@@ -268,6 +268,8 @@ impl VoiderApp {
             Key::F2 if m.ctrl => self.voider.open_browser(browse::Purpose::ActiveFile),
             Key::F3 if m.ctrl => self.voider.open_browser(browse::Purpose::BookDir),
             Key::F4 if m.ctrl => self.voider.open_browser(browse::Purpose::VoidDir),
+            // Alt+F4 quits. Before the plain F4 below, or it would open the reader.
+            Key::F4 if m.alt => self.voider.request_quit(),
             Key::F1 => self.voider.switch_to(View::F1),
             Key::F2 => self.voider.switch_to(View::F2),
             Key::F3 => self.voider.switch_to(View::F3),
@@ -1636,6 +1638,9 @@ impl eframe::App for VoiderApp {
         // Cuando la linea termino de sonar, la voz sigue sola con la siguiente.
         self.voider.tts_poll();
         self.handle_input(ctx);
+        if self.voider.quit_requested {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         // Nothing here generates its own repaints, so without this a sibling's
         // save would sit unnoticed until the next key or mouse move.
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
