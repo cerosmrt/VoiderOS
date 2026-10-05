@@ -33,6 +33,7 @@ mod shot;
 mod split;
 mod text_line;
 mod tts;
+mod typeset;
 mod undo;
 mod void;
 mod words;
