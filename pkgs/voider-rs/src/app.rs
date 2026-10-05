@@ -216,6 +216,10 @@ pub struct Voider {
     pub oracle: String,
     /// F4: what is being read, as titled sections of prose.
     pub reading: Vec<reading::Section>,
+    /// F4 shows the carousel's slides instead of the book's pages (Ctrl+Shift+V).
+    pub carousel_view: bool,
+    /// What the preview shows: the same plan the export writes.
+    pub carousel_slides: Vec<slides::Slide>,
     /// F4: which page is on screen.
     pub page: usize,
     /// F4: the paragraph to open on — where you were in F2.
@@ -304,6 +308,8 @@ impl Voider {
             o_books: Vec::new(),
             oracle: String::new(),
             reading: Vec::new(),
+            carousel_view: false,
+            carousel_slides: Vec::new(),
             page: 0,
             open_at_para: 0,
             browser: None,
@@ -520,7 +526,10 @@ impl Voider {
                 self.library = Library::load(&self.void_dir);
             }
             View::F9 => self.enter_prose_editor(),
-            View::F4 => self.enter_reading(from),
+            View::F4 => {
+                self.enter_reading(from);
+                self.rebuild_carousel_plan();
+            }
             View::F6 => self.enter_o_reader(),
             View::F7 => self.enter_o_browser(),
             View::F8 => self.refresh_oracle(),
@@ -578,6 +587,37 @@ impl Voider {
         match self.reading.as_slice() {
             [only] => Some(if only.name.is_empty() { "capitulo".to_string() } else { only.name.clone() }),
             _ => None,
+        }
+    }
+
+    /// Ctrl+Shift+V en F4: cambiar entre las páginas del libro y los slides del
+    /// carrusel, tal como se exportarían. Vuelve al primer slide.
+    pub fn toggle_carousel_view(&mut self) {
+        self.carousel_view = !self.carousel_view;
+        self.page = 0;
+        self.rebuild_carousel_plan();
+        self.status = format!("Carousel preview {}", if self.carousel_view { "ON" } else { "OFF" });
+    }
+
+    /// Lay the slides out again — from the sections F4 holds, in the configured
+    /// frame. Only while the preview is on; otherwise there is nothing to show.
+    fn rebuild_carousel_plan(&mut self) {
+        if !self.carousel_view || self.reading.is_empty() {
+            self.carousel_slides.clear();
+            return;
+        }
+        let (w, h) = self.carousel_size();
+        let font = typeset::TypeFont::load(&self.config.font_family);
+        self.carousel_slides = slides::plan(&self.carousel_sections(), &font, w, h);
+    }
+
+    /// How many pages F4 turns through: the slides when previewing the carousel,
+    /// otherwise what the book layout measured (`measured`).
+    pub fn f4_page_count(&self, measured: usize) -> usize {
+        if self.carousel_view {
+            self.carousel_slides.len().max(1)
+        } else {
+            measured
         }
     }
 
@@ -6057,6 +6097,83 @@ mod tests {
         let epub = std::fs::read(bundle_files(&d, "Dos").join("Dos.epub")).unwrap();
         let text = String::from_utf8_lossy(&epub);
         assert!(text.contains("<dc:language>en</dc:language>"));
+    }
+
+    // ── Ctrl+Shift+V: the carousel preview in F4 (test_f4_carousel_view.py) ──
+
+    #[test]
+    fn the_preview_is_off_until_toggled_and_toggling_flips_it() {
+        let (_d, mut v) = bundle_app(false);
+        assert!(!v.carousel_view);
+        v.toggle_carousel_view();
+        assert!(v.carousel_view);
+        v.toggle_carousel_view();
+        assert!(!v.carousel_view);
+    }
+
+    #[test]
+    fn toggling_goes_back_to_the_first_slide() {
+        let (_d, mut v) = bundle_app(true);
+        v.page = 1;
+        v.toggle_carousel_view();
+        assert_eq!(v.page, 0);
+    }
+
+    #[test]
+    fn the_preview_shows_the_title_slide_first_and_then_the_body() {
+        let (_d, mut v) = bundle_app(false);
+        v.toggle_carousel_view();
+        assert_eq!(v.carousel_slides.len(), 2);
+        assert!(matches!(v.carousel_slides[0], slides::Slide::Title(ref t) if t == "Dos"));
+        assert!(matches!(v.carousel_slides[1], slides::Slide::Body(_)));
+    }
+
+    #[test]
+    fn the_preview_is_exactly_what_the_export_writes() {
+        let (d, mut v) = bundle_app(true);
+        v.toggle_carousel_view();
+        let previewed = v.carousel_slides.len();
+        v.export_carousel("MiLibro").unwrap();
+        assert_eq!(slides_in(&d, "MiLibro").len(), previewed);
+    }
+
+    #[test]
+    fn leaving_and_coming_back_to_f4_keeps_the_mode_and_follows_the_chapter() {
+        let (_d, mut v) = bundle_app(false); // Dos
+        v.toggle_carousel_view();
+        v.switch_to(View::F3);
+        v.library.index = v.library.position("Uno.txt").unwrap();
+        v.switch_to(View::F4);
+        assert!(v.carousel_view, "the mode survives a trip to F3");
+        assert!(matches!(v.carousel_slides[0], slides::Slide::Title(ref t) if t == "Uno"));
+    }
+
+    #[test]
+    fn the_preview_follows_the_configured_frame() {
+        let (_d, mut v) = bundle_app(false);
+        v.config.carousel_preset = "1:1".into();
+        v.toggle_carousel_view();
+        assert_eq!(v.carousel_size(), (1080, 1080));
+        v.config.carousel_preset = "custom".into();
+        v.config.carousel_w = 800;
+        v.config.carousel_h = 600;
+        assert_eq!(v.carousel_size(), (800, 600));
+    }
+
+    #[test]
+    fn with_nothing_to_read_the_preview_has_no_slides_and_does_not_crash() {
+        let (_d, mut v) = app(&["."]);
+        v.reading.clear();
+        v.toggle_carousel_view();
+        assert!(v.carousel_slides.is_empty());
+    }
+
+    #[test]
+    fn the_page_count_in_carousel_mode_is_the_slide_count() {
+        let (_d, mut v) = bundle_app(true);
+        assert_eq!(v.f4_page_count(7), 7); // book mode: whatever the layout measured
+        v.toggle_carousel_view();
+        assert_eq!(v.f4_page_count(7), v.carousel_slides.len());
     }
 
     // ── Ctrl+Shift+C: the Instagram carousel (test_carousel_export.py) ───────

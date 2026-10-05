@@ -94,12 +94,35 @@ struct VoiderApp {
     /// it is known at draw time and remembered for the keys that turn pages.
     reading_pages: usize,
     voider: Voider,
+    /// The carousel slide on screen, already drawn into a texture: redrawn only
+    /// when the slide (or its frame) changes, not every frame.
+    carousel_tex: Option<CarouselTex>,
+    /// The font the slides are set in, loaded once.
+    carousel_font: Option<typeset::TypeFont>,
+}
+
+/// A rendered slide and the texture it lives in.
+struct CarouselTex {
+    slide: slides::Slide,
+    size: (u32, u32),
+    tex: egui::TextureHandle,
 }
 
 impl VoiderApp {
     fn new() -> Self {
-        Self { voider: app::open_sandbox(), pointer_hidden: true, reading_pages: 1 }
+        Self::with(app::open_sandbox())
     }
+
+    fn with(voider: Voider) -> Self {
+        Self {
+            voider,
+            pointer_hidden: true,
+            reading_pages: 1,
+            carousel_tex: None,
+            carousel_font: None,
+        }
+    }
+
 
     /// The size the writer chose, used by every view.
     fn font_size(&self) -> f32 {
@@ -730,7 +753,7 @@ impl VoiderApp {
     /// F4 is for reading: turn pages, or leave.
     fn handle_f4_key(&mut self, key: egui::Key, m: egui::Modifiers) {
         use egui::Key;
-        let pages = self.reading_pages.max(1);
+        let pages = self.voider.f4_page_count(self.reading_pages).max(1);
         match key {
             Key::ArrowRight | Key::ArrowDown | Key::PageDown | Key::Space => {
                 self.voider.turn_page(1, pages)
@@ -741,6 +764,10 @@ impl VoiderApp {
                 self.voider.export_pdf();
             }
             Key::P if m.ctrl => self.voider.print_reading(),
+            // V: switch between the book's pages and the carousel's slides. (Python has
+            // Ctrl+Shift+V, but egui-winit turns that chord into a Paste event and sends
+            // nothing at all when the clipboard is empty, so a bare key it is.)
+            Key::V if !m.ctrl && !m.alt => self.voider.toggle_carousel_view(),
             // Ctrl+Shift+C: the book as Instagram slides; Ctrl+Shift+B: the same, with
             // a cover chosen first.
             Key::C if m.ctrl && m.shift => self.voider.begin_carousel(),
@@ -1464,6 +1491,10 @@ impl VoiderApp {
     /// what follows them, which is why they are measured into the same column
     /// rather than drawn separately.
     fn draw_f4(&mut self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
+        if self.voider.carousel_view {
+            self.draw_f4_carousel(painter, ctx, rect);
+            return;
+        }
         let margin = (rect.width() * 0.24).max(70.0);
         let col_w = rect.width() - margin * 2.0;
         let top_pad = 60.0;
@@ -1553,6 +1584,61 @@ impl VoiderApp {
         }
     }
 
+
+    /// F4 previewing the carousel: the slide that would be written, as it would
+    /// be written — drawn into a texture by the same code the export uses — fitted
+    /// to the window with its own proportions.
+    fn draw_f4_carousel(&mut self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
+        let total = self.voider.carousel_slides.len();
+        self.reading_pages = total.max(1);
+        if total == 0 {
+            return;
+        }
+        let page = self.voider.page.min(total - 1);
+        let slide = self.voider.carousel_slides[page].clone();
+        let (w, h) = self.voider.carousel_size();
+
+        let stale = match &self.carousel_tex {
+            Some(c) => c.slide != slide || c.size != (w, h),
+            None => true,
+        };
+        if stale {
+            let family = self.voider.config.font_family.clone();
+            let font = self
+                .carousel_font
+                .get_or_insert_with(|| typeset::TypeFont::load(&family));
+            let canvas = slides::render_slide(&slide, font, w, h);
+            let image = egui::ColorImage::from_rgb([w as usize, h as usize], canvas.rgb());
+            let tex = ctx.load_texture("carousel-slide", image, egui::TextureOptions::LINEAR);
+            self.carousel_tex = Some(CarouselTex { slide, size: (w, h), tex });
+        }
+        let Some(cached) = &self.carousel_tex else {
+            return;
+        };
+
+        // Fit inside the window, leaving a little air, keeping the slide's own shape.
+        let room = egui::vec2(rect.width() * 0.92, rect.height() * 0.88);
+        let scale = (room.x / w as f32).min(room.y / h as f32);
+        let shown = egui::vec2(w as f32 * scale, h as f32 * scale);
+        let image_rect = egui::Rect::from_center_size(rect.center(), shown);
+        painter.image(
+            cached.tex.id(),
+            image_rect,
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+            egui::Color32::WHITE,
+        );
+        painter.rect_stroke(image_rect, 0.0, egui::Stroke::new(1.0_f32, egui::Color32::from_gray(45)));
+        if total > 1 {
+            // At the top: the bottom edge belongs to the status line.
+            painter.text(
+                egui::pos2(rect.center().x, rect.top() + 18.0),
+                egui::Align2::CENTER_CENTER,
+                format!("{} / {}", page + 1, total),
+                egui::FontId::proportional(11.0),
+                egui::Color32::from_gray(80),
+            );
+        }
+    }
 
     /// Un anillo de líneas centrado, con la del medio encendida y las demás
     /// apagándose hacia los bordes. Es la forma que ya tienen F2 y F3; F6 y F7
@@ -2000,7 +2086,7 @@ mod tests {
         void::atomic_write(&f, &lines, false).unwrap();
         let mut voider = Voider::open(d.path(), &f);
         voider.switch_to(app::View::F5);
-        (d, VoiderApp { voider, pointer_hidden: true, reading_pages: 1 })
+        (d, VoiderApp::with(voider))
     }
 
     // ── keys that share a letter must not shadow each other ──────────────────
@@ -2065,6 +2151,106 @@ mod tests {
         assert!(app.voider.void_dir.join("carousel").join("c").join("1_titulo.png").is_file());
         app.handle_f4_key(egui::Key::B, ctrl_shift());
         assert_eq!(app.voider.browser.as_ref().map(|b| b.purpose), Some(browse::Purpose::Cover));
+    }
+
+    // ── the carousel preview in F4, without a window ─────────────────────────
+
+    /// Every image the draw painted (anything that is not the font atlas), as its
+    /// rectangle on screen.
+    fn painted_images(
+        app: &mut VoiderApp,
+        draw: impl Fn(&mut VoiderApp, &egui::Painter, &egui::Context, egui::Rect),
+    ) -> Vec<egui::Rect> {
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 700.0))),
+            ..Default::default()
+        };
+        let mut found = Vec::new();
+        let out = ctx.run(raw, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let painter = ui.painter().clone();
+                draw(app, &painter, ctx, ui.max_rect());
+            });
+        });
+        fn walk(shape: &egui::epaint::Shape, out: &mut Vec<egui::Rect>) {
+            match shape {
+                egui::epaint::Shape::Mesh(m) if m.texture_id != egui::TextureId::default() => out.push(m.calc_bounds()),
+                egui::epaint::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                _ => {}
+            }
+        }
+        for clipped in &out.shapes {
+            walk(&clipped.shape, &mut found);
+        }
+        found
+    }
+
+    fn f4_carousel_app(lines: &[&str], preset: &str) -> (tempfile::TempDir, VoiderApp) {
+        let (d, mut app) = f5_app(lines);
+        app.voider.config.carousel_preset = preset.to_string();
+        app.voider.switch_to(app::View::F4);
+        app.voider.toggle_carousel_view();
+        (d, app)
+    }
+
+    #[test]
+    fn in_carousel_mode_f4_paints_the_slide_as_an_image_with_the_slides_proportions() {
+        let (_d, mut app) = f4_carousel_app(&[".", "Un parrafo del capitulo."], "1:1");
+        let images = painted_images(&mut app, |a, p, c, r| a.draw_f4(p, c, r));
+        assert_eq!(images.len(), 1, "one slide, one image: {images:?}");
+        let r = images[0];
+        assert!((r.width() - r.height()).abs() < 1.0, "a 1:1 slide must be drawn square: {r:?}");
+        // centred on the screen, and not larger than it
+        assert!((r.center().x - 500.0).abs() < 2.0 && (r.center().y - 350.0).abs() < 30.0, "{r:?}");
+        assert!(r.width() <= 1000.0 && r.height() <= 700.0);
+    }
+
+    #[test]
+    fn a_4_5_slide_is_drawn_taller_than_wide() {
+        let (_d, mut app) = f4_carousel_app(&[".", "Un parrafo."], "4:5");
+        let r = painted_images(&mut app, |a, p, c, r| a.draw_f4(p, c, r))[0];
+        assert!((r.height() / r.width() - 1350.0 / 1080.0).abs() < 0.01, "{r:?}");
+    }
+
+    #[test]
+    fn in_book_mode_f4_paints_no_image() {
+        let (_d, mut app) = f5_app(&[".", "Un parrafo."]);
+        app.voider.switch_to(app::View::F4);
+        assert!(painted_images(&mut app, |a, p, c, r| a.draw_f4(p, c, r)).is_empty());
+    }
+
+    #[test]
+    fn the_page_counter_and_the_page_turns_follow_the_slides() {
+        let (_d, mut app) = f4_carousel_app(&[".", "Un parrafo."], "1:1");
+        painted_text(&mut app, |a, p, c, r| a.draw_f4(p, c, r));
+        assert_eq!(app.reading_pages, 2, "title slide + one body slide");
+        let texts: Vec<String> = painted_text(&mut app, |a, p, c, r| a.draw_f4(p, c, r)).into_iter().map(|(t, _)| t).collect();
+        assert!(texts.iter().any(|t| t == "1 / 2"), "{texts:?}");
+        app.voider.page = 1;
+        let texts: Vec<String> = painted_text(&mut app, |a, p, c, r| a.draw_f4(p, c, r)).into_iter().map(|(t, _)| t).collect();
+        assert!(texts.iter().any(|t| t == "2 / 2"), "{texts:?}");
+    }
+
+    #[test]
+    fn the_texture_is_redrawn_only_when_the_slide_changes() {
+        let (_d, mut app) = f4_carousel_app(&[".", "Un parrafo."], "1:1");
+        painted_images(&mut app, |a, p, c, r| a.draw_f4(p, c, r));
+        let first = app.carousel_tex.as_ref().map(|t| t.slide.clone()).expect("a texture is cached");
+        assert_eq!(first, app.voider.carousel_slides[0]);
+        app.voider.page = 1;
+        painted_images(&mut app, |a, p, c, r| a.draw_f4(p, c, r));
+        assert_eq!(app.carousel_tex.as_ref().unwrap().slide, app.voider.carousel_slides[1]);
+    }
+
+    #[test]
+    fn plain_v_in_f4_toggles_the_preview() {
+        let (_d, mut app) = f5_app(&[".", "Un parrafo."]);
+        app.voider.switch_to(app::View::F4);
+        app.handle_f4_key(egui::Key::V, egui::Modifiers::default());
+        assert!(app.voider.carousel_view);
+        app.handle_f4_key(egui::Key::V, egui::Modifiers::default());
+        assert!(!app.voider.carousel_view);
     }
 
     #[test]

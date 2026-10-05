@@ -47,6 +47,11 @@ impl Canvas {
         [self.rgb[i], self.rgb[i + 1], self.rgb[i + 2]]
     }
 
+    /// The pixels, row by row, three bytes each (R, G, B).
+    pub fn rgb(&self) -> &[u8] {
+        &self.rgb
+    }
+
     pub fn set_pixel(&mut self, x: u32, y: u32, rgb: [u8; 3]) {
         if x < self.w && y < self.h {
             let i = self.at(x, y);
