@@ -1,8 +1,10 @@
 //! Splitting a file at `/name` markers into chapters.
 //!
 //! A port of `_split_chapter_at_slash`. A line `/name` **seals** everything
-//! above it — back to the previous marker or the start of the file — into a
-//! chapter called `name`. What comes after the last marker stays where it is.
+//! BELOW it — down to the next marker or the end of the file — into a chapter
+//! called `name`. What comes before the first marker stays where it is. (It
+//! used to seal the text above, which read backwards next to a title-like
+//! `/Name` line.)
 //! Naming an existing chapter appends into it rather than overwriting: an
 //! existing text always survives.
 
@@ -17,7 +19,7 @@ pub struct Sealed {
 }
 
 /// The result of a split: the chapters sealed off, in order, and what is left
-/// in the original file (the text after the last marker).
+/// in the original file (the text before the first marker).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Split {
     pub sealed: Vec<Sealed>,
@@ -47,20 +49,19 @@ pub fn plan(lines: &[String]) -> Option<Split> {
     }
     let mut sealed = Vec::new();
     let mut used: Vec<String> = Vec::new();
-    let mut start = 0usize;
-    for &m in &markers {
-        let body = lines[start..m].to_vec();
+    for (k, &m) in markers.iter().enumerate() {
+        let end = markers.get(k + 1).copied().unwrap_or(lines.len());
+        let body = lines[m + 1..end].to_vec();
         let mut name = marker_name(&lines[m]);
         if name.is_empty() {
             name = auto_name(&body, &used);
         }
         used.push(name.clone());
         sealed.push(Sealed { name, lines: body });
-        start = m + 1;
     }
     Some(Split {
         sealed,
-        remainder: lines[start..].to_vec(),
+        remainder: lines[..markers[0]].to_vec(),
     })
 }
 
@@ -105,34 +106,37 @@ mod tests {
     }
 
     #[test]
-    fn a_marker_seals_everything_above_it() {
-        let s = plan(&v(&["uno", "dos", "/Primero", "tres"])).unwrap();
+    fn a_marker_seals_everything_below_it() {
+        let s = plan(&v(&["antes1", "/Sellado", "despues1", "despues2"])).unwrap();
         assert_eq!(s.sealed.len(), 1);
-        assert_eq!(s.sealed[0].name, "Primero");
-        assert_eq!(s.sealed[0].lines, v(&["uno", "dos"]));
-        assert_eq!(s.remainder, v(&["tres"])); // what follows stays put
+        assert_eq!(s.sealed[0].name, "Sellado");
+        assert_eq!(s.sealed[0].lines, v(&["despues1", "despues2"]));
+        assert_eq!(s.remainder, v(&["antes1"])); // what came before stays put
     }
 
     #[test]
-    fn each_marker_seals_back_to_the_previous_one() {
+    fn each_marker_seals_down_to_the_next_one() {
         let s = plan(&v(&["a", "/Uno", "b", "/Dos", "c"])).unwrap();
         assert_eq!(s.sealed.len(), 2);
-        assert_eq!(s.sealed[0].lines, v(&["a"]));
+        assert_eq!(s.sealed[0].name, "Uno");
+        assert_eq!(s.sealed[0].lines, v(&["b"]));
         assert_eq!(s.sealed[1].name, "Dos");
-        assert_eq!(s.sealed[1].lines, v(&["b"])); // not everything from the start
-        assert_eq!(s.remainder, v(&["c"]));
+        assert_eq!(s.sealed[1].lines, v(&["c"]));
+        assert_eq!(s.remainder, v(&["a"]));
     }
 
     #[test]
-    fn a_marker_at_the_end_leaves_nothing_behind() {
-        let s = plan(&v(&["a", "b", "/Todo"])).unwrap();
-        assert_eq!(s.sealed[0].lines, v(&["a", "b"]));
+    fn a_marker_on_the_first_line_leaves_no_remainder() {
+        // the merge round trip: '/A', 'a1', '/B', 'b1' splits back with nothing left over
+        let s = plan(&v(&["/X", "a", "/Y", "b"])).unwrap();
+        assert_eq!(s.sealed[0].lines, v(&["a"]));
+        assert_eq!(s.sealed[1].lines, v(&["b"]));
         assert!(s.remainder.is_empty()); // the emptied container can be removed
     }
 
     #[test]
-    fn a_marker_with_nothing_above_seals_nothing() {
-        let s = plan(&v(&["/Vacio", "a"])).unwrap();
+    fn a_marker_with_nothing_below_seals_nothing() {
+        let s = plan(&v(&["a", "/Vacio"])).unwrap();
         assert!(s.sealed[0].lines.is_empty());
         assert_eq!(s.remainder, v(&["a"]));
     }
@@ -168,7 +172,7 @@ mod tests {
 
     #[test]
     fn separators_and_blanks_are_carried_along() {
-        let s = plan(&v(&[".", "a", "", ".", "b", "/Uno", "c"])).unwrap();
+        let s = plan(&v(&["/Uno", ".", "a", "", ".", "b"])).unwrap();
         assert_eq!(s.sealed[0].lines, v(&[".", "a", "", ".", "b"]));
     }
 }

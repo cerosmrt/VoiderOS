@@ -1919,8 +1919,8 @@ impl Voider {
     }
 
     /// Collapse the book (from the dot to the next one) into ONE chapter named
-    /// by what's in the entry: each chapter's lines, followed by a `/name` seal
-    /// marker, originals removed. Re-splitting (Ctrl+Shift+S) restores them.
+    /// by what's in the entry: a `/name` seal marker, then
+    /// each chapter's lines, originals removed. Re-splitting (Ctrl+Shift+S) restores them.
     /// Stays in F3. An empty name or an empty book cancels instead of merging.
     /// Returns how many chapters were merged (0 = cancelled).
     pub fn book_do_merge(&mut self) -> io::Result<usize> {
@@ -1954,8 +1954,10 @@ impl Voider {
             while lines.last().map(|l| l.trim().is_empty()).unwrap_or(false) {
                 lines.pop();
             }
-            merged.extend(lines);
+            // The marker goes FIRST: it seals what is below it, so merge stays
+            // the exact inverse of split.
             merged.push(format!("/{}", library::display_name(fname)));
+            merged.extend(lines);
         }
 
         // A name clash steps to "name-2", "name-3", ... like a new chapter would.
@@ -2640,8 +2642,8 @@ impl Voider {
     ///
     /// Each sealed chapter is written and listed in reading order at the
     /// container's slot; a name that already exists is APPENDED to, never
-    /// overwritten. What follows the last marker stays in the file, and if that
-    /// remainder is empty the emptied container is removed from the library.
+    /// overwritten. A marker seals what is BELOW it, down to the next one; what
+    /// comes before the first marker stays in the file, and if that remainder is empty the emptied container is removed from the library.
     /// One git snapshot up front, one undo step for the whole thing.
     pub fn split_at_markers(&mut self) -> io::Result<usize> {
         let Some(plan) = split::plan(&self.ring.lines) else {
@@ -2748,7 +2750,7 @@ impl Voider {
     /// timestamped. The paragraph and its marker leave the ring; consecutive
     /// separators left behind collapse to one. Untagged paragraphs never move —
     /// this is the surgical sibling of `split_at_markers`, which seals
-    /// EVERYTHING above a marker into a new chapter.
+    /// EVERYTHING below a marker into a new chapter.
     pub fn dispatch_paragraphs(&mut self) -> io::Result<usize> {
         let lines = self.ring.lines.clone();
         let i_dir = self.void_dir.join("I");
@@ -4112,16 +4114,16 @@ mod tests {
         assert_eq!(v.split_at_markers().unwrap(), 1);
 
         let sealed = void::load_doc(&library::chapter_path(&v.void_dir, "Nuevo.txt"));
-        assert!(sealed.lines.contains(&"texto uno".to_string()));
-        // what followed the marker stayed in the container
-        assert!(v.ring.lines.contains(&"texto dos".to_string()));
+        assert!(sealed.lines.contains(&"texto dos".to_string()));
+        // what came before the marker stayed in the container
+        assert!(v.ring.lines.contains(&"texto uno".to_string()));
         assert!(Library::load(&v.void_dir).entries.contains(&"Nuevo.txt".to_string()));
     }
 
     #[test]
     fn splitting_into_an_existing_name_appends_and_never_overwrites() {
         let (_d, mut v) = book(); // Dos.txt already holds 'de dos'
-        v.ring.lines = vec![".".into(), "agregado".into(), "/Dos".into()];
+        v.ring.lines = vec![".".into(), "/Dos".into(), "agregado".into()];
         v.split_at_markers().unwrap();
 
         let dest = void::load_doc(&library::chapter_path(&v.void_dir, "Dos.txt"));
@@ -4132,7 +4134,7 @@ mod tests {
     #[test]
     fn an_emptied_container_leaves_the_library() {
         let (_d, mut v) = book(); // active is Uno.txt
-        v.ring.lines = vec![".".into(), "todo".into(), "/Sellado".into()];
+        v.ring.lines = vec!["/Sellado".into(), "todo".into()];
         v.split_at_markers().unwrap();
         let lib = Library::load(&v.void_dir);
         assert!(lib.entries.contains(&"Sellado.txt".to_string()));
@@ -4140,7 +4142,7 @@ mod tests {
     }
 
     #[test]
-    fn several_markers_seal_back_to_the_previous_one() {
+    fn several_markers_each_seal_down_to_the_next() {
         let (_d, mut v) = book();
         v.ring.lines = vec![
             "a".into(), "/Uno".into(), "b".into(), "/Dos".into(), "c".into(),
@@ -4148,9 +4150,19 @@ mod tests {
         assert_eq!(v.split_at_markers().unwrap(), 2);
         let uno = void::load_doc(&library::chapter_path(&v.void_dir, "Uno.txt"));
         let dos = void::load_doc(&library::chapter_path(&v.void_dir, "Dos.txt"));
-        assert!(uno.lines.contains(&"a".to_string()));
-        assert!(dos.lines.contains(&"b".to_string()));
-        assert!(!dos.lines.contains(&"a".to_string())); // not everything from the top
+        assert!(uno.lines.contains(&"b".to_string()));
+        assert!(dos.lines.contains(&"c".to_string()));
+        assert!(!dos.lines.contains(&"b".to_string())); // not everything below the first
+        assert!(v.ring.lines.contains(&"a".to_string())); // the leading text stays
+    }
+
+    #[test]
+    fn a_marker_with_nothing_below_it_makes_a_placeholder_dot() {
+        let (_d, mut v) = book();
+        v.ring.lines = vec![".".into(), "a".into(), "/Vacio".into()];
+        v.split_at_markers().unwrap();
+        let empty = void::load_doc(&library::chapter_path(&v.void_dir, "Vacio.txt"));
+        assert_eq!(empty.lines, vec!["."]);
     }
 
     #[test]
@@ -5726,7 +5738,7 @@ mod tests {
         assert_eq!(v.library.entries, vec![".", "Book1.txt"]);
 
         let merged = void::load_doc(&v.void_dir.join("I/Book1.txt"));
-        assert_eq!(merged.lines, vec![".", "a1", "a2", "/A", "b1", "/B"]);
+        assert_eq!(merged.lines, vec![".", "/A", "a1", "a2", "/B", "b1"]);
         assert!(!v.void_dir.join("I/A.txt").exists());
         assert!(!v.void_dir.join("I/B.txt").exists());
         assert!(!v.pending_merge); // stays in F3, not opened
@@ -5808,7 +5820,7 @@ mod tests {
     fn splitting_the_highlighted_chapter_does_not_require_opening_it_first() {
         let (_d, mut v) = book(); // active file is Uno.txt
         let doc_path = v.void_dir.join("I/doc.txt");
-        void::atomic_write(&doc_path, &["a".to_string(), "/X".to_string(), "b".to_string(), "/Y".to_string()], false).unwrap();
+        void::atomic_write(&doc_path, &["/X".to_string(), "a".to_string(), "/Y".to_string(), "b".to_string()], false).unwrap();
         v.library = Library {
             entries: vec!["doc.txt".into()],
             index: 0,
