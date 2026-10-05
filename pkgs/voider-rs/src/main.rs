@@ -491,6 +491,11 @@ impl VoiderApp {
             Key::R if m.ctrl && m.shift => {
                 let _ = self.voider.shuffle_scratch();
             }
+            // Give a fused scriptio-continua line its line breaks back: every
+            // space becomes a break (on a dot: the whole paragraph).
+            Key::E if m.ctrl && m.shift => {
+                let _ = self.voider.doc_split_line_on_spaces();
+            }
             // Send each '/name'-marked paragraph straight to its chapter,
             // leaving the rest of the file untouched.
             Key::D if m.ctrl && m.shift => {

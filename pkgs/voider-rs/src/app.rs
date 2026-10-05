@@ -2965,6 +2965,61 @@ impl Voider {
         Ok(())
     }
 
+    /// Ctrl+Shift+E in F2: split the current line on its spaces — or, standing
+    /// on a dot, every line of the paragraph that dot opens. The dots themselves
+    /// are structure and never touched. One undo step, and nothing written when
+    /// nothing would change.
+    pub fn doc_split_line_on_spaces(&mut self) -> io::Result<()> {
+        let n = self.ring.lines.len();
+        if n == 0 {
+            return Ok(());
+        }
+        let idx = self.ring.index;
+        let targets: Vec<usize> = if self.ring.lines[idx] == "." {
+            ((idx + 1)..n).take_while(|&i| self.ring.lines[i] != ".").collect()
+        } else {
+            vec![idx]
+        };
+        if targets.is_empty()
+            || targets.iter().all(|&i| {
+                words::split_on_spaces(&self.ring.lines[i]) == vec![self.ring.lines[i].clone()]
+            })
+        {
+            self.status = "Nothing to split".into();
+            return Ok(());
+        }
+        if self.para_focus {
+            self.exit_para_focus();
+        }
+        let first = targets[0];
+        let mut new_lines: Vec<String> = Vec::new();
+        let mut new_index = 0;
+        for (i, line) in self.ring.lines.iter().enumerate() {
+            if i == first {
+                new_index = new_lines.len();
+            }
+            if targets.contains(&i) {
+                let pieces = words::split_on_spaces(line);
+                if pieces.is_empty() {
+                    new_lines.push(line.clone());
+                } else {
+                    new_lines.extend(pieces);
+                }
+            } else {
+                new_lines.push(line.clone());
+            }
+        }
+        let before = self.ring.lines.clone();
+        void::atomic_write(&self.current_file, &new_lines, true)?; // keeps a .bak
+        self.ring.lines = new_lines.clone();
+        self.ring.index = new_index;
+        self.sync_entry();
+        self.entry.home();
+        self.undo.record(self.current_file.clone(), before, new_lines, None);
+        self.status = "Split on spaces".into();
+        Ok(())
+    }
+
     /// Backspace at the start of a line joins it onto the one above, with the
     /// caret left at the seam. Separators are never swallowed.
     pub fn doc_join_prev(&mut self) -> io::Result<()> {
@@ -5892,6 +5947,74 @@ mod tests {
         v.ring.index = 0;
         v.doc_confirm_edit().unwrap();
         assert!(v.para_focus);
+    }
+
+    // ── Ctrl+Shift+E: give a fused scriptio line its line breaks back ────────
+    // Mirrors test_split_spaces.py.
+
+    #[test]
+    fn splitting_on_spaces_on_a_line_splits_that_line_only() {
+        let (_d, mut v) = app(&[".", "uno dos tres", "otra linea"]);
+        v.ring.index = 1;
+        v.doc_split_line_on_spaces().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "uno", "dos", "tres", "otra linea"]);
+        assert_eq!(v.ring.index, 1); // the caret stays on the first piece
+        assert_eq!(v.ring.current(), "uno");
+    }
+
+    #[test]
+    fn splitting_on_spaces_on_a_dot_splits_the_whole_paragraph() {
+        let (_d, mut v) = app(&[".", "a b", "c d", ".", "no me toques"]);
+        v.ring.index = 0;
+        v.doc_split_line_on_spaces().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "a", "b", "c", "d", ".", "no me toques"]);
+    }
+
+    #[test]
+    fn splitting_on_spaces_never_explodes_the_dots() {
+        let (_d, mut v) = app(&[".", "a b", ".", "c d"]);
+        v.ring.index = 0;
+        v.doc_split_line_on_spaces().unwrap();
+        assert_eq!(v.ring.lines.iter().filter(|l| *l == ".").count(), 2);
+    }
+
+    #[test]
+    fn splitting_on_spaces_reaches_the_disk_and_is_one_undo_step() {
+        let (_d, mut v) = app(&[".", "uno dos"]);
+        v.ring.index = 1;
+        v.doc_split_line_on_spaces().unwrap();
+        assert_eq!(void::load_doc(&v.current_file).lines, vec![".", "uno", "dos"]);
+        v.undo().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "uno dos"]);
+    }
+
+    #[test]
+    fn splitting_a_line_with_nothing_to_split_writes_nothing() {
+        let (_d, mut v) = app(&[".", "unasola"]);
+        v.ring.index = 1;
+        v.doc_split_line_on_spaces().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "unasola"]);
+        assert!(!v.undo.can_undo(), "no empty undo step");
+    }
+
+    #[test]
+    fn splitting_twice_does_nothing_the_second_time() {
+        let (_d, mut v) = app(&[".", "unofrag dosfrag tresfrag"]);
+        v.ring.index = 0;
+        v.doc_split_line_on_spaces().unwrap();
+        let once = v.ring.lines.clone();
+        v.doc_split_line_on_spaces().unwrap();
+        assert_eq!(v.ring.lines, once);
+    }
+
+    #[test]
+    fn the_split_result_survives_a_round_trip_through_f9() {
+        // What makes it survive is that F9 no longer joins unpunctuated lines.
+        let (_d, mut v) = app(&[".", "unofrag dosfrag tresfrag"]);
+        v.ring.index = 1;
+        v.doc_split_line_on_spaces().unwrap();
+        let bare: Vec<String> = v.ring.lines.iter().filter(|l| *l != ".").cloned().collect();
+        assert_eq!(reformat::lines_to_paragraphs(&v.ring.lines), bare);
     }
 
     #[test]

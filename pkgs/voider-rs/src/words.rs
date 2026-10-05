@@ -10,6 +10,17 @@
 /// Punctuation that belongs to the sentence, not to the last word.
 const SENTENCE_END: [char; 4] = ['.', '!', '?', '…'];
 
+/// Ctrl+Shift+E: give the line breaks back to a fused scriptio-continua line.
+/// There the space bar RELEASES the line to the void, so a space inside a line
+/// is the line break that was lost. A period already in the text also cuts;
+/// nothing is ever added to a fragment.
+pub fn split_on_spaces(text: &str) -> Vec<String> {
+    text.split(|c: char| c.is_whitespace() || c == '.')
+        .filter(|p| !p.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 /// Swap the word at `caret` (a character index) with its neighbour.
 /// Returns the new line and where the caret should land — at the start of the
 /// word that moved. `None` when there is nothing to swap.
@@ -171,5 +182,45 @@ mod tests {
         let (text, caret) = swap_words("hace frío hoy", 6, 1).unwrap();
         assert_eq!(text, "hace hoy frío");
         assert_eq!(caret, 9);
+    }
+
+    // ── split_on_spaces (test_split_spaces.py) ──────────────────────────────
+
+    fn s(v: &[&str]) -> Vec<String> {
+        v.iter().map(|x| x.to_string()).collect()
+    }
+
+    #[test]
+    fn each_space_becomes_a_line() {
+        assert_eq!(
+            split_on_spaces("itisagreatmovie agretaactress agreatactor"),
+            s(&["itisagreatmovie", "agretaactress", "agreatactor"])
+        );
+    }
+
+    #[test]
+    fn an_existing_period_also_breaks() {
+        assert_eq!(split_on_spaces("uno.dos tres"), s(&["uno", "dos", "tres"]));
+    }
+
+    #[test]
+    fn runs_of_whitespace_collapse_and_edges_are_trimmed() {
+        assert_eq!(split_on_spaces("a   b\tc"), s(&["a", "b", "c"]));
+        assert_eq!(split_on_spaces("  a b  "), s(&["a", "b"]));
+    }
+
+    #[test]
+    fn nothing_gets_added_to_a_fragment() {
+        assert_eq!(
+            split_on_spaces("isthatit? unasolapalabra"),
+            s(&["isthatit?", "unasolapalabra"])
+        );
+        assert_eq!(split_on_spaces("snapback, counterjab"), s(&["snapback,", "counterjab"]));
+    }
+
+    #[test]
+    fn a_line_with_no_space_is_left_alone_and_an_empty_one_yields_nothing() {
+        assert_eq!(split_on_spaces("unasolapalabra"), s(&["unasolapalabra"]));
+        assert!(split_on_spaces("   ").is_empty());
     }
 }

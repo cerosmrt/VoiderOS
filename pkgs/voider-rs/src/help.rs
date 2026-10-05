@@ -54,6 +54,7 @@ pub const ROWS: &[Row] = &[
     ("Ctrl+Shift+F", Some("Reformat: one sentence per line (on the scratch: also split)")),
     ("Ctrl+Shift+S", Some("Seal the file at its /name markers into chapters")),
     ("Ctrl+Shift+D", Some("Dispatch: send each /name-marked paragraph to its file")),
+    ("Ctrl+Shift+E", Some("Split on spaces: each space becomes a line break (on a dot: the paragraph)")),
     ("Enter  (on a dot)", Some("Focus that paragraph alone; Enter again releases it")),
     ("Enter  (mid-line)", Some("Split the line in two")),
     ("Ctrl+Delete / Ctrl+⌫", Some("Send the line down: file → scratch → trash → gone")),
