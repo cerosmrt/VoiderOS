@@ -28,6 +28,7 @@ mod line_ring;
 mod position;
 mod reading;
 mod reformat;
+mod shot;
 mod split;
 mod text_line;
 mod tts;
@@ -338,6 +339,11 @@ impl VoiderApp {
             // opacity_up/opacity_down. (Type size lives in F10, on ←/→.)
             Key::Plus | Key::Equals if m.ctrl => self.voider.step_opacity(0.1),
             Key::Minus if m.ctrl => self.voider.step_opacity(-0.1),
+            // Shift+F12: the window's centred square into covers/, for carousel art.
+            // Before the plain F12, or that one would take it.
+            Key::F12 if m.shift => {
+                self.voider.take_circle_screenshot();
+            }
             Key::F12 => {
                 self.voider.take_screenshot();
             }

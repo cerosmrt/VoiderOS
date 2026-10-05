@@ -23,6 +23,7 @@ use crate::pdf;
 use crate::position;
 use crate::reading;
 use crate::reformat;
+use crate::shot;
 use crate::split;
 use crate::line_ring::LineRing;
 use crate::text_line::{self, TextLine};
@@ -805,6 +806,64 @@ impl Voider {
             }
             Err(e) => {
                 self.status = format!("Screenshot failed (is grim installed?): {e}");
+                None
+            }
+        }
+    }
+
+    /// Shift+F12: a 1:1 screenshot of the window into `void/covers/`, for carousel
+    /// cover art — the window's centred square, the side bars trimmed. The window's
+    /// own place comes from `hyprctl -j clients` (matched by pid), the compositor's
+    /// own word for it, not the toolkit's belief.
+    pub fn take_circle_screenshot(&mut self) -> Option<PathBuf> {
+        self.take_circle_screenshot_with(&mut shot::real_run, std::process::id())
+    }
+
+    /// The same, with the command runner and the pid handed in, so a test can
+    /// answer for `hyprctl` and `grim` without either being installed.
+    pub fn take_circle_screenshot_with(
+        &mut self,
+        run: &mut dyn FnMut(&str, &[String]) -> io::Result<shot::CmdOutput>,
+        pid: u32,
+    ) -> Option<PathBuf> {
+        let clients = match run("hyprctl", &["-j".to_string(), "clients".to_string()]) {
+            Ok(out) => out.stdout,
+            Err(e) => {
+                self.status = format!("Cover screenshot: could not ask hyprctl ({e})");
+                return None;
+            }
+        };
+        let Some(win) = shot::window_for_pid(&clients, pid) else {
+            self.status = "Cover screenshot: this window was not found in hyprctl".into();
+            return None;
+        };
+        let (x, y, side) = shot::square_crop_for(win);
+        if side <= 0 {
+            self.status = "Cover screenshot: the window has no size".into();
+            return None;
+        }
+        let dir = self.void_dir.join("covers");
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            self.status = format!("Cover screenshot failed: {e}");
+            return None;
+        }
+        let path = dir.join(format!("cover_{}.png", chrono::Local::now().format("%Y%m%d_%H%M%S")));
+        let args = vec![
+            "-g".to_string(),
+            shot::grim_geometry(x, y, side),
+            path.to_string_lossy().to_string(),
+        ];
+        match run("grim", &args) {
+            Ok(out) if out.ok => {
+                self.status = format!("Cover → {}", path.display());
+                Some(path)
+            }
+            Ok(out) => {
+                self.status = format!("Cover screenshot: grim failed — {}", out.stderr.trim());
+                None
+            }
+            Err(e) => {
+                self.status = format!("Cover screenshot failed (is grim installed?): {e}");
                 None
             }
         }
@@ -4968,6 +5027,121 @@ mod tests {
         v.switch_to(View::F5);
         v.para_idx = 1;
         assert_eq!(v.tts_current_text(), Some("dos.".to_string()));
+    }
+
+    // ── Shift+F12: a 1:1 cover screenshot (TestTakeCircleScreenshot) ─────────
+
+    use std::cell::RefCell;
+
+    /// A command runner that answers from a script and remembers what it was asked.
+    struct Script {
+        hyprctl: io::Result<shot::CmdOutput>,
+        grim: io::Result<shot::CmdOutput>,
+        calls: RefCell<Vec<(String, Vec<String>)>>,
+    }
+
+    fn ok(stdout: &str) -> io::Result<shot::CmdOutput> {
+        Ok(shot::CmdOutput { ok: true, stdout: stdout.into(), stderr: String::new() })
+    }
+
+    fn clients(pid: u32, at: (i64, i64), size: (i64, i64)) -> String {
+        format!(r#"[{{"pid": {pid}, "at": [{}, {}], "size": [{}, {}]}}]"#, at.0, at.1, size.0, size.1)
+    }
+
+    impl Script {
+        fn new(hyprctl: io::Result<shot::CmdOutput>) -> Self {
+            Script { hyprctl, grim: ok(""), calls: RefCell::new(Vec::new()) }
+        }
+        fn run(&self, prog: &str, args: &[String]) -> io::Result<shot::CmdOutput> {
+            self.calls.borrow_mut().push((prog.to_string(), args.to_vec()));
+            let r = if prog == "hyprctl" { &self.hyprctl } else { &self.grim };
+            match r {
+                Ok(o) => Ok(shot::CmdOutput { ok: o.ok, stdout: o.stdout.clone(), stderr: o.stderr.clone() }),
+                Err(e) => Err(io::Error::new(e.kind(), e.to_string())),
+            }
+        }
+        fn grim_args(&self) -> Option<Vec<String>> {
+            self.calls.borrow().iter().find(|(p, _)| p == "grim").map(|(_, a)| a.clone())
+        }
+    }
+
+    fn take(v: &mut Voider, script: &Script, pid: u32) -> Option<PathBuf> {
+        v.take_circle_screenshot_with(&mut |p, a| script.run(p, a), pid)
+    }
+
+    #[test]
+    fn grim_gets_a_square_anchored_to_hyprctls_window() {
+        let (_d, mut v) = app(&["."]);
+        let s = Script::new(ok(&clients(4242, (291, 136), (1117, 916))));
+        take(&mut v, &s, 4242).unwrap();
+        let args = s.grim_args().expect("grim was not called");
+        let at = args.iter().position(|a| a == "-g").unwrap();
+        // side = min(1117, 916) = 916; x = 291 + (1117-916)/2 = 391; y = 136
+        assert_eq!(args[at + 1], "391,136 916x916");
+    }
+
+    #[test]
+    fn it_writes_into_covers_with_a_timestamped_name() {
+        let (_d, mut v) = app(&["."]);
+        let s = Script::new(ok(&clients(1, (0, 0), (800, 600))));
+        let out = take(&mut v, &s, 1).unwrap();
+        assert_eq!(out.parent().unwrap(), v.void_dir.join("covers"));
+        let name = out.file_name().unwrap().to_string_lossy().to_string();
+        assert!(name.starts_with("cover_") && name.ends_with(".png"), "{name}");
+        assert_eq!(s.grim_args().unwrap().last().unwrap(), &out.to_string_lossy().to_string());
+        assert!(v.void_dir.join("covers").is_dir());
+    }
+
+    #[test]
+    fn no_matching_window_means_no_grim() {
+        let (_d, mut v) = app(&["."]);
+        let s = Script::new(ok(&clients(7, (0, 0), (1000, 1000))));
+        assert!(take(&mut v, &s, 99).is_none());
+        assert!(s.grim_args().is_none());
+        assert!(v.status.contains("hyprctl"));
+    }
+
+    #[test]
+    fn a_degenerate_window_means_no_grim() {
+        let (_d, mut v) = app(&["."]);
+        let s = Script::new(ok(&clients(5, (0, 0), (0, 0))));
+        assert!(take(&mut v, &s, 5).is_none());
+        assert!(s.grim_args().is_none());
+    }
+
+    #[test]
+    fn hyprctl_missing_is_handled_without_crashing() {
+        let (_d, mut v) = app(&["."]);
+        let s = Script::new(Err(io::Error::new(io::ErrorKind::NotFound, "no hyprctl")));
+        assert!(take(&mut v, &s, 1).is_none());
+        assert!(v.status.contains("hyprctl"));
+        assert!(s.grim_args().is_none());
+    }
+
+    #[test]
+    fn hyprctl_answering_with_garbage_is_handled_without_crashing() {
+        let (_d, mut v) = app(&["."]);
+        let s = Script::new(ok("not json"));
+        assert!(take(&mut v, &s, 1).is_none());
+        assert!(s.grim_args().is_none());
+    }
+
+    #[test]
+    fn grim_failing_does_not_crash_and_says_why() {
+        let (_d, mut v) = app(&["."]);
+        let mut s = Script::new(ok(&clients(1, (0, 0), (800, 600))));
+        s.grim = Ok(shot::CmdOutput { ok: false, stdout: String::new(), stderr: "wlr-screencopy failed".into() });
+        assert!(take(&mut v, &s, 1).is_none());
+        assert!(v.status.contains("wlr-screencopy failed"), "{}", v.status);
+    }
+
+    #[test]
+    fn grim_missing_does_not_crash() {
+        let (_d, mut v) = app(&["."]);
+        let mut s = Script::new(ok(&clients(1, (0, 0), (800, 600))));
+        s.grim = Err(io::Error::new(io::ErrorKind::NotFound, "no grim"));
+        assert!(take(&mut v, &s, 1).is_none());
+        assert!(v.status.contains("grim"), "{}", v.status);
     }
 
     // ── Ctrl+Shift+Delete: collapse the document into ONE paragraph ──────────
