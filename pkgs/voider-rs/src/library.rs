@@ -52,6 +52,13 @@ pub fn is_separator(entry: &str) -> bool {
     entry == SEPARATOR
 }
 
+/// A chapter's heading: its name, upper-cased, between rules. F3's Ctrl+C puts it
+/// above what it copies so a pasted chapter is told apart from any other block
+/// of text (F9 included).
+pub fn chapter_title_header(entry: &str) -> String {
+    format!("── {} ──", display_name(entry).to_uppercase())
+}
+
 impl Library {
     /// Read `I.txt`, generating it from the chapters on disk the first time.
     pub fn load(void_dir: &Path) -> Self {

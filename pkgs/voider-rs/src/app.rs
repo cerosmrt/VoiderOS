@@ -2398,8 +2398,9 @@ impl Voider {
 
     /// Ctrl+C with nothing selected: copy the contextual unit. F2: the current
     /// line, or — sitting on a dot — the paragraph that follows it. F3: the
-    /// highlighted chapter's raw text, or — sitting on a dot — the whole book
-    /// below it, chapters joined by a blank separator, the scratch portal
+    /// highlighted chapter's text under its `── TITLE ──` heading, or — sitting on
+    /// a dot — the whole book below it, each chapter titled and joined by a dot
+    /// separator, the scratch portal
     /// skipped. Any other view copies nothing.
     pub fn smart_copy(&self) -> Option<String> {
         match self.view {
@@ -2437,17 +2438,18 @@ impl Voider {
                         if !library::is_portal(fname) {
                             let path = library::chapter_path(&self.void_dir, fname);
                             if let Ok(text) = std::fs::read_to_string(&path) {
-                                parts.push(text.trim_end_matches('\n').to_string());
+                                parts.push(titled_chapter(fname, &text));
                             }
                         }
                         i = (i + 1) % n;
                     }
                     if parts.is_empty() { None } else { Some(parts.join("\n.\n")) }
                 } else {
-                    let path = library::chapter_path(&self.void_dir, self.library.current());
+                    let name = self.library.current();
+                    let path = library::chapter_path(&self.void_dir, name);
                     std::fs::read_to_string(&path)
                         .ok()
-                        .map(|t| t.trim_end_matches('\n').to_string())
+                        .map(|t| titled_chapter(name, &t))
                 }
             }
             _ => None,
@@ -3318,6 +3320,18 @@ fn same_file(a: &Path, b: &Path) -> bool {
 
 /// The saved ring index for `file`, clamped into `[0, total)`. `0` when
 /// nothing was saved — the ordinary case for a file opened for the first time.
+/// A chapter's text under its title, as Ctrl+C in F3 copies it. An empty chapter
+/// still yields its title, so there is always something saying what was copied.
+fn titled_chapter(entry: &str, text: &str) -> String {
+    let header = library::chapter_title_header(entry);
+    let body = text.trim_end_matches('\n');
+    if body.is_empty() {
+        header
+    } else {
+        format!("{header}\n{body}")
+    }
+}
+
 fn restored_index(void_dir: &Path, file: &Path, total: usize) -> usize {
     file.file_name()
         .and_then(|n| n.to_str())
@@ -4527,7 +4541,7 @@ mod tests {
             entries: vec![".".into(), "A.txt".into(), "B.txt".into()],
             index: 0,
         };
-        assert_eq!(v.smart_copy(), Some("a1\na2\n.\nb1".to_string()));
+        assert_eq!(v.smart_copy(), Some("── A ──\na1\na2\n.\n── B ──\nb1".to_string()));
     }
 
     #[test]
@@ -4542,7 +4556,7 @@ mod tests {
             entries: vec![".".into(), "0.txt".into(), "A.txt".into()],
             index: 0,
         };
-        assert_eq!(v.smart_copy(), Some("a1".to_string()));
+        assert_eq!(v.smart_copy(), Some("── A ──\na1".to_string()));
     }
 
     #[test]
@@ -4553,7 +4567,18 @@ mod tests {
         std::fs::create_dir_all(&i).unwrap();
         std::fs::write(i.join("chap.txt"), "line one\n.\nline two\n").unwrap();
         v.library = Library { entries: vec!["chap.txt".into()], index: 0 };
-        assert_eq!(v.smart_copy(), Some("line one\n.\nline two".to_string()));
+        assert_eq!(v.smart_copy(), Some("── CHAP ──\nline one\n.\nline two".to_string()));
+    }
+
+    #[test]
+    fn an_empty_chapter_still_copies_its_title() {
+        let (_d, mut v) = app(&["."]);
+        v.view = View::F3;
+        let i = v.void_dir.join("I");
+        std::fs::create_dir_all(&i).unwrap();
+        std::fs::write(i.join("Vacio.txt"), "").unwrap();
+        v.library = Library { entries: vec!["Vacio.txt".into()], index: 0 };
+        assert_eq!(v.smart_copy(), Some("── VACIO ──".to_string()));
     }
 
     // ── Remembering position across runs ────────────────────────────────────────
