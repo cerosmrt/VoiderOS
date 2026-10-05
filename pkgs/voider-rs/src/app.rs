@@ -1471,24 +1471,48 @@ impl Voider {
             .unwrap_or_else(|| file_title(&self.current_file))
     }
 
-    /// Chapters a paragraph can be sent to: never a separator, the portal, or
-    /// the file it already lives in.
+    /// Chapters a paragraph can be sent to: never a separator or the portal. The
+    /// ACTIVE chapter is listed too, as in F2's catalogue, so a stray Enter lands
+    /// on the file you are in (a no-op) rather than on its neighbour.
     pub fn picker_entries(&self) -> Vec<String> {
-        let src = self
-            .current_file
-            .file_name()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_default();
         self.library
             .entries
             .iter()
-            .filter(|e| !library::is_separator(e) && !library::is_portal(e) && **e != src)
+            .filter(|e| !library::is_separator(e) && !library::is_portal(e))
             .cloned()
             .collect()
     }
 
-    /// Open the catalogue parked on the chapter nearest the active file, so
-    /// origin and destination start together and you navigate out from there.
+    /// The rows the catalogue DRAWS and which one is lit. A `·` row sits between
+    /// books, as the dots do in F3; it is shown but never chosen, so the lit row
+    /// is the row of the chosen DESTINATION, not its number. A dot with nothing
+    /// before it, or nothing after it, or right after another, separates nothing
+    /// and is dropped.
+    pub fn picker_rows(&self) -> (Vec<String>, usize) {
+        let mut rows: Vec<String> = Vec::new();
+        let mut lit = 0;
+        let mut dest = 0;
+        for e in &self.library.entries {
+            if library::is_separator(e) {
+                if rows.last().is_some_and(|r| r != "·") {
+                    rows.push("·".to_string());
+                }
+            } else if !library::is_portal(e) {
+                if dest == self.picker_idx {
+                    lit = rows.len();
+                }
+                rows.push(library::display_name(e));
+                dest += 1;
+            }
+        }
+        if rows.last().is_some_and(|r| r == "·") {
+            rows.pop();
+        }
+        (rows, lit)
+    }
+
+    /// Open the catalogue parked on the active chapter, so confirming without
+    /// moving sends nothing anywhere.
     pub fn open_picker(&mut self) {
         self.picker_open = true;
         self.picker_idx = self.picker_start_idx();
@@ -1502,6 +1526,9 @@ impl Voider {
         let Some(name) = self.current_file.file_name() else {
             return 0;
         };
+        if let Some(i) = entries.iter().position(|e| *e == name.to_string_lossy()) {
+            return i;
+        }
         let Some(anchor) = self.library.position(&name.to_string_lossy()) else {
             return 0;
         };
@@ -1574,7 +1601,7 @@ impl Voider {
         if self.library.entries.is_empty() {
             self.library = Library::load(&self.void_dir);
         }
-        self.picker_idx = 0;
+        self.picker_idx = self.picker_start_idx();
         self.picker_open = true;
     }
 
@@ -6666,8 +6693,12 @@ mod tests {
         assert_eq!(v.f5_title(), "Segundo");
     }
 
+    // The catalogue lists the ACTIVE chapter too, like F2's: a stray Enter then
+    // lands on the file you are in (a no-op) instead of silently sending the
+    // paragraph to the next chapter over (test_picker_parks_home.py).
+
     #[test]
-    fn the_catalogue_excludes_the_source_the_portal_and_separators() {
+    fn the_catalogue_lists_the_active_file_but_not_the_portal_or_separators() {
         let (_d, mut v) = book();
         v.switch_to(View::F5); // active file is Uno.txt
         v.library.entries = vec![
@@ -6676,11 +6707,11 @@ mod tests {
             "0.txt".into(),
             "Dos.txt".into(),
         ];
-        assert_eq!(v.picker_entries(), vec!["Dos.txt"]);
+        assert_eq!(v.picker_entries(), vec!["Uno.txt", "Dos.txt"]);
     }
 
     #[test]
-    fn the_catalogue_opens_next_to_the_active_file() {
+    fn the_catalogue_opens_parked_on_the_active_file() {
         let (_d, mut v) = book();
         v.switch_to(View::F5);
         v.library.entries = vec![
@@ -6689,10 +6720,94 @@ mod tests {
             "B.txt".into(),
             "C.txt".into(),
         ];
-        // entries seen: A, B, C — the nearest to Uno (index 1) is B, just after.
         v.open_picker();
         assert!(v.picker_open);
-        assert_eq!(v.picker_entries()[v.picker_idx], "B.txt");
+        assert_eq!(v.picker_entries()[v.picker_idx], "Uno.txt");
+    }
+
+    #[test]
+    fn confirming_the_catalogue_without_moving_changes_nothing() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F5);
+        v.open_picker();
+        let here = v.picker_entries()[v.picker_idx].clone();
+        let before = v.ring.lines.clone();
+        assert!(!v.send_para_to(&here).unwrap());
+        assert_eq!(v.ring.lines, before);
+    }
+
+    #[test]
+    fn f2s_catalogue_also_opens_parked_on_the_active_file() {
+        let (_d, mut v) = book();
+        v.ring.lines = vec![".".into(), "algo".into()];
+        v.ring.index = 1;
+        v.doc_open_picker();
+        assert_eq!(v.picker_entries()[v.picker_idx], "Uno.txt");
+    }
+
+    // ── the dots between books show in the catalogue (test_picker_separators.py)
+
+    fn sep_book(entries: &[&str], active: &str) -> (tempfile::TempDir, Voider) {
+        let (d, mut v) = dup_book_app(entries, &[]);
+        v.set_active_file(d.path().join("I").join(active));
+        (d, v)
+    }
+
+    const SEP: &str = "·";
+
+    #[test]
+    fn the_catalogue_rows_carry_the_dots_between_books() {
+        let (_d, v) = sep_book(&[".", "A.txt", "B.txt", ".", "C.txt", "D.txt"], "B.txt");
+        // The leading dot separates nothing, so it is not shown.
+        assert_eq!(v.picker_rows().0, vec!["A", "B", SEP, "C", "D"]);
+    }
+
+    #[test]
+    fn the_highlight_follows_the_right_row_not_the_destination_number() {
+        let (_d, mut v) = sep_book(&[".", "A.txt", "B.txt", ".", "C.txt", "D.txt"], "B.txt");
+        v.picker_idx = 2; // the third destination: C
+        let (rows, i) = v.picker_rows();
+        assert_eq!(rows[i], "C");
+        v.picker_idx = 0;
+        let (rows, i) = v.picker_rows();
+        assert_eq!(rows[i], "A");
+    }
+
+    #[test]
+    fn cycling_never_parks_on_a_separator() {
+        let (_d, mut v) = sep_book(&[".", "A.txt", "B.txt", ".", "C.txt", "D.txt"], "B.txt");
+        for k in 0..v.picker_entries().len() * 2 {
+            v.picker_idx = k % v.picker_entries().len();
+            let (rows, i) = v.picker_rows();
+            assert_ne!(rows[i], SEP, "parked on a separator with idx {k}");
+        }
+    }
+
+    #[test]
+    fn a_separator_is_never_a_destination() {
+        let (_d, v) = sep_book(&[".", "A.txt", "B.txt", ".", "C.txt"], "B.txt");
+        assert!(!v.picker_entries().iter().any(|e| library::is_separator(e)));
+    }
+
+    #[test]
+    fn two_dots_in_a_row_collapse_and_a_trailing_dot_is_dropped() {
+        let (_d, v) = sep_book(&[".", ".", "A.txt", ".", ".", "B.txt", "."], "A.txt");
+        assert_eq!(v.picker_rows().0, vec!["A", SEP, "B"]);
+    }
+
+    #[test]
+    fn a_library_with_no_dots_still_works() {
+        let (_d, v) = sep_book(&["A.txt", "B.txt"], "A.txt");
+        let (rows, i) = v.picker_rows();
+        assert_eq!(rows, vec!["A", "B"]);
+        assert_eq!(rows[i], "A");
+    }
+
+    #[test]
+    fn an_empty_library_does_not_crash_the_catalogue() {
+        let (_d, mut v) = book();
+        v.library.entries = vec![".".into()];
+        assert_eq!(v.picker_rows(), (Vec::<String>::new(), 0));
     }
 
     #[test]

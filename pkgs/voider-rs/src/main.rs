@@ -1073,19 +1073,21 @@ impl VoiderApp {
             [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
             egui::Stroke::new(1.0_f32, egui::Color32::from_gray(40)),
         );
-        let entries = self.voider.picker_entries();
-        if entries.is_empty() {
+        // Rows, not chapters: the dots between books are drawn too, but only a
+        // chapter row is ever the lit one.
+        let (rows, cur) = self.voider.picker_rows();
+        if rows.is_empty() {
             return;
         }
         let font = egui::FontId::proportional(self.font_size() - 4.0);
         let line_h = self.font_size() * 1.9;
         let cy = rect.center().y;
-        let cur = self.voider.picker_idx.min(entries.len() - 1);
+        let cur = cur.min(rows.len() - 1);
         let reach = (rect.height() / 2.0 / line_h).ceil() as isize;
 
         for d in -reach..=reach {
             let i = cur as isize + d;
-            if i < 0 || i as usize >= entries.len() {
+            if i < 0 || i as usize >= rows.len() {
                 continue;
             }
             let colour = if d == 0 {
@@ -1097,7 +1099,7 @@ impl VoiderApp {
             painter.text(
                 egui::pos2(x + w / 2.0, cy + d as f32 * line_h),
                 egui::Align2::CENTER_CENTER,
-                library::display_name(&entries[i as usize]),
+                &rows[i as usize],
                 font.clone(),
                 colour,
             );
