@@ -21,10 +21,35 @@ pub fn split_on_spaces(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Swap the word at `caret` (a character index) with its neighbour.
-/// Returns the new line and where the caret should land — at the start of the
-/// word that moved. `None` when there is nothing to swap.
+/// What a swap produced: the new line, where the caret lands, and — when a
+/// block was selected — the selection that follows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Swapped {
+    pub text: String,
+    pub caret: usize,
+    pub selection: Option<(usize, usize)>,
+}
+
+/// Swap the word at `caret` with its neighbour. Returns the new line and where
+/// the caret should land — at the start of the word that moved. `None` when
+/// there is nothing to swap.
 pub fn swap_words(text: &str, caret: usize, direction: isize) -> Option<(String, usize)> {
+    swap_block(text, caret, None, direction).map(|r| (r.text, r.caret))
+}
+
+/// Swap a block of words with its neighbour — a port of `_swap_words`.
+///
+/// With a `selection` (character offsets, start < end) every word it touches
+/// moves together; without one, the word under `caret` (or the nearest, when the
+/// caret sits in a gap). A word counts if its span OVERLAPS the selection, not
+/// only if it fits inside: a selection stops right after the last letter, so
+/// punctuation glued to a word (`realidad,`) would otherwise be left behind.
+pub fn swap_block(
+    text: &str,
+    caret: usize,
+    selection: Option<(usize, usize)>,
+    direction: isize,
+) -> Option<Swapped> {
     if text.trim().is_empty() {
         return None;
     }
@@ -63,50 +88,69 @@ pub fn swap_words(text: &str, caret: usize, direction: isize) -> Option<(String,
         return None;
     }
 
-    // Which token the caret is on — or the nearest, when it sits in a gap.
-    let b = spans
-        .iter()
-        .position(|&(s, e)| s <= caret && caret <= e)
-        .unwrap_or_else(|| {
-            (0..spans.len())
-                .min_by_key(|&i| {
-                    let (s, e) = spans[i];
-                    caret.abs_diff(s).min(caret.abs_diff(e))
-                })
-                .unwrap_or(0)
-        });
-
+    // The block to move: every word the selection overlaps, or the one under
+    // the caret (or the nearest, when it sits in a gap).
+    let block: Vec<usize> = match selection {
+        Some((s, e)) if s < e => (0..spans.len())
+            .filter(|&k| spans[k].0 < e && spans[k].1 > s)
+            .collect(),
+        _ => {
+            let hit = spans.iter().position(|&(s, e)| s <= caret && caret <= e);
+            vec![hit.unwrap_or_else(|| {
+                (0..spans.len())
+                    .min_by_key(|&k| {
+                        let (s, e) = spans[k];
+                        caret.abs_diff(s).min(caret.abs_diff(e))
+                    })
+                    .unwrap_or(0)
+            })]
+        }
+    };
+    let (b0, b1) = (*block.first()?, *block.last()?);
     let n = tokens.len();
-    let (new_tokens, new_b) = if direction < 0 {
-        if b == 0 {
-            // Wrap: the word goes to the end.
-            let mut t: Vec<String> = tokens[1..].to_vec();
-            t.push(tokens[0].clone());
-            let nb = t.len() - 1;
+    let moved = tokens[b0..=b1].to_vec();
+
+    let (new_tokens, new_b0): (Vec<String>, usize) = if direction < 0 {
+        if b0 == 0 {
+            // Wrap: the block goes to the end.
+            let mut t: Vec<String> = tokens[b1 + 1..].to_vec();
+            let nb = t.len();
+            t.extend(moved);
             (t, nb)
         } else {
-            let mut t = tokens.clone();
-            t.swap(b - 1, b);
-            (t, b - 1)
+            let mut t: Vec<String> = tokens[..b0 - 1].to_vec();
+            t.extend(moved);
+            t.push(tokens[b0 - 1].clone());
+            t.extend_from_slice(&tokens[b1 + 1..]);
+            (t, b0 - 1)
         }
-    } else if b == n - 1 {
-        // Wrap: the word goes to the start.
-        let mut t = vec![tokens[n - 1].clone()];
-        t.extend_from_slice(&tokens[..n - 1]);
+    } else if b1 == n - 1 {
+        // Wrap: the block goes to the start.
+        let mut t = moved;
+        t.extend_from_slice(&tokens[..b0]);
         (t, 0)
     } else {
-        let mut t = tokens.clone();
-        t.swap(b, b + 1);
-        (t, b + 1)
+        let mut t: Vec<String> = tokens[..b0].to_vec();
+        t.push(tokens[b1 + 1].clone());
+        t.extend(moved);
+        t.extend_from_slice(&tokens[b1 + 2..]);
+        (t, b0 + 1)
     };
 
     let new_text = format!("{}{}", new_tokens.join(" "), trailing);
-    // The caret lands at the start of the word that moved.
-    let new_caret: usize = new_tokens[..new_b]
+    let new_b1 = new_b0 + (b1 - b0);
+    // The caret (and any selection) lands on the start of the moved block.
+    let start: usize = new_tokens[..new_b0].iter().map(|t| t.chars().count() + 1).sum();
+    let stop: usize = new_tokens[..=new_b1]
         .iter()
         .map(|t| t.chars().count() + 1)
-        .sum();
-    Some((new_text, new_caret))
+        .sum::<usize>()
+        - 1;
+    Some(Swapped {
+        text: new_text,
+        caret: start,
+        selection: selection.filter(|&(s, e)| s < e).map(|_| (start, stop)),
+    })
 }
 
 #[cfg(test)]
@@ -223,4 +267,62 @@ mod tests {
         assert_eq!(split_on_spaces("unasolapalabra"), s(&["unasolapalabra"]));
         assert!(split_on_spaces("   ").is_empty());
     }
+    // ── a SELECTED block moves as one (test_swap_words_selection.py) ─────────
+
+    fn block(text: &str, sel: (usize, usize), dir: isize) -> (String, Option<(usize, usize)>) {
+        let r = swap_block(text, sel.1, Some(sel), dir).unwrap();
+        (r.text, r.selection)
+    }
+
+    #[test]
+    fn a_selection_stopping_before_glued_punctuation_still_moves_the_whole_word() {
+        // "realidad," is ONE token: the comma has no space before it. A selection
+        // made by shift-arrow stops after the last letter, never reaching the
+        // comma — the word must not be left behind.
+        let text = "eje aplica a la realidad, funciona bien";
+        let start = text.find("aplica").unwrap();
+        let end = start + "aplica a la realidad".chars().count();
+        let (new, sel) = block(text, (start, end), -1);
+        assert_eq!(new, "aplica a la realidad, eje funciona bien");
+        assert_eq!(sel, Some((0, "aplica a la realidad,".chars().count())));
+    }
+
+    #[test]
+    fn a_selection_reaching_the_comma_works_too() {
+        let text = "eje aplica a la realidad, funciona bien";
+        let start = text.find("aplica").unwrap();
+        let end = start + "aplica a la realidad,".chars().count();
+        assert_eq!(block(text, (start, end), -1).0, "aplica a la realidad, eje funciona bien");
+    }
+
+    #[test]
+    fn a_selected_block_moves_right_past_the_next_word() {
+        let (new, sel) = block("a b c d", (2, 5), 1); // "b c"
+        assert_eq!(new, "a d b c");
+        assert_eq!(sel, Some((4, 7))); // the selection follows the block
+    }
+
+    #[test]
+    fn a_selected_block_at_the_start_wraps_to_the_end_going_left() {
+        assert_eq!(block("a b c", (0, 3), -1).0, "c a b");
+    }
+
+    #[test]
+    fn a_selected_block_at_the_end_wraps_to_the_start_going_right() {
+        assert_eq!(block("a b c", (2, 5), 1).0, "b c a");
+    }
+
+    #[test]
+    fn closing_punctuation_stays_put_when_a_block_moves() {
+        assert_eq!(block("uno dos tres.", (0, 7), 1).0, "tres uno dos.");
+    }
+
+    #[test]
+    fn with_no_selection_the_word_under_the_caret_moves_alone() {
+        let r = swap_block("hola mundo cruel", 0, None, 1).unwrap();
+        assert_eq!(r.text, "mundo hola cruel");
+        assert_eq!(r.caret, 6);
+        assert_eq!(r.selection, None);
+    }
+
 }
