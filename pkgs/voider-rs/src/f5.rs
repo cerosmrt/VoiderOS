@@ -17,12 +17,13 @@ pub enum Token {
     Sep,
 }
 
-/// What the view draws: paragraphs (numbered) and fences. Separators are
-/// implicit — paragraphs are drawn spaced apart.
+/// What the view draws: paragraphs (numbered), fences, and the `.` separators —
+/// shown as F2 shows them, so you can see where one group ends and the next begins.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Unit {
     Para { ordinal: usize, text: String },
     Mark { name: String },
+    Sep,
 }
 
 /// Lines → tokens. Blank lines are dropped; a run of text lines is one paragraph.
@@ -108,7 +109,7 @@ pub fn units(lines: &[String]) -> Vec<Unit> {
             Token::Mark(m) => units.push(Unit::Mark {
                 name: m.trim().trim_start_matches('/').trim().to_string(),
             }),
-            Token::Sep => {}
+            Token::Sep => units.push(Unit::Sep),
         }
     }
     units
@@ -269,6 +270,53 @@ mod tests {
         assert_eq!(flatten(&tokens(&lines)), lines);
     }
 
+    // ── the units include the dots, as F2 shows them (test_f5_units.py) ──────
+
+    fn kinds(lines: &[&str]) -> Vec<&'static str> {
+        units(&v(lines))
+            .iter()
+            .map(|u| match u {
+                Unit::Para { .. } => "para",
+                Unit::Mark { .. } => "mark",
+                Unit::Sep => "sep",
+            })
+            .collect()
+    }
+
+    #[test]
+    fn units_include_separators_between_paragraphs() {
+        assert_eq!(kinds(&[".", "a", ".", "b"]), vec!["sep", "para", "sep", "para"]);
+    }
+
+    #[test]
+    fn a_leading_dot_is_a_separator_before_the_first_paragraph() {
+        let u = units(&v(&[".", "a"]));
+        assert_eq!(u[0], Unit::Sep);
+        assert_eq!(u[1], Unit::Para { ordinal: 0, text: "a".into() });
+    }
+
+    #[test]
+    fn no_separator_without_a_dot_line() {
+        assert_eq!(kinds(&["a", "/Chap", "b"]), vec!["para", "mark", "para"]);
+    }
+
+    #[test]
+    fn marks_and_separators_can_be_adjacent() {
+        assert_eq!(kinds(&["a", ".", "/Chap", "b"]), vec!["para", "sep", "mark", "para"]);
+    }
+
+    #[test]
+    fn paragraph_ordinals_ignore_the_separators() {
+        let paras: Vec<(usize, String)> = units(&v(&[".", "a", ".", "b", ".", "c"]))
+            .into_iter()
+            .filter_map(|u| match u {
+                Unit::Para { ordinal, text } => Some((ordinal, text)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(paras, vec![(0, "a".into()), (1, "b".into()), (2, "c".into())]);
+    }
+
     #[test]
     fn blank_lines_are_dropped_and_runs_group() {
         let toks = tokens(&v(&["a1", "a2", "", ".", "b"]));
@@ -319,6 +367,7 @@ mod tests {
         assert_eq!(
             u,
             vec![
+                Unit::Sep, // the leading dot is shown, as F2 shows it
                 Unit::Para { ordinal: 0, text: "a1 a2".into() },
                 Unit::Mark { name: "Cap".into() },
                 Unit::Para { ordinal: 1, text: "b".into() },

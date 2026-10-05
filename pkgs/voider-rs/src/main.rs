@@ -1010,28 +1010,28 @@ impl VoiderApp {
             .position(|u| matches!(u, f5::Unit::Para { ordinal, .. } if *ordinal == self.voider.para_idx))
             .unwrap_or(0);
 
-        let layout = |u: &f5::Unit, lit: bool| {
-            let (text, colour) = match u {
-                f5::Unit::Para { text, .. } => (
-                    text.clone(),
-                    if lit {
-                        egui::Color32::WHITE
-                    } else {
-                        egui::Color32::from_gray(90)
-                    },
-                ),
-                f5::Unit::Mark { name } => {
-                    (format!("/{name}"), egui::Color32::from_gray(180))
-                }
+        // Centred and tight, as F2 packs its ring: a unit is as tall as its
+        // wrapped lines and nothing more — the `.` separator unit IS the room
+        // between groups. Whatever is not the current paragraph fades with its
+        // distance from the centre, on the same curve F2 uses.
+        let lay = |u: &f5::Unit| {
+            let text = match u {
+                f5::Unit::Para { text, .. } => text.clone(),
+                f5::Unit::Mark { name } => format!("/{name}"),
+                f5::Unit::Sep => ".".to_string(),
             };
-            ctx.fonts(|f| f.layout(text, font.clone(), colour, text_w))
+            centered_galley(ctx, text, font.clone(), text_w)
         };
+        let alpha_at = |unit_centre_y: f32| -> u8 {
+            let dist = (unit_centre_y - col.center().y).abs() / line_h;
+            let fade = (1.0 - (dist / F2_FADE_LINES)).clamp(0.0, 1.0);
+            (fade * fade * 200.0) as u8
+        };
+        let x = col.center().x; // rows are centred on the galley's origin
 
-        // Centre the current unit, then walk outward until off-screen.
-        let here = layout(&units[cur], true);
-        let mut y = col.center().y - here.size().y / 2.0;
-        let cur_top = y;
-        painter.galley(egui::pos2(col.min.x + pad, y), here.clone(), egui::Color32::WHITE);
+        let here = lay(&units[cur]);
+        let cur_top = col.center().y - here.size().y / 2.0;
+        painter.galley_with_override_text_color(egui::pos2(x, cur_top), here.clone(), egui::Color32::WHITE);
         // The '>' cue: Right opens the catalogue to send this paragraph.
         painter.text(
             egui::pos2(col.max.x - pad / 2.0, cur_top + here.size().y / 2.0),
@@ -1041,25 +1041,31 @@ impl VoiderApp {
             egui::Color32::WHITE,
         );
 
-        y = cur_top + here.size().y + line_h;
+        let mut y = cur_top + here.size().y;
         for u in &units[cur + 1..] {
             if y > col.max.y {
                 break;
             }
-            let g = layout(u, false);
+            let g = lay(u);
             let h = g.size().y;
-            painter.galley(egui::pos2(col.min.x + pad, y), g, egui::Color32::WHITE);
-            y += h + line_h;
+            let a = alpha_at(y + h / 2.0);
+            if a > 0 {
+                painter.galley_with_override_text_color(egui::pos2(x, y), g, egui::Color32::from_white_alpha(a));
+            }
+            y += h;
         }
         let mut top = cur_top;
         for u in units[..cur].iter().rev() {
-            let g = layout(u, false);
+            let g = lay(u);
             let h = g.size().y;
-            top -= h + line_h;
+            top -= h;
             if top + h < col.min.y {
                 break;
             }
-            painter.galley(egui::pos2(col.min.x + pad, top), g, egui::Color32::WHITE);
+            let a = alpha_at(top + h / 2.0);
+            if a > 0 {
+                painter.galley_with_override_text_color(egui::pos2(x, top), g, egui::Color32::from_white_alpha(a));
+            }
         }
 
         if self.voider.picker_open {
@@ -1709,5 +1715,58 @@ impl eframe::App for VoiderApp {
                     );
                 }
             });
+    }
+}
+
+/// A paragraph laid out for F5: wrapped at `wrap_w` and CENTRED, the way F2
+/// centres its lines. egui centres each row on the galley's ORIGIN (x = 0), not
+/// on its left edge, so the galley has to be drawn at the MIDDLE of the column.
+fn centered_galley(
+    ctx: &egui::Context,
+    text: String,
+    font: egui::FontId,
+    wrap_w: f32,
+) -> std::sync::Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::simple(text, font, egui::Color32::WHITE, wrap_w);
+    job.halign = egui::Align::Center;
+    ctx.fonts(|f| f.layout_job(job))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Run one frame so the context has its fonts, then lay a galley out.
+    fn galley(text: &str, wrap_w: f32) -> std::sync::Arc<egui::Galley> {
+        let ctx = egui::Context::default();
+        let mut out = None;
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            out = Some(centered_galley(
+                ctx,
+                text.to_string(),
+                egui::FontId::proportional(20.0),
+                wrap_w,
+            ));
+        });
+        out.unwrap()
+    }
+
+    #[test]
+    fn a_short_paragraph_is_centred_in_the_column() {
+        let g = galley("hola", 400.0);
+        let row = &g.rows[0];
+        let mid = (row.rect.min.x + row.rect.max.x) / 2.0;
+        // egui centres on the galley's origin, so it is drawn at the column's middle
+        assert!(mid.abs() < 1.0, "row centre at {mid}, wanted 0");
+    }
+
+    #[test]
+    fn every_wrapped_row_is_centred_on_its_own() {
+        let g = galley("uno dos tres cuatro cinco seis siete ocho nueve diez once", 160.0);
+        assert!(g.rows.len() > 1, "the text should have wrapped");
+        for row in &g.rows {
+            let mid = (row.rect.min.x + row.rect.max.x) / 2.0;
+            assert!(mid.abs() < 1.0, "a row is centred at {mid}, wanted 0");
+        }
     }
 }

@@ -973,9 +973,9 @@ impl Voider {
         match self.view {
             View::F1 => Some(self.ring.current().to_string()),
             View::F2 => Some(self.ring.current().to_string()),
-            View::F5 => f5::units(&self.ring.lines).get(self.para_idx).map(|u| match u {
-                f5::Unit::Para { text, .. } => text.clone(),
-                f5::Unit::Mark { name } => name.clone(),
+            View::F5 => f5::units(&self.ring.lines).into_iter().find_map(|u| match u {
+                f5::Unit::Para { ordinal, text } if ordinal == self.para_idx => Some(text),
+                _ => None,
             }),
             // F4 no habla: es una pagina para mirar. F3/F9/F10 tampoco.
             _ => None,
@@ -4645,6 +4645,15 @@ mod tests {
     // ── Remembering position across runs ────────────────────────────────────────
 
     // ── Alt+F4: a clean quit (test_quit_app.py) ──────────────────────────────
+
+    #[test]
+    fn in_f5_the_voice_reads_the_paragraph_you_are_on_not_the_nth_unit() {
+        // The units now include the dots, so "unit N" is no longer "paragraph N".
+        let (_d, mut v) = app(&[".", "uno.", ".", "dos."]);
+        v.switch_to(View::F5);
+        v.para_idx = 1;
+        assert_eq!(v.tts_current_text(), Some("dos.".to_string()));
+    }
 
     // ── Ctrl+Shift+Delete: collapse the document into ONE paragraph ──────────
     // Mirrors TestCollapseToOneParagraph in test_paragraphs.py: Tab on the single
