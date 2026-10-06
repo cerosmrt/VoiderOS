@@ -29,6 +29,7 @@ mod line_ring;
 mod position;
 mod reading;
 mod reformat;
+mod ring;
 mod shot;
 mod slides;
 mod split;
@@ -46,8 +47,6 @@ use app::{caps_lock_on, View, Voider};
 
 /// Matches the Python view: the circle inset from the shorter side.
 const CIRCLE_INSET: f32 = 35.0;
-/// How far the fade reaches in F2, in lines above and below the centre.
-const F2_FADE_LINES: f32 = 7.0;
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -126,7 +125,14 @@ impl VoiderApp {
 
     /// The size the writer chose, used by every view.
     fn font_size(&self) -> f32 {
-        self.voider.config.font_size
+        // The configured size is in points, as the Python's is; the screen is pixels.
+        ring::px_from_pt(self.voider.config.font_size)
+    }
+
+    /// The jump between the lines of a ring in this font: the font's own height
+    /// times the Python's 1.31.
+    fn ring_line_h(&self, ctx: &egui::Context, font: &egui::FontId) -> f32 {
+        ring::line_height(ctx.fonts(|f| f.row_height(font)))
     }
 
     /// The mouse pointer: hidden while you type, back on any mouse activity, and
@@ -895,7 +901,7 @@ impl VoiderApp {
                 egui::pos2(left_x + width_of(s), top_y),
                 egui::pos2(left_x + width_of(e), top_y + size.y),
             );
-            p.rect_filled(band, 2.0, egui::Color32::from_white_alpha(70));
+            p.rect_filled(band, 2.0, white_alpha(70));
         }
         p.galley(egui::pos2(left_x, top_y), galley, egui::Color32::WHITE);
 
@@ -963,8 +969,8 @@ impl VoiderApp {
             egui::pos2(rect.max.x - panel_w, rect.max.y),
         );
         let centre = rect.center();
-        let line_h = self.font_size() * 1.7;
         let font = egui::FontId::proportional(self.font_size());
+        let line_h = self.ring_line_h(ctx, &font);
         let reach = (rect.height() / 2.0 / line_h).ceil() as isize;
 
         if let Some(search) = &self.voider.f2_search {
@@ -978,13 +984,14 @@ impl VoiderApp {
                 if text.is_empty() {
                     continue;
                 }
-                let dist = offset.unsigned_abs() as f32;
-                let alpha = if offset == 0 {
-                    255
-                } else {
-                    let fade = (1.0 - (dist / F2_FADE_LINES)).clamp(0.0, 1.0);
-                    (fade * fade * 200.0) as u8
-                };
+                // The chosen line is full; every other is the ring's curve, dimmed.
+                let alpha = ring::to_u8(ring::edit_line_alpha(
+                    offset,
+                    offset.unsigned_abs() as f32 * line_h,
+                    rect.height() / 2.0,
+                    false,
+                    0,
+                ));
                 if alpha == 0 {
                     continue;
                 }
@@ -993,7 +1000,7 @@ impl VoiderApp {
                     egui::Align2::CENTER_CENTER,
                     text,
                     font.clone(),
-                    egui::Color32::from_white_alpha(alpha),
+                    white_alpha(alpha),
                 );
             }
             if m == 0 {
@@ -1009,6 +1016,13 @@ impl VoiderApp {
             return;
         }
 
+        // Standing on a dot, the paragraph it opens stays lit and the rest dims.
+        let on_dot = self.voider.ring.current() == ".";
+        let para_size = if on_dot {
+            self.voider.ring.lines.iter().skip(self.voider.ring.index + 1).take_while(|l| *l != ".").count()
+        } else {
+            0
+        };
         for offset in -reach..=reach {
             if offset == 0 {
                 continue; // the centred line is the editable entry, drawn below
@@ -1017,9 +1031,13 @@ impl VoiderApp {
             if text.is_empty() {
                 continue;
             }
-            let dist = offset.unsigned_abs() as f32;
-            let fade = (1.0 - (dist / F2_FADE_LINES)).clamp(0.0, 1.0);
-            let alpha = (fade * fade * 200.0) as u8;
+            let alpha = ring::to_u8(ring::edit_line_alpha(
+                offset,
+                offset.unsigned_abs() as f32 * line_h,
+                rect.height() / 2.0,
+                on_dot,
+                para_size,
+            ));
             if alpha == 0 {
                 continue;
             }
@@ -1029,7 +1047,7 @@ impl VoiderApp {
                 egui::Align2::CENTER_CENTER,
                 text,
                 font.clone(),
-                egui::Color32::from_white_alpha(alpha),
+                white_alpha(alpha),
             );
         }
         self.draw_entry_line(painter, ctx, centre, rect, self.voider.typewriter);
@@ -1042,8 +1060,8 @@ impl VoiderApp {
     /// Separators show as a dot; the naming of a new entry happens in place.
     fn draw_f3(&self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
         let centre = rect.center();
-        let line_h = self.font_size() * 1.7;
         let font = egui::FontId::proportional(self.font_size());
+        let line_h = self.ring_line_h(ctx, &font);
         let lib = &self.voider.library;
         let reach = (rect.height() / 2.0 / line_h).ceil() as isize;
         let n = lib.entries.len() as isize;
@@ -1056,13 +1074,14 @@ impl VoiderApp {
                 }
                 let idx = (search.highlight as isize + offset).rem_euclid(m) as usize;
                 let label = library::display_name(&lib.entries[search.matches[idx]]);
-                let dist = offset.unsigned_abs() as f32;
-                let alpha = if offset == 0 {
-                    255
-                } else {
-                    let fade = (1.0 - (dist / F2_FADE_LINES)).clamp(0.0, 1.0);
-                    (fade * fade * 200.0) as u8
-                };
+                // The chosen line is full; every other is the ring's curve, dimmed.
+                let alpha = ring::to_u8(ring::edit_line_alpha(
+                    offset,
+                    offset.unsigned_abs() as f32 * line_h,
+                    rect.height() / 2.0,
+                    false,
+                    0,
+                ));
                 if alpha == 0 {
                     continue;
                 }
@@ -1071,7 +1090,7 @@ impl VoiderApp {
                     egui::Align2::CENTER_CENTER,
                     label,
                     font.clone(),
-                    egui::Color32::from_white_alpha(alpha),
+                    white_alpha(alpha),
                 );
             }
             if m == 0 {
@@ -1094,13 +1113,14 @@ impl VoiderApp {
                 }
                 let i = (lib.index as isize + offset).rem_euclid(n) as usize;
                 let label = library::display_name(&lib.entries[i]);
-                let dist = offset.unsigned_abs() as f32;
-                let alpha = if offset == 0 {
-                    255
-                } else {
-                    let fade = (1.0 - (dist / F2_FADE_LINES)).clamp(0.0, 1.0);
-                    (fade * fade * 200.0) as u8
-                };
+                // The chosen line is full; every other is the ring's curve, dimmed.
+                let alpha = ring::to_u8(ring::edit_line_alpha(
+                    offset,
+                    offset.unsigned_abs() as f32 * line_h,
+                    rect.height() / 2.0,
+                    false,
+                    0,
+                ));
                 if alpha == 0 {
                     continue;
                 }
@@ -1109,7 +1129,7 @@ impl VoiderApp {
                     egui::Align2::CENTER_CENTER,
                     label,
                     font.clone(),
-                    egui::Color32::from_white_alpha(alpha),
+                    white_alpha(alpha),
                 );
             }
         }
@@ -1142,7 +1162,6 @@ impl VoiderApp {
         let pad = (col.width() * 0.14).max(48.0);
         let text_w = col.width() - 2.0 * pad;
         let font = egui::FontId::proportional(self.font_size());
-        let line_h = self.font_size() * 1.5;
 
         let cur = units
             .iter()
@@ -1162,9 +1181,8 @@ impl VoiderApp {
             centered_galley(ctx, text, font.clone(), text_w)
         };
         let alpha_at = |unit_centre_y: f32| -> u8 {
-            let dist = (unit_centre_y - col.center().y).abs() / line_h;
-            let fade = (1.0 - (dist / F2_FADE_LINES)).clamp(0.0, 1.0);
-            (fade * fade * 200.0) as u8
+            let dist = (unit_centre_y - col.center().y).abs();
+            ring::to_u8(ring::ring_alpha(dist, col.height() / 2.0) * ring::DIM_FACTOR)
         };
         let x = col.center().x; // rows are centred on the galley's origin
 
@@ -1189,7 +1207,7 @@ impl VoiderApp {
             let h = g.size().y;
             let a = alpha_at(y + h / 2.0);
             if a > 0 {
-                painter.galley_with_override_text_color(egui::pos2(x, y), g, egui::Color32::from_white_alpha(a));
+                painter.galley_with_override_text_color(egui::pos2(x, y), g, white_alpha(a));
             }
             y += h;
         }
@@ -1203,7 +1221,7 @@ impl VoiderApp {
             }
             let a = alpha_at(top + h / 2.0);
             if a > 0 {
-                painter.galley_with_override_text_color(egui::pos2(x, top), g, egui::Color32::from_white_alpha(a));
+                painter.galley_with_override_text_color(egui::pos2(x, top), g, white_alpha(a));
             }
         }
 
@@ -1277,7 +1295,7 @@ impl VoiderApp {
                 egui::Color32::WHITE
             } else {
                 let fade = (1.0 - (d.unsigned_abs() as f32 / 6.0)).clamp(0.0, 1.0);
-                egui::Color32::from_white_alpha((fade * fade * 190.0) as u8)
+                white_alpha((fade * fade * 190.0) as u8)
             };
             painter.text(
                 egui::pos2(centre.x, centre.y + d as f32 * line_h),
@@ -1290,7 +1308,7 @@ impl VoiderApp {
         painter.text(
             egui::pos2(centre.x, rect.bottom() - 70.0),
             egui::Align2::CENTER_CENTER,
-            format!("←  {}  →", self.font_size() as i32),
+            format!("←  {}  →", self.voider.config.font_size as i32),
             egui::FontId::proportional(self.font_size()),
             egui::Color32::from_gray(200),
         );
@@ -1662,14 +1680,15 @@ impl VoiderApp {
     fn draw_ring(
         &self,
         painter: &egui::Painter,
+        ctx: &egui::Context,
         rect: egui::Rect,
         lines: &[String],
         index: usize,
         vacio: &str,
     ) {
         let centre = rect.center();
-        let line_h = self.font_size() * 1.7;
         let font = egui::FontId::proportional(self.font_size());
+        let line_h = self.ring_line_h(ctx, &font);
         let n = lines.len() as isize;
         if n == 0 {
             painter.text(
@@ -1688,12 +1707,9 @@ impl VoiderApp {
             if text.is_empty() {
                 continue;
             }
-            let alpha = if offset == 0 {
-                255
-            } else {
-                let fade = (1.0 - (offset.unsigned_abs() as f32 / F2_FADE_LINES)).clamp(0.0, 1.0);
-                (fade * fade * 200.0) as u8
-            };
+            // Reading rings (F6, F7) are not being edited: the whole ring follows
+            // the curve, nothing is dimmed on top of it.
+            let alpha = ring::to_u8(ring::ring_alpha(offset.unsigned_abs() as f32 * line_h, rect.height() / 2.0));
             if alpha == 0 {
                 continue;
             }
@@ -1702,16 +1718,17 @@ impl VoiderApp {
                 egui::Align2::CENTER_CENTER,
                 text,
                 font.clone(),
-                egui::Color32::from_white_alpha(alpha),
+                white_alpha(alpha),
             );
         }
     }
 
     /// F6: el libro del corpus, línea por línea.
-    fn draw_f6(&self, painter: &egui::Painter, rect: egui::Rect) {
+    fn draw_f6(&self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
         let v = &self.voider;
         self.draw_ring(
             painter,
+            ctx,
             rect,
             &v.o_ring.lines,
             v.o_ring.index,
@@ -1729,10 +1746,10 @@ impl VoiderApp {
     }
 
     /// F7: las ranuras del working set.
-    fn draw_f7(&self, painter: &egui::Painter, rect: egui::Rect) {
+    fn draw_f7(&self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
         let v = &self.voider;
         let entries = v.ws.browser_entries();
-        self.draw_ring(painter, rect, &entries, v.ws_index, corpus::EMPTY);
+        self.draw_ring(painter, ctx, rect, &entries, v.ws_index, corpus::EMPTY);
         painter.text(
             egui::pos2(rect.center().x, rect.bottom() - 26.0),
             egui::Align2::CENTER_CENTER,
@@ -1811,7 +1828,7 @@ impl VoiderApp {
                     continue;
                 }
                 let colour = if entry.is_dir {
-                    egui::Color32::from_white_alpha(alpha)
+                    white_alpha(alpha)
                 } else {
                     egui::Color32::from_rgba_unmultiplied(210, 210, 190, alpha)
                 };
@@ -1967,8 +1984,8 @@ impl eframe::App for VoiderApp {
                     View::F2 => self.draw_f2(&painter, ctx, rect),
                     View::F3 => self.draw_f3(&painter, ctx, rect),
                     View::F4 => self.draw_f4(&painter, ctx, rect),
-                    View::F6 => self.draw_f6(&painter, rect),
-                    View::F7 => self.draw_f7(&painter, rect),
+                    View::F6 => self.draw_f6(&painter, ctx, rect),
+                    View::F7 => self.draw_f7(&painter, ctx, rect),
                     View::F8 => self.draw_f8(&painter, ctx, rect),
                     View::F5 => self.draw_f5(&painter, ctx, rect),
                     // The only view built from a real widget rather than painted
@@ -2003,6 +2020,13 @@ impl eframe::App for VoiderApp {
                 }
             });
     }
+}
+
+/// White at `alpha`, the way Qt draws it. egui's `Color32::from_white_alpha` works in
+/// linear light, so alpha 75 comes out as a 148 grey — twice what the Python draws
+/// for the same opacity. This one is plain premultiplied: alpha 75 is a 75 grey.
+fn white_alpha(alpha: u8) -> egui::Color32 {
+    egui::Color32::from_rgba_premultiplied(alpha, alpha, alpha, alpha)
 }
 
 /// What an `Event::Copy` (Ctrl+C, whatever else is held) means in a view.
@@ -2103,6 +2127,20 @@ mod tests {
         let mut voider = Voider::open(d.path(), &f);
         voider.switch_to(app::View::F5);
         (d, VoiderApp::with(voider))
+    }
+
+    // ── brightness must match Qt's, which blends alpha straight ──────────────
+
+    #[test]
+    fn white_at_alpha_75_is_a_75_grey_not_a_148_one() {
+        // egui's own `from_white_alpha` works in linear light: alpha 75 comes out as
+        // a 148 grey on black — twice what Qt draws for the same opacity.
+        assert_eq!(egui::epaint::Color32::from_white_alpha(75).r(), 148, "egui changed; revisit");
+        let c = white_alpha(75);
+        assert_eq!((c.r(), c.g(), c.b(), c.a()), (75, 75, 75, 75));
+        // laid over black, premultiplied, it is exactly a 75 grey
+        assert_eq!(white_alpha(255), egui::Color32::WHITE);
+        assert_eq!(white_alpha(0), egui::Color32::TRANSPARENT);
     }
 
     // ── keys that share a letter must not shadow each other ──────────────────
