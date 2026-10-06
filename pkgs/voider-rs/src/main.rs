@@ -98,6 +98,25 @@ struct VoiderApp {
     carousel_tex: Option<CarouselTex>,
     /// The font the slides are set in, loaded once.
     carousel_font: Option<typeset::TypeFont>,
+    /// The book laid out for the page size on screen, kept until the window or the
+    /// chapter changes.
+    book_plan: Option<BookPlanCache>,
+    /// The page on screen, drawn into a texture.
+    book_tex: Option<BookTex>,
+}
+
+/// (width, height in pixels, which reading) — what a cached layout was made for.
+type BookKey = (u32, u32, u64);
+
+struct BookPlanCache {
+    key: BookKey,
+    plan: slides::BookPlan,
+}
+
+struct BookTex {
+    key: BookKey,
+    page: usize,
+    tex: egui::TextureHandle,
 }
 
 /// A rendered slide and the texture it lives in.
@@ -119,6 +138,8 @@ impl VoiderApp {
             reading_pages: 1,
             carousel_tex: None,
             carousel_font: None,
+            book_plan: None,
+            book_tex: None,
         }
     }
 
@@ -1534,95 +1555,81 @@ impl VoiderApp {
             self.draw_f4_carousel(painter, ctx, rect);
             return;
         }
-        let margin = (rect.width() * 0.24).max(70.0);
-        let col_w = rect.width() - margin * 2.0;
-        let top_pad = 60.0;
-        let page_h = rect.height() - top_pad * 2.0;
-        let size = self.font_size();
-        let body = egui::FontId::proportional(size);
-        let head = egui::FontId::proportional(size * 1.05);
-        let para_gap = size * 0.85;
-        let title_gap = size * 1.9;
-
-        // Lay the column out once: every paragraph becomes a galley, and the
-        // lines within it become the units pagination is allowed to break on.
-        let mut blocks: Vec<(f32, std::sync::Arc<egui::Galley>, bool)> = Vec::new();
-        let mut lines: Vec<reading::Line> = Vec::new();
-        let mut y = 0.0_f32;
-        // Where each paragraph starts, so we can open on the one you were editing.
-        let mut para_tops: Vec<f32> = Vec::new();
-
-        for (s, section) in self.voider.reading.iter().enumerate() {
-            if s > 0 {
-                y += title_gap;
-            }
-            let galley = ctx.fonts(|f| {
-                f.layout(section.title.clone(), head.clone(), egui::Color32::PLACEHOLDER, col_w)
-            });
-            for row in &galley.rows {
-                lines.push(reading::Line { top: y + row.min_y(), height: row.height() });
-            }
-            blocks.push((y, galley.clone(), true));
-            y += galley.size().y + para_gap;
-
-            for para in &section.paragraphs {
-                let galley = ctx.fonts(|f| {
-                    f.layout(para.clone(), body.clone(), egui::Color32::PLACEHOLDER, col_w)
-                });
-                para_tops.push(y);
-                for row in &galley.rows {
-                    lines.push(reading::Line { top: y + row.min_y(), height: row.height() });
-                }
-                blocks.push((y, galley.clone(), false));
-                y += galley.size().y + para_gap;
-            }
+        if self.voider.reading.is_empty() {
+            self.reading_pages = 1;
+            return;
         }
 
-        let offsets = reading::page_offsets(&lines, page_h);
-        self.reading_pages = offsets.len();
+        // The page: A5, as large as fits inside 94 % of the window, centred — the
+        // Python's `min(W / page_w, H / page_h) * 0.94`. It is drawn at the pixels
+        // it will occupy, so the type is as sharp as the screen allows.
+        let ppp = ctx.pixels_per_point();
+        let ratio = 148.0 / 210.0;
+        let page_h = (rect.height() * 0.94).min(rect.width() * 0.94 / ratio);
+        let page_w = page_h * ratio;
+        let w = ((page_w * ppp).round() as u32).max(1);
+        let h = (w as f32 / ratio).round() as u32;
+        let key: BookKey = (w, h, self.voider.reading_serial);
 
-        // Opening on the paragraph you were editing: only on the frame we
-        // arrive, so turning pages afterwards isn't undone.
+        let family = self.voider.config.font_family.clone();
+        if self.carousel_font.is_none() {
+            self.carousel_font = Some(typeset::TypeFont::load(&family));
+        }
+        if self.book_plan.as_ref().map(|c| c.key) != Some(key) {
+            let sections: Vec<(String, Vec<String>)> = self
+                .voider
+                .reading
+                .iter()
+                .map(|s| (s.name.clone(), s.lines.clone()))
+                .collect();
+            let font = self.carousel_font.as_ref().expect("loaded above");
+            self.book_plan = Some(BookPlanCache { key, plan: slides::book_plan(&sections, font, w, h) });
+            self.book_tex = None;
+        }
+        let plan = &self.book_plan.as_ref().expect("planned above").plan;
+        let total = plan.pages.len().max(1);
+        self.reading_pages = total;
+
+        // Opening on the paragraph you were editing: only on the frame we arrive,
+        // so turning pages afterwards isn't undone.
         if self.voider.page == 0 && self.voider.open_at_para > 0 {
-            if let Some(top) = para_tops.get(self.voider.open_at_para) {
-                self.voider.page = reading::page_of(&offsets, *top);
+            if let Some(&page) = plan.para_page.get(self.voider.open_at_para) {
+                self.voider.page = page;
             }
             self.voider.open_at_para = 0;
         }
-        let page = self.voider.page.min(offsets.len().saturating_sub(1));
-        let scroll = offsets.get(page).copied().unwrap_or(0.0);
+        let page = self.voider.page.min(total - 1);
+        let Some(book_page) = plan.pages.get(page).cloned() else {
+            return;
+        };
 
-        // Only what belongs on this page: clipped, so a line half over the edge
-        // is never drawn as a sliver.
-        let page_rect = egui::Rect::from_min_max(
-            egui::pos2(rect.left() + margin, rect.top() + top_pad),
-            egui::pos2(rect.right() - margin, rect.top() + top_pad + page_h),
-        );
-        let clipped = painter.with_clip_rect(page_rect);
-        for (top, galley, is_title) in &blocks {
-            let draw_y = page_rect.top() + top - scroll;
-            if draw_y + galley.size().y < page_rect.top() - 1.0 || draw_y > page_rect.bottom() {
-                continue; // off this page
-            }
-            let colour = if *is_title {
-                egui::Color32::from_gray(235)
-            } else {
-                egui::Color32::from_gray(205)
-            };
-            clipped.galley(egui::pos2(page_rect.left(), draw_y), galley.clone(), colour);
+        if self.book_tex.as_ref().map(|t| (t.key, t.page)) != Some((key, page)) {
+            let font = self.carousel_font.as_ref().expect("loaded above");
+            let canvas = slides::render_book_page(&book_page, font, w, h, slides::BOOK_PAPER, slides::BOOK_INK);
+            let image = egui::ColorImage::from_rgb([w as usize, h as usize], canvas.rgb());
+            let tex = ctx.load_texture("book-page", image, egui::TextureOptions::LINEAR);
+            self.book_tex = Some(BookTex { key, page, tex });
         }
-
-        if offsets.len() > 1 {
+        let Some(cached) = &self.book_tex else {
+            return;
+        };
+        let image_rect = egui::Rect::from_center_size(rect.center(), egui::vec2(w as f32 / ppp, h as f32 / ppp));
+        painter.image(
+            cached.tex.id(),
+            image_rect,
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+            egui::Color32::WHITE,
+        );
+        if total > 1 {
             painter.text(
-                egui::pos2(rect.center().x, rect.bottom() - 26.0),
+                egui::pos2(rect.center().x, rect.top() + 12.0),
                 egui::Align2::CENTER_CENTER,
-                format!("{} / {}", page + 1, offsets.len()),
+                format!("{} / {}", page + 1, total),
                 egui::FontId::proportional(11.0),
                 egui::Color32::from_gray(80),
             );
         }
     }
-
 
     /// F4 previewing the carousel: the slide that would be written, as it would
     /// be written — drawn into a texture by the same code the export uses — fitted
@@ -2278,10 +2285,99 @@ mod tests {
         assert!((r.height() / r.width() - 1350.0 / 1080.0).abs() < 0.01, "{r:?}");
     }
 
-    #[test]
-    fn in_book_mode_f4_paints_no_image() {
-        let (_d, mut app) = f5_app(&[".", "Un parrafo."]);
+    // ── F4 in book mode: a white A5 page, like the Python's ──────────────────
+
+    fn long_file(n: usize) -> Vec<String> {
+        let mut v = vec![".".to_string()];
+        for i in 0..n {
+            v.push(format!("Parrafo numero {i} con texto suficiente para ocupar espacio real en la pagina de verdad."));
+            v.push(".".to_string());
+        }
+        v
+    }
+
+    fn f4_book_app(lines: &[String]) -> (tempfile::TempDir, VoiderApp) {
+        let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+        let (d, mut app) = f5_app(&refs);
         app.voider.switch_to(app::View::F4);
+        (d, app)
+    }
+
+    #[test]
+    fn in_book_mode_f4_paints_one_white_a5_page_centred_in_the_window() {
+        let (_d, mut app) = f4_book_app(&["Primero.".to_string()]);
+        let window = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 700.0));
+        let images = painted_images(&mut app, |a, p, c, _| a.draw_f4(p, c, window));
+        assert_eq!(images.len(), 1, "{images:?}");
+        let r = images[0];
+        assert!((r.width() / r.height() - 148.0 / 210.0).abs() < 0.01, "not A5: {r:?}");
+        assert!((r.center().x - 500.0).abs() < 2.0 && (r.center().y - 350.0).abs() < 2.0, "{r:?}");
+        // 94 % of the window's height, like the Python's `* 0.94`
+        assert!((r.height() - 700.0 * 0.94).abs() < 2.0, "{r:?}");
+    }
+
+    #[test]
+    fn a_wider_than_tall_window_is_limited_by_its_height_and_a_narrow_one_by_its_width() {
+        let (_d, mut app) = f4_book_app(&["Primero.".to_string()]);
+        let tall = painted_images(&mut app, |a, p, c, _| a.draw_f4(p, c, egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, 900.0))))[0];
+        assert!((tall.width() - 300.0 * 0.94).abs() < 2.0, "{tall:?}");
+        assert!(tall.height() < 900.0 * 0.94);
+    }
+
+    #[test]
+    fn the_page_counter_follows_the_pages_of_the_book() {
+        let (_d, mut app) = f4_book_app(&long_file(60));
+        painted_text(&mut app, |a, p, c, r| a.draw_f4(p, c, r));
+        assert!(app.reading_pages > 2, "{} pages", app.reading_pages);
+        let texts: Vec<String> = painted_text(&mut app, |a, p, c, r| a.draw_f4(p, c, r)).into_iter().map(|(t, _)| t).collect();
+        assert!(texts.iter().any(|t| *t == format!("1 / {}", app.reading_pages)), "{texts:?}");
+    }
+
+    #[test]
+    fn f4_opens_on_the_page_that_holds_the_paragraph_you_were_in() {
+        let (_d, mut app) = f4_book_app(&long_file(60));
+        app.voider.open_at_para = 50;
+        painted_text(&mut app, |a, p, c, r| a.draw_f4(p, c, r));
+        assert!(app.voider.page > 0, "should have opened late in the chapter");
+        assert_eq!(app.voider.open_at_para, 0, "the jump happens once");
+        let page = app.voider.page;
+        painted_text(&mut app, |a, p, c, r| a.draw_f4(p, c, r));
+        assert_eq!(app.voider.page, page, "turning pages afterwards is not undone");
+    }
+
+    #[test]
+    fn a_new_window_size_redraws_the_page_at_its_size_but_the_book_keeps_its_pages() {
+        // The layout scales with the page, so a smaller window is the same book,
+        // smaller: same pages, drawn at the new size (not the old picture stretched).
+        let (_d, mut app) = f4_book_app(&long_file(60));
+        let big = painted_images(&mut app, |a, p, c, _| a.draw_f4(p, c, egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 700.0))))[0];
+        let pages = app.reading_pages;
+        let small = painted_images(&mut app, |a, p, c, _| a.draw_f4(p, c, egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(500.0, 350.0))))[0];
+        assert!(small.height() < big.height() * 0.6, "{small:?} vs {big:?}");
+        assert_eq!(app.reading_pages, pages);
+        let (cw, ch) = (app.book_tex.as_ref().unwrap().key.0, app.book_tex.as_ref().unwrap().key.1);
+        assert!((cw as f32 - small.width()).abs() < 1.5 && (ch as f32 - small.height()).abs() < 1.5, "the texture is for the new size");
+    }
+
+    #[test]
+    fn a_different_chapter_is_laid_out_afresh_not_taken_from_the_cache() {
+        let (_d, mut app) = f4_book_app(&long_file(60));
+        painted_text(&mut app, |a, p, c, r| a.draw_f4(p, c, r));
+        let before = app.reading_pages;
+        // F4 re-entered after the chapter on disk became a short one: the cache must
+        // not hold on to the long one
+        app.voider.view = app::View::F2;
+        void::atomic_write(&app.voider.current_file.clone(), &[".".to_string(), "Corto.".to_string()], false).unwrap();
+        app.voider.switch_to(app::View::F4);
+        painted_text(&mut app, |a, p, c, r| a.draw_f4(p, c, r));
+        assert!(app.reading_pages < before, "{} vs {before}", app.reading_pages);
+    }
+
+    #[test]
+    fn an_empty_reading_paints_nothing_and_does_not_crash() {
+        let (_d, mut app) = f5_app(&["."]);
+        app.voider.switch_to(app::View::F4);
+        app.voider.reading.clear();
         assert!(painted_images(&mut app, |a, p, c, r| a.draw_f4(p, c, r)).is_empty());
     }
 

@@ -116,7 +116,8 @@ pub fn geometry(w_px: u32, h_px: u32) -> Geometry {
         block_w: w_px as f32 - 2.0 * margin_side,
         block_h: h_px as f32 - margin_top - margin_bottom,
         indent: px(INDENT_MM),
-        font_px: BOOK_SIZE_PT * scale,
+        // 13 pt of type is 17.33 units of a page laid out in points (Qt: 96 dpi).
+        font_px: BOOK_SIZE_PT * crate::ring::PX_PER_PT * scale,
     }
 }
 
@@ -234,7 +235,11 @@ mod tests {
         let tall = geometry(1080, 1350);
         let square = geometry(1080, 1080);
         assert!(close(tall.font_px, square.font_px)); // same width → same type
-        assert!(close(tall.font_px, BOOK_SIZE_PT * tall.scale));
+        // 13 pt of type is 13 × 96/72 = 17.33 units of a page measured in points: Qt turns
+        // a font's points into pixels at 96 dpi but lays the page out in points, so the
+        // type is a third larger against the page than "13" suggests (seen on screen).
+        assert!(close(tall.font_px, BOOK_SIZE_PT * crate::ring::PX_PER_PT * tall.scale));
+        assert!(close(tall.font_px / tall.scale, 17.3333));
         assert!(tall.block_h > square.block_h);
     }
 

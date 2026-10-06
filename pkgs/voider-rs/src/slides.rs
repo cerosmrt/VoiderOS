@@ -299,6 +299,108 @@ pub fn render_slide(slide: &Slide, font: &TypeFont, w: u32, h: u32) -> Canvas {
 }
 
 
+// ── the book page, as F4 shows it ──────────────────────────────────────────
+
+/// F4's page is white paper with near-black ink, like the printed book.
+pub const BOOK_PAPER: [u8; 3] = [255, 255, 255];
+pub const BOOK_INK: [u8; 3] = [17, 17, 17];
+
+/// A chapter title: 1.5 × the body type, sunk 24 mm below the top of the text
+/// block, with 12 mm under it (`build_reading_document`).
+pub const BOOK_TITLE_SCALE: f32 = 1.5;
+pub const TITLE_SINK_MM: f32 = 24.0;
+pub const TITLE_BOTTOM_MM: f32 = 12.0;
+
+/// One page of the book.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BookPage {
+    /// The chapter title, on the first page of its chapter only.
+    pub title: Option<String>,
+    pub lines: Vec<Line>,
+}
+
+/// Every page of the book, and the page each paragraph (counted across all the
+/// chapters, in order) begins on.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BookPlan {
+    pub pages: Vec<BookPage>,
+    pub para_page: Vec<usize>,
+}
+
+/// Set the sections as a book for a `w` × `h` page (an A5 page's proportions): each
+/// chapter opens a new page with its title sunk into it, then its paragraphs,
+/// justified.
+pub fn book_plan(sections: &[(String, Vec<String>)], font: &TypeFont, w: u32, h: u32) -> BookPlan {
+    let geo = crate::carousel::geometry(w, h);
+    let line_h = leading(font, geo.font_px);
+    let mut plan = BookPlan { pages: Vec::new(), para_page: Vec::new() };
+    for (name, lines) in sections {
+        let paragraphs = crate::reformat::lines_to_paragraphs(lines);
+        let (set, starts) =
+            crate::typeset::typeset_marked(font, geo.font_px, geo.block_w, geo.indent, line_h, &paragraphs);
+        // The title sinks into the top of the chapter's first page and takes room from it.
+        let title = (!name.is_empty()).then(|| name.clone());
+        let first_h = match &title {
+            Some(t) => (geo.block_h - title_block_h(font, &geo, t)).max(0.0),
+            None => geo.block_h,
+        };
+        let (first_n, per_n) = (
+            crate::typeset::lines_that_fit(first_h, line_h),
+            crate::typeset::lines_that_fit(geo.block_h, line_h),
+        );
+        let base = plan.pages.len();
+        for (i, page_lines) in crate::typeset::paginate_first(set, line_h, first_h, geo.block_h).into_iter().enumerate() {
+            plan.pages.push(BookPage { title: if i == 0 { title.clone() } else { None }, lines: page_lines });
+        }
+        plan.para_page
+            .extend(starts.into_iter().map(|l| base + crate::typeset::page_of_line(l, first_n, per_n)));
+    }
+    plan
+}
+
+/// The title's lines, wrapped to the text block at the title's size.
+fn title_lines(font: &TypeFont, geo: &Geometry, title: &str) -> Vec<String> {
+    wrap_for_centering(font, geo.font_px * BOOK_TITLE_SCALE, geo.block_w, title)
+}
+
+/// The room a title takes at the top of its page: the sink above it, its own
+/// lines, and the space under it.
+fn title_block_h(font: &TypeFont, geo: &Geometry, title: &str) -> f32 {
+    let px = geo.font_px * BOOK_TITLE_SCALE;
+    let mm = |v: f32| crate::carousel::mm_to_pt(v) * geo.scale;
+    mm(TITLE_SINK_MM) + title_lines(font, geo, title).len() as f32 * font.natural_height(px) + mm(TITLE_BOTTOM_MM)
+}
+
+
+/// Draw one page of a book plan onto a `w` × `h` canvas.
+pub fn render_book_page(page: &BookPage, font: &TypeFont, w: u32, h: u32, paper: [u8; 3], ink: [u8; 3]) -> Canvas {
+    let geo = crate::carousel::geometry(w, h);
+    let mut canvas = Canvas::new(w, h, paper);
+    let mut body_top = 0.0;
+    if let Some(title) = &page.title {
+        let px = geo.font_px * BOOK_TITLE_SCALE;
+        let mm = |v: f32| crate::carousel::mm_to_pt(v) * geo.scale;
+        let tl_h = font.natural_height(px);
+        let centre = geo.margin_side + geo.block_w / 2.0;
+        let top = geo.margin_top + mm(TITLE_SINK_MM);
+        for (i, line) in title_lines(font, &geo, title).iter().enumerate() {
+            let x = centre - font.advance(line, px) / 2.0;
+            canvas.draw_text(font, px, x, top + i as f32 * tl_h + font.ascent(px), line, ink);
+        }
+        body_top = title_block_h(font, &geo, title);
+    }
+    let line_h = leading(font, geo.font_px);
+    let pad = (line_h - font.natural_height(geo.font_px)) / 2.0;
+    for line in &page.lines {
+        let baseline = geo.margin_top + body_top + line.y + pad + font.ascent(geo.font_px);
+        for word in &line.words {
+            canvas.draw_text(font, geo.font_px, geo.margin_side + word.x, baseline, &word.text, ink);
+        }
+    }
+    canvas
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -380,6 +482,130 @@ mod tests {
         let junk = d.path().join("junk.png");
         std::fs::write(&junk, b"not a png at all").unwrap();
         assert!(read_png(&junk).is_none());
+    }
+
+    // ── the book page (what F4 shows) ────────────────────────────────────────
+
+    fn book(sections: &[(&str, &[&str])]) -> BookPlan {
+        let s: Vec<(String, Vec<String>)> = sections.iter().map(|(t, ls)| (t.to_string(), ls.iter().map(|l| l.to_string()).collect())).collect();
+        book_plan(&s, &font(), 504, 715)
+    }
+
+    fn long(n: usize) -> Vec<String> {
+        (0..n).flat_map(|i| [format!("Parrafo numero {i} con texto suficiente para ocupar espacio real en la pagina de verdad."), ".".to_string()]).collect()
+    }
+
+    #[test]
+    fn a_short_chapter_is_one_page_with_its_title() {
+        let p = book(&[("Uno", &[".", "Un parrafo corto."])]);
+        assert_eq!(p.pages.len(), 1);
+        assert_eq!(p.pages[0].title.as_deref(), Some("Uno"));
+        assert_eq!(p.para_page, vec![0]);
+    }
+
+    #[test]
+    fn only_the_first_page_of_a_chapter_carries_the_title() {
+        let lines = long(60);
+        let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+        let p = book(&[("Largo", &refs)]);
+        assert!(p.pages.len() > 2);
+        assert_eq!(p.pages[0].title.as_deref(), Some("Largo"));
+        assert!(p.pages[1..].iter().all(|pg| pg.title.is_none()));
+    }
+
+    #[test]
+    fn the_titled_first_page_holds_fewer_lines_than_the_ones_after_it() {
+        let lines = long(60);
+        let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+        let p = book(&[("Largo", &refs)]);
+        assert!(p.pages[0].lines.len() < p.pages[1].lines.len(), "{} vs {}", p.pages[0].lines.len(), p.pages[1].lines.len());
+    }
+
+    #[test]
+    fn a_chapter_with_no_title_gets_the_whole_page() {
+        let lines = long(60);
+        let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+        let p = book(&[("", &refs)]);
+        assert!(p.pages[0].title.is_none());
+        assert_eq!(p.pages[0].lines.len(), p.pages[1].lines.len());
+    }
+
+    #[test]
+    fn each_chapter_opens_a_new_page_with_its_own_title() {
+        let p = book(&[("Uno", &[".", "a."]), ("Dos", &[".", "b."])]);
+        assert_eq!(p.pages.len(), 2);
+        assert_eq!(p.pages[0].title.as_deref(), Some("Uno"));
+        assert_eq!(p.pages[1].title.as_deref(), Some("Dos"));
+        assert_eq!(p.para_page, vec![0, 1]); // one paragraph in each, counted across both
+    }
+
+    #[test]
+    fn a_paragraph_is_mapped_to_the_page_it_starts_on() {
+        let lines = long(60);
+        let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+        let p = book(&[("Largo", &refs)]);
+        assert_eq!(p.para_page.len(), 60);
+        assert_eq!(p.para_page[0], 0);
+        assert!(p.para_page.windows(2).all(|w| w[0] <= w[1]), "pages go forward");
+        assert!(*p.para_page.last().unwrap() > 0 && *p.para_page.last().unwrap() < p.pages.len());
+        // the page it says the paragraph starts on does hold that paragraph's opening words
+        for (n, &page) in p.para_page.iter().enumerate() {
+            let needle = format!("numero {n} ");
+            let text: String = p.pages[page].lines.iter().map(|l| l.text()).collect::<Vec<_>>().join(" ");
+            assert!(text.contains(&needle) || text.contains(&format!("Parrafo numero {n}")), "paragraph {n} not on page {page}");
+        }
+    }
+
+    #[test]
+    fn an_empty_chapter_is_still_a_page_with_its_title() {
+        let p = book(&[("Vacio", &["."])]);
+        assert_eq!(p.pages.len(), 1);
+        assert_eq!(p.pages[0].title.as_deref(), Some("Vacio"));
+        assert!(p.para_page.is_empty());
+    }
+
+    #[test]
+    fn no_sections_is_no_pages() {
+        let p = book(&[]);
+        assert!(p.pages.is_empty() && p.para_page.is_empty());
+    }
+
+    #[test]
+    fn a_book_page_is_white_paper_with_dark_ink_at_the_size_asked() {
+        let p = book(&[("Uno", &[".", "Un parrafo del capitulo, con texto."])]);
+        let c = render_book_page(&p.pages[0], &font(), 504, 715, BOOK_PAPER, BOOK_INK);
+        assert_eq!((c.w, c.h), (504, 715));
+        assert_eq!(c.pixel(5, 5), [255, 255, 255]);
+        assert!(!c.is_blank(BOOK_PAPER));
+        // ink is dark, never lighter than the paper by accident: some pixel is near the ink colour
+        let darkest = (0..715).flat_map(|y| (0..504).map(move |x| (x, y))).map(|(x, y)| c.pixel(x, y)[0]).min().unwrap();
+        assert!(darkest < 60, "the darkest pixel is {darkest}");
+    }
+
+    #[test]
+    fn the_title_sits_above_the_body_and_centred() {
+        let p = book(&[("TITULO", &[".", "Un parrafo del capitulo, con texto."])]);
+        let c = render_book_page(&p.pages[0], &font(), 504, 715, BOOK_PAPER, BOOK_INK);
+        let rows_with_ink: Vec<u32> = (0..715).filter(|&y| (0..504).any(|x| c.pixel(x, y) != BOOK_PAPER)).collect();
+        // nothing in the top margin plus the sink
+        let first = *rows_with_ink.first().unwrap();
+        assert!(first > 60, "ink starts at {first}, inside the margin/sink");
+        // the title's ink is centred horizontally
+        let title_rows: Vec<u32> = rows_with_ink.iter().copied().filter(|&y| y < first + 20).collect();
+        let cr = &c;
+        let xs: Vec<u32> = title_rows.iter().flat_map(|&y| (0..504).filter(move |&x| cr.pixel(x, y) != BOOK_PAPER)).collect();
+        let (lo, hi) = (*xs.iter().min().unwrap(), *xs.iter().max().unwrap());
+        assert!(((lo + hi) as i32 - 504).abs() < 14, "title spans {lo}..{hi}");
+    }
+
+    #[test]
+    fn a_page_without_a_title_starts_its_text_right_at_the_top_margin() {
+        let p = book(&[("", &[".", "Un parrafo del capitulo, con texto."])]);
+        let titled = book(&[("X", &[".", "Un parrafo del capitulo, con texto."])]);
+        let a = render_book_page(&p.pages[0], &font(), 504, 715, BOOK_PAPER, BOOK_INK);
+        let b = render_book_page(&titled.pages[0], &font(), 504, 715, BOOK_PAPER, BOOK_INK);
+        let first_ink = |c: &Canvas| (0..715).find(|&y| (0..504).any(|x| c.pixel(x, y) != BOOK_PAPER)).unwrap();
+        assert!(first_ink(&a) < first_ink(&b), "the sunk title pushes the text down");
     }
 
     // ── the plan: what a carousel is, shared by the preview and the export ───

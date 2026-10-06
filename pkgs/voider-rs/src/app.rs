@@ -216,6 +216,9 @@ pub struct Voider {
     pub oracle: String,
     /// F4: what is being read, as titled sections of prose.
     pub reading: Vec<reading::Section>,
+    /// Bumped each time F4 gathers what it will show, so a layout cached for a
+    /// different chapter is never taken for the current one.
+    pub reading_serial: u64,
     /// F4 shows the carousel's slides instead of the book's pages (Ctrl+Shift+V).
     pub carousel_view: bool,
     /// What the preview shows: the same plan the export writes.
@@ -308,6 +311,7 @@ impl Voider {
             o_books: Vec::new(),
             oracle: String::new(),
             reading: Vec::new(),
+            reading_serial: 0,
             carousel_view: false,
             carousel_slides: Vec::new(),
             page: 0,
@@ -930,6 +934,7 @@ impl Voider {
     /// means the active file alone. Opening on the paragraph you were just
     /// editing only makes sense when it IS the file being shown.
     pub fn enter_reading(&mut self, from: View) {
+        self.reading_serial += 1;
         self.page = 0;
         let from_book = from == View::F3
             || (!self.library.entries.is_empty()
