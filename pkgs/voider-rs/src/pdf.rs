@@ -114,6 +114,64 @@ pub fn render(html: &str, font_family: &str, font_bytes: Option<Vec<u8>>) -> Res
 }
 
 
+/// The book exactly as F4 shows it: every page of `plan`, every word where the
+/// screen puts it, as text in the embedded font — the Python's
+/// `print_reading_document`, which prints F4's own document page by page. The
+/// plan was set for a `w` × `h`-pixel A5 page; positions are scaled to points.
+#[cfg(feature = "pdf")]
+pub fn book_pdf(
+    title: &str,
+    plan: &crate::slides::BookPlan,
+    font: &crate::typeset::TypeFont,
+    w: u32,
+    h: u32,
+    ink: [u8; 3],
+) -> Result<Vec<u8>, String> {
+    use printpdf::*;
+
+    let mut doc = PdfDocument::new(title);
+    let parsed = ParsedFont::from_bytes(font.bytes(), 0, &mut Vec::new())
+        .ok_or_else(|| "la fuente no se pudo incrustar".to_string())?;
+    let font_id = doc.add_font(&parsed);
+    let page_w = crate::carousel::mm_to_pt(PAGE_W_MM);
+    let page_h = crate::carousel::mm_to_pt(PAGE_H_MM);
+    let scale = page_w / w as f32;
+    let colour = Color::Rgb(Rgb::new(
+        ink[0] as f32 / 255.0,
+        ink[1] as f32 / 255.0,
+        ink[2] as f32 / 255.0,
+        None,
+    ));
+    let mut pages = Vec::new();
+    for page in &plan.pages {
+        let mut ops = vec![Op::SetFillColor { col: colour.clone() }];
+        for run in crate::slides::book_page_runs(page, font, w, h) {
+            ops.push(Op::StartTextSection);
+            ops.push(Op::SetFont { font: PdfFontHandle::External(font_id.clone()), size: Pt(run.px * scale) });
+            ops.push(Op::SetTextCursor {
+                pos: Point { x: Pt(run.x * scale), y: Pt(page_h - run.baseline * scale) },
+            });
+            ops.push(Op::ShowText { items: vec![TextItem::Text(run.text)] });
+            ops.push(Op::EndTextSection);
+        }
+        pages.push(PdfPage::new(Mm(PAGE_W_MM), Mm(PAGE_H_MM), ops));
+    }
+    let _ = h;
+    Ok(doc.with_pages(pages).save(&PdfSaveOptions::default(), &mut Vec::new()))
+}
+
+#[cfg(not(feature = "pdf"))]
+pub fn book_pdf(
+    _title: &str,
+    _plan: &crate::slides::BookPlan,
+    _font: &crate::typeset::TypeFont,
+    _w: u32,
+    _h: u32,
+    _ink: [u8; 3],
+) -> Result<Vec<u8>, String> {
+    Err("esta versión se compiló sin exportación de PDF".to_string())
+}
+
 /// Sin la característica `pdf` (el build de Windows, donde rust-fontconfig no
 /// linkea), componer no está disponible. Se dice, en vez de fallar callado.
 #[cfg(not(feature = "pdf"))]

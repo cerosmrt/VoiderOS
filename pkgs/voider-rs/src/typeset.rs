@@ -14,6 +14,10 @@ use ab_glyph::{Font, FontArc, PxScale, ScaleFont};
 #[derive(Clone)]
 pub struct TypeFont {
     font: FontArc,
+    /// The font file itself — a PDF embeds it, so the page prints as it shows.
+    bytes: std::sync::Arc<Vec<u8>>,
+    /// The family that was asked for and found; empty for the fallback face.
+    family: String,
     /// Whether and how words may be broken across lines. Off until asked.
     hyph: crate::hyphen::Mode,
 }
@@ -22,7 +26,8 @@ impl TypeFont {
     /// The writing font if it can be found on this machine; otherwise the plain
     /// face egui ships with, so a slide can always be drawn.
     pub fn load(family: &str) -> TypeFont {
-        if let Some(font) = crate::fonts::load_family(family).and_then(TypeFont::from_bytes) {
+        if let Some(mut font) = crate::fonts::load_family(family).and_then(TypeFont::from_bytes) {
+            font.family = family.to_string();
             return font;
         }
         // egui carries a plain face of its own; it is what draws the interface
@@ -37,7 +42,23 @@ impl TypeFont {
     }
 
     pub fn from_bytes(bytes: Vec<u8>) -> Option<TypeFont> {
-        FontArc::try_from_vec(bytes).ok().map(|font| TypeFont { font, hyph: crate::hyphen::Mode::Off })
+        let kept = std::sync::Arc::new(bytes.clone());
+        FontArc::try_from_vec(bytes).ok().map(|font| TypeFont {
+            font,
+            bytes: kept,
+            family: String::new(),
+            hyph: crate::hyphen::Mode::Off,
+        })
+    }
+
+    /// Whether this is `family` (and not the fallback face).
+    pub fn is_named(&self, family: &str) -> bool {
+        !self.family.is_empty() && crate::fonts::normalise(&self.family) == crate::fonts::normalise(family)
+    }
+
+    /// The font file, for embedding.
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
     }
 
     /// The same font, set with the given hyphenation.

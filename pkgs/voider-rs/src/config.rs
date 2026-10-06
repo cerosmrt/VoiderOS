@@ -34,6 +34,10 @@ pub struct Config {
     /// is guessed), a language (`es`, `en`), or empty for none. The Python's
     /// `reading_hyphen_lang`.
     pub reading_hyphen_lang: String,
+    /// The font and size F4's book (and its PDF, and the carousel) is set in —
+    /// not the writing font. The Python's `reading_font` / `reading_size`.
+    pub reading_font: String,
+    pub reading_size: f32,
     /// Where F3's cursor was left — by index and by name, so it survives a
     /// restart and a reorder (the Python's `last_book_index` / `last_book_entry`).
     pub last_book_index: Option<usize>,
@@ -58,6 +62,8 @@ impl Default for Config {
             carousel_w: 1080,
             carousel_h: 1350,
             reading_hyphen_lang: "auto".to_string(),
+            reading_font: "EB Garamond".to_string(),
+            reading_size: 13.0,
             last_book_index: None,
             last_book_entry: None,
             void_key: "enter".to_string(),
@@ -120,6 +126,12 @@ impl Config {
             // Written even when empty: an empty value is how hyphenation is turned off.
             lines.push(format!("reading_hyphen_lang = {}", self.reading_hyphen_lang));
         }
+        if self.reading_font != "EB Garamond" {
+            lines.push(format!("reading_font = {}", self.reading_font));
+        }
+        if self.reading_size != 13.0 {
+            lines.push(format!("reading_size = {}", self.reading_size));
+        }
         if self.void_key != "enter" {
             lines.push(format!("void_key = {}", self.void_key));
         }
@@ -165,6 +177,14 @@ impl Config {
                 "reading_hyphen_lang" => c.reading_hyphen_lang = value.to_string(),
                 "last_book_index" => c.last_book_index = value.parse().ok(),
                 "void_key" if !value.is_empty() => c.void_key = value.to_string(),
+                "reading_font" if !value.is_empty() => c.reading_font = value.to_string(),
+                "reading_size" => {
+                    if let Ok(v) = value.parse::<f32>() {
+                        if v > 0.0 {
+                            c.reading_size = v;
+                        }
+                    }
+                }
                 "last_book_entry" if !value.is_empty() => c.last_book_entry = Some(value.to_string()),
                 "carousel_preset" if !value.is_empty() => c.carousel_preset = value.to_string(),
                 "carousel_w" => {
@@ -300,6 +320,8 @@ mod tests {
             last_book_index: Some(444),
             last_book_entry: Some("ATTACK BY DRAWING.txt".into()),
             void_key: "space".into(),
+            reading_font: "Consolas".into(),
+            reading_size: 14.0,
         };
         c.save(d.path()).unwrap();
         assert_eq!(Config::load(d.path()), c);

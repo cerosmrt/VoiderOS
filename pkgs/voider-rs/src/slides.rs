@@ -402,10 +402,21 @@ fn title_block_h(font: &TypeFont, geo: &Geometry, title: &str) -> f32 {
 }
 
 
-/// Draw one page of a book plan onto a `w` × `h` canvas.
-pub fn render_book_page(page: &BookPage, font: &TypeFont, w: u32, h: u32, paper: [u8; 3], ink: [u8; 3]) -> Canvas {
+/// One piece of set text on a page: what, where its left edge and baseline
+/// fall (pixels of the `w` × `h` page), and at what size.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Run {
+    pub text: String,
+    pub x: f32,
+    pub baseline: f32,
+    pub px: f32,
+}
+
+/// Every piece of text one page of a book plan puts down, in place. The screen
+/// rasterises these; the PDF writes them as text — so the two can't differ.
+pub fn book_page_runs(page: &BookPage, font: &TypeFont, w: u32, h: u32) -> Vec<Run> {
     let geo = crate::carousel::geometry(w, h);
-    let mut canvas = Canvas::new(w, h, paper);
+    let mut runs = Vec::new();
     let mut body_top = 0.0;
     if let Some(title) = &page.title {
         let px = geo.font_px * BOOK_TITLE_SCALE;
@@ -415,7 +426,7 @@ pub fn render_book_page(page: &BookPage, font: &TypeFont, w: u32, h: u32, paper:
         let top = geo.margin_top + mm(TITLE_SINK_MM);
         for (i, line) in title_lines(font, &geo, title).iter().enumerate() {
             let x = centre - font.advance(line, px) / 2.0;
-            canvas.draw_text(font, px, x, top + i as f32 * tl_h + font.ascent(px), line, ink);
+            runs.push(Run { text: line.clone(), x, baseline: top + i as f32 * tl_h + font.ascent(px), px });
         }
         body_top = title_block_h(font, &geo, title);
     }
@@ -424,8 +435,17 @@ pub fn render_book_page(page: &BookPage, font: &TypeFont, w: u32, h: u32, paper:
     for line in &page.lines {
         let baseline = geo.margin_top + body_top + line.y + pad + font.ascent(geo.font_px);
         for word in &line.words {
-            canvas.draw_text(font, geo.font_px, geo.margin_side + word.x, baseline, &word.text, ink);
+            runs.push(Run { text: word.text.clone(), x: geo.margin_side + word.x, baseline, px: geo.font_px });
         }
+    }
+    runs
+}
+
+/// Draw one page of a book plan onto a `w` × `h` canvas.
+pub fn render_book_page(page: &BookPage, font: &TypeFont, w: u32, h: u32, paper: [u8; 3], ink: [u8; 3]) -> Canvas {
+    let mut canvas = Canvas::new(w, h, paper);
+    for run in book_page_runs(page, font, w, h) {
+        canvas.draw_text(font, run.px, run.x, run.baseline, &run.text, ink);
     }
     canvas
 }

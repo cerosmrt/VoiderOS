@@ -380,6 +380,7 @@ impl VoiderApp {
 
     /// A key that no prompt or overlay took: Ctrl+A, then the global keys, then
     /// the view's own.
+    #[cfg(test)]
     fn route_key(&mut self, key: egui::Key, modifiers: egui::Modifiers) {
         self.route_key_with(key, modifiers, caps_lock_on());
     }

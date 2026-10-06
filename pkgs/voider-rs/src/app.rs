@@ -824,23 +824,26 @@ impl Voider {
     ///
     /// El Python abre un diálogo de "guardar como"; acá el destino se deduce del
     /// título, que es lo que uno iba a escribir igual. Devuelve dónde quedó.
+    /// What F4 shows, as a PDF: the same plan the screen draws, page for page,
+    /// word for word, the reading font embedded, ink #111 on white.
+    pub fn book_pdf_bytes(&self, title: &str) -> Result<Vec<u8>, String> {
+        let sections: Vec<(String, Vec<String>)> =
+            self.reading.iter().map(|s| (s.name.clone(), s.lines.clone())).collect();
+        let font = self.type_font();
+        let (w, h) = PDF_PAGE_PX;
+        let plan = slides::book_plan(&sections, &font, w, h);
+        pdf::book_pdf(title, &plan, &font, w, h, slides::BOOK_INK)
+    }
+
     pub fn export_pdf(&mut self) -> Option<PathBuf> {
         if self.reading.is_empty() {
             self.status = "Nada para exportar".into();
             return None;
         }
-        let title = self
-            .reading
-            .first()
-            .map(|s| s.title.clone())
-            .filter(|t| !t.is_empty())
-            .unwrap_or_else(|| file_title(&self.current_file));
+        // void/<active file>.pdf, as the Python's export_vault proposes.
+        let title = file_title(&self.current_file);
         let dest = pdf::default_path(&self.void_dir, &title);
-        let family = self.config.font_family.clone();
-        let html = pdf::book_html(&self.reading, &family);
-        // La fuente se incrusta si está en la máquina, así el PDF se ve igual
-        // en cualquier lado.
-        let bytes = match pdf::render(&html, &family, fonts::load_family(&family)) {
+        let bytes = match self.book_pdf_bytes(&title) {
             Ok(b) => b,
             Err(e) => {
                 self.status = format!("PDF: {e}");
@@ -902,7 +905,8 @@ impl Voider {
 
     /// The font the book and the slides are set in, with the configured hyphenation.
     pub fn type_font(&self) -> typeset::TypeFont {
-        typeset::TypeFont::load(&self.config.font_family)
+        // The READING font (the Python's reading_font), not the writing one.
+        typeset::TypeFont::load(&self.config.reading_font)
             .with_hyphenation(hyphen::Mode::from_config(&self.config.reading_hyphen_lang))
     }
 
@@ -1172,9 +1176,9 @@ impl Voider {
             .collect();
 
         let mut pdf_note = String::new();
-        let family = self.config.font_family.clone();
-        let html = pdf::book_html(&self.reading, &family);
-        match pdf::render(&html, &family, fonts::load_family(&family)) {
+        // The same PDF as Ctrl+S: F4's own pages (the Python prints the same
+        // reading document for the bundle).
+        match self.book_pdf_bytes(out_name) {
             Ok(bytes) => std::fs::write(dir.join(format!("{out_name}.pdf")), bytes)?,
             Err(e) => pdf_note = format!(" (sin PDF: {e})"),
         }
@@ -5194,6 +5198,10 @@ fn step_tenth(value: f32, delta: f32) -> f32 {
     (((value + delta) * 10.0).round() / 10.0).clamp(0.0, 1.0)
 }
 
+/// The page the book's PDF is set on, in pixels: A5 at 300 dpi. The layout
+/// doesn't depend on it (it scales), only the precision of the positions.
+pub const PDF_PAGE_PX: (u32, u32) = (1748, 2480);
+
 fn restored_index(void_dir: &Path, file: &Path, total: usize) -> usize {
     file.file_name()
         .and_then(|n| n.to_str())
@@ -8293,6 +8301,61 @@ mod tests {
         let bytes = std::fs::read(&dest).unwrap();
         assert!(bytes.starts_with(b"%PDF"), "lo que quedó no es un PDF");
         assert!(v.status.contains("PDF"));
+    }
+
+    /// How many pages a PDF has (its `/Type /Page` objects, not `/Pages`).
+    fn pdf_pages(bytes: &[u8]) -> usize {
+        let text = String::from_utf8_lossy(bytes).replace("/Type /Page", "/Type/Page");
+        text.match_indices("/Type/Page").filter(|(i, _)| !text[i + 10..].starts_with('s')).count()
+    }
+
+    #[test]
+    fn the_pdf_has_the_same_pages_as_the_book_on_screen() {
+        // Python prints F4's own document (print_reading_document): what you
+        // read is what binds. A long chapter, so there is more than one page.
+        let mut lines = vec![".".to_string()];
+        for k in 0..120 {
+            lines.push(format!("Esta es la oración número {k}, larga para que llene renglones."));
+            if k % 6 == 5 {
+                lines.push(".".to_string());
+            }
+        }
+        let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+        let (_d, mut v) = app(&refs);
+        v.switch_to(View::F4);
+        let sections: Vec<(String, Vec<String>)> =
+            v.reading.iter().map(|s| (s.name.clone(), s.lines.clone())).collect();
+        let (w, h) = PDF_PAGE_PX;
+        let on_screen = slides::book_plan(&sections, &v.type_font(), w, h).pages.len();
+        assert!(on_screen > 1);
+        let dest = v.export_pdf().expect("no exportó");
+        assert_eq!(pdf_pages(&std::fs::read(dest).unwrap()), on_screen);
+    }
+
+    /// To look at by hand: `VOIDER_RS_PDF_OUT=<file> cargo test -- --ignored volcar_pdf`.
+    #[test]
+    #[ignore]
+    fn volcar_pdf_de_muestra() {
+        let Ok(out) = std::env::var("VOIDER_RS_PDF_OUT") else { return };
+        let mut lines = vec![".".to_string()];
+        for k in 0..60 {
+            lines.push(format!("Esta es la oración número {k}, larga para que llene renglones y se vea el justificado."));
+            if k % 5 == 4 {
+                lines.push(".".to_string());
+            }
+        }
+        let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+        let (_d, mut v) = app(&refs);
+        v.switch_to(View::F4);
+        std::fs::write(out, v.book_pdf_bytes("Muestra").unwrap()).unwrap();
+    }
+
+    #[test]
+    fn the_book_is_set_in_the_reading_font_not_the_writing_one() {
+        let (_d, mut v) = app(&[".", "x"]);
+        v.config.font_family = "__no_such_family__".into();
+        v.config.reading_font = "EB Garamond".into();
+        assert!(v.type_font().is_named("EB Garamond"));
     }
 
     // ── Ctrl+Shift+A: the sale bundle — PDF + EPUB + TXT (test_sale_bundle.py) ──
