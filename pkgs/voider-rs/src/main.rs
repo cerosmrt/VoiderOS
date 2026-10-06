@@ -1452,12 +1452,12 @@ impl VoiderApp {
         }
         let hint = if prompt.drives.len() > 1 {
             format!(
-                "⏎ copiar   ↑↓ otro destino ({}/{})   cualquier otra tecla cancela",
+                "Enter copiar   ↑↓ otro destino ({}/{})   cualquier otra tecla cancela",
                 prompt.idx + 1,
                 prompt.drives.len()
             )
         } else {
-            "⏎ copiar   ·   cualquier otra tecla cancela".to_string()
+            "Enter copiar   ·   cualquier otra tecla cancela".to_string()
         };
         painter.text(
             egui::pos2(centre.x, centre.y + 74.0),
@@ -1764,7 +1764,7 @@ impl VoiderApp {
         painter.text(
             egui::pos2(rect.center().x, rect.bottom() - 26.0),
             egui::Align2::CENTER_CENTER,
-            "Tab sortea   ⇧⏎ agrega   Ctrl+Supr saca   ⏎ abre",
+            "Tab sortea   Shift+Enter agrega   Ctrl+Supr saca   Enter abre",
             egui::FontId::proportional(11.0),
             egui::Color32::from_gray(75),
         );
@@ -1790,7 +1790,7 @@ impl VoiderApp {
         painter.text(
             egui::pos2(rect.center().x, rect.bottom() - 26.0),
             egui::Align2::CENTER_CENTER,
-            "↑↓ otra   ⏎ quedársela",
+            "↑↓ otra   Enter quedársela",
             egui::FontId::proportional(11.0),
             egui::Color32::from_gray(75),
         );
@@ -1861,9 +1861,9 @@ impl VoiderApp {
             egui::Color32::from_gray(95),
         );
         let hint = if b.looking == browse::Looking::Dir {
-            "⏎ entrar   ⇧⏎ elegir esta carpeta   Esc cancela"
+            "Enter entrar   Shift+Enter elegir esta carpeta   Esc cancela"
         } else {
-            "⏎ entrar / elegir   Esc cancela"
+            "Enter entrar / elegir   Esc cancela"
         };
         painter.text(
             egui::pos2(centre.x, rect.bottom() - 24.0),
