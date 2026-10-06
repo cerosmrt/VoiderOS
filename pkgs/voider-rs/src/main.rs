@@ -287,7 +287,8 @@ impl VoiderApp {
                     // F9's text goes into egui's own multiline widget, which
                     // reads the same events itself — typing it again here would
                     // double every character.
-                    View::F4 | View::F5 | View::F6 | View::F7 | View::F8 | View::F9 | View::F10 => {}
+                    View::F4 | View::F5 | View::F6 | View::F7 | View::F8 | View::F9 | View::F10
+                    | View::Concat => {}
                 },
                 egui::Event::Key { key, pressed: true, modifiers, .. } => {
                     // The help is a reference, not a mode: any key at all puts
@@ -390,6 +391,7 @@ impl VoiderApp {
             View::F5 => self.handle_f5_key(key, modifiers),
             View::F9 => self.handle_f9_key(key, modifiers),
             View::F10 => self.handle_f10_key(key, modifiers),
+            View::Concat => self.handle_concat_key(key),
         }
     }
 
@@ -891,6 +893,54 @@ impl VoiderApp {
         }
     }
 
+
+    /// The whole book, read-only: ↑/↓ walk it, Enter or Escape back to F3.
+    fn handle_concat_key(&mut self, key: egui::Key) {
+        use egui::Key;
+        match key {
+            Key::ArrowUp => self.voider.concat_navigate(-1),
+            Key::ArrowDown => self.voider.concat_navigate(1),
+            Key::Enter | Key::Escape => self.voider.switch_to(View::F3),
+            _ => {}
+        }
+    }
+
+    /// The whole book as a ring: the line you are on lit, the rest dimmed on
+    /// the ring's curve, as F2 shows a document — but nothing here is edited.
+    fn draw_concat(&self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
+        let centre = rect.center();
+        let font = egui::FontId::proportional(self.font_size());
+        let line_h = self.ring_line_h(ctx, &font);
+        let reach = (rect.height() / 2.0 / line_h).ceil() as isize;
+        let ring = &self.voider.concat;
+        for offset in -reach..=reach {
+            let text = ring.get(offset);
+            if text.is_empty() {
+                continue;
+            }
+            let alpha = if offset == 0 {
+                255
+            } else {
+                ring::to_u8(ring::edit_line_alpha(
+                    offset,
+                    offset.unsigned_abs() as f32 * line_h,
+                    rect.height() / 2.0,
+                    false,
+                    0,
+                ))
+            };
+            if alpha == 0 {
+                continue;
+            }
+            painter.text(
+                egui::pos2(centre.x, centre.y + offset as f32 * line_h),
+                egui::Align2::CENTER_CENTER,
+                text,
+                font.clone(),
+                white_alpha(alpha),
+            );
+        }
+    }
 
     /// F6, el lector del corpus: moverse por el libro y salir.
     fn handle_f6_key(&mut self, key: egui::Key) {
@@ -2080,6 +2130,7 @@ impl eframe::App for VoiderApp {
                     // egui's own multiline box already is.
                     View::F9 => self.draw_f9(ui, rect),
                     View::F10 => self.draw_f10(&painter, rect),
+                    View::Concat => self.draw_concat(&painter, ctx, rect),
                 }
                 self.draw_title(&painter, rect);
                 if self.voider.backup_prompt.is_some() {

@@ -111,6 +111,9 @@ pub enum View {
     F9,
     /// Settings: the writing font and its size.
     F10,
+    /// A whole book read in one ring, read-only: Enter on a dot in F3 (the
+    /// Python's view 9, `book_concat_view`).
+    Concat,
 }
 
 impl View {
@@ -124,7 +127,7 @@ impl View {
             View::F4 => Some("F4"),
             View::F6 => Some("F6"),
             View::F7 => Some("F7"),
-            View::F5 | View::F8 | View::F9 | View::F10 => None,
+            View::F5 | View::F8 | View::F9 | View::F10 | View::Concat => None,
         }
     }
 
@@ -239,6 +242,10 @@ pub struct Voider {
     pub f2_search: Option<SearchState>,
     /// Ctrl+F in F3: filtering the library to matching chapters.
     pub f3_search: Option<SearchState>,
+    /// The book read whole (Enter on a dot in F3): its lines, and which of them
+    /// are the `── TITLE ──` headers the cursor steps over.
+    pub concat: LineRing,
+    pub concat_headers: std::collections::HashSet<usize>,
 }
 
 /// A backup that has been worked out but not yet written: which drives were
@@ -326,6 +333,8 @@ impl Voider {
             prose_caret: None,
             f2_search: None,
             f3_search: None,
+            concat: LineRing::new([".".to_string()]),
+            concat_headers: std::collections::HashSet::new(),
         }
     }
 
@@ -630,6 +639,8 @@ impl Voider {
             View::F6 => self.enter_o_reader(),
             View::F7 => self.enter_o_browser(),
             View::F8 => self.refresh_oracle(),
+            // book_open_concat has already filled the ring.
+            View::Concat => {}
         }
         self.save_last_view();
     }
@@ -2637,14 +2648,78 @@ impl Voider {
         self.f3_sync_entry();
     }
 
-    /// Enter in F3 with the caret at the start: open what is highlighted (after
-    /// renaming it if its title was edited).
+    /// Enter in F3 with the caret at the start: on a dot, the book read whole;
+    /// otherwise open what is highlighted (renaming it first if its title was
+    /// edited). The portal opens the scratch.
     pub fn f3_enter(&mut self) -> io::Result<()> {
+        if library::is_separator(self.library.current()) {
+            self.book_open_concat();
+            return Ok(());
+        }
         if !self.book_try_rename()? {
             return Ok(());
         }
         self.open_current_chapter();
         Ok(())
+    }
+
+    /// The book under the highlighted dot as one read-only ring — the Python's
+    /// `_book_open_concat`: per chapter a `── TITLE ──` header and its lines, a
+    /// dot between chapters, the cursor on the first real line.
+    pub fn book_open_concat(&mut self) {
+        let entries = &self.library.entries;
+        let n = entries.len();
+        let dot = self.library.index;
+        let mut group: Vec<String> = Vec::new();
+        let mut i = (dot + 1) % n.max(1);
+        for _ in 0..n.saturating_sub(1) {
+            if library::is_separator(&entries[i]) {
+                break;
+            }
+            group.push(entries[i].clone());
+            i = (i + 1) % n;
+        }
+        let mut lines = vec![".".to_string()];
+        let mut headers = std::collections::HashSet::new();
+        for fname in &group {
+            let path = library::chapter_path(&self.void_dir, fname);
+            if fname.is_empty() || !path.is_file() {
+                continue;
+            }
+            headers.insert(lines.len());
+            lines.push(library::chapter_title_header(fname));
+            lines.extend(
+                void::load_doc(&path)
+                    .lines
+                    .into_iter()
+                    .map(|l| l.trim().to_string())
+                    .filter(|l| !l.is_empty() && l != "."),
+            );
+            lines.push(".".to_string());
+        }
+        if lines.len() <= 1 {
+            return;
+        }
+        let start = (0..lines.len())
+            .find(|&k| lines[k] != "." && !lines[k].is_empty() && !headers.contains(&k))
+            .unwrap_or(0);
+        self.concat = LineRing::new(lines);
+        self.concat.index = start;
+        self.concat_headers = headers;
+        self.switch_to(View::Concat);
+    }
+
+    /// ↑/↓ in the whole-book view: line by line, stepping over dots and headers.
+    pub fn concat_navigate(&mut self, delta: isize) {
+        self.tts.cut();
+        let n = self.concat.lines.len();
+        for _ in 0..n {
+            self.concat.move_by(delta);
+            let cur = self.concat.current();
+            if cur != "." && !cur.is_empty() && !self.concat_headers.contains(&self.concat.index) {
+                break;
+            }
+        }
     }
 
     pub fn open_current_chapter(&mut self) {
@@ -5004,6 +5079,44 @@ mod tests {
         assert_eq!(v.view, View::F2);
         assert!(v.current_file.ends_with("Dos.txt"));
         assert!(v.ring.lines.contains(&"de dos".to_string()));
+    }
+
+    // ── Enter on a dot in F3: the whole book, read-only (view 9 in Python) ───
+
+    #[test]
+    fn enter_on_a_dot_opens_the_book_concatenated_with_titled_chapters() {
+        let (_d, mut v) = lib_app(&[".", "Uno.txt", "Dos.txt", ".", "otro.txt"]);
+        v.library.index = 0;
+        v.f3_sync_entry();
+        v.f3_enter().unwrap();
+        assert_eq!(v.view, View::Concat);
+        assert_eq!(
+            v.concat.lines,
+            vec![".", "── UNO ──", "de uno", ".", "── DOS ──", "de dos", "."]
+        );
+        assert_eq!(v.concat.current(), "de uno", "it opens on the first real line");
+    }
+
+    #[test]
+    fn moving_in_the_concatenated_book_skips_dots_and_titles() {
+        let (_d, mut v) = lib_app(&[".", "Uno.txt", "Dos.txt"]);
+        v.library.index = 0;
+        v.f3_enter().unwrap();
+        v.concat_navigate(1);
+        assert_eq!(v.concat.current(), "de dos");
+        v.concat_navigate(1);
+        assert_eq!(v.concat.current(), "de uno", "it wraps round");
+        v.concat_navigate(-1);
+        assert_eq!(v.concat.current(), "de dos");
+    }
+
+    #[test]
+    fn a_dot_with_no_book_under_it_opens_nothing() {
+        // (A dot at the very end wraps round to the first book, as in Python.)
+        let (_d, mut v) = lib_app(&[".", ".", "Uno.txt"]);
+        v.library.index = 0;
+        v.f3_enter().unwrap();
+        assert_eq!(v.view, View::F3);
     }
 
     // ── F3 Ctrl+Delete (test_empty_trash.py, test_portal.py) ─────────────────
