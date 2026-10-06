@@ -18,6 +18,11 @@ fn font_dirs() -> Vec<PathBuf> {
     }
     dirs.push(PathBuf::from("/run/current-system/sw/share/fonts"));
     dirs.push(PathBuf::from("/usr/share/fonts"));
+    // Windows keeps them elsewhere; these are empty off Windows (no such variables).
+    dirs.extend(windows_font_dirs(
+        std::env::var("windir").ok().as_deref(),
+        std::env::var("LOCALAPPDATA").ok().as_deref(),
+    ));
     dirs
 }
 
@@ -41,11 +46,41 @@ pub fn is_regular_face(file_name: &str, family: &str) -> bool {
     !AVOID.iter().any(|bad| f.contains(bad))
 }
 
+/// Where fonts live on Windows: the system's, and the per-user ones. Pure, so it can
+/// be checked anywhere: it is given the two environment values.
+pub fn windows_font_dirs(windir: Option<&str>, local_app_data: Option<&str>) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(w) = windir {
+        dirs.push(Path::new(w).join("Fonts"));
+    }
+    if let Some(l) = local_app_data {
+        dirs.push(Path::new(l).join("Microsoft").join("Windows").join("Fonts"));
+    }
+    dirs
+}
+
+/// EB Garamond, inside the program.
+static EB_GARAMOND_REGULAR: &[u8] = include_bytes!("../assets/EBGaramond12-Regular.ttf");
+
+/// EB Garamond travels inside the program, so a machine without it (a fresh
+/// Windows, say) still draws the book's own letters instead of falling back to
+/// whatever face the toolkit has.
+pub fn bundled_family(family: &str) -> Option<&'static [u8]> {
+    let n = normalise(family);
+    (!n.is_empty() && n.starts_with("ebgaramond")).then_some(EB_GARAMOND_REGULAR)
+}
+
 /// The bytes of the regular face of `family`, if it can be found.
 pub fn load_family(family: &str) -> Option<Vec<u8>> {
+    load_family_from(family, &font_dirs())
+}
+
+/// Like `load_family`, over the given folders; and when the family is not found, the
+/// bundled one if that is what was asked for.
+pub fn load_family_from(family: &str, dirs: &[PathBuf]) -> Option<Vec<u8>> {
     let mut fallback: Option<PathBuf> = None;
-    for dir in font_dirs() {
-        for path in walk(&dir, 0) {
+    for dir in dirs {
+        for path in walk(dir, 0) {
             let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_string()) else {
                 continue;
             };
@@ -65,15 +100,23 @@ pub fn load_family(family: &str) -> Option<Vec<u8>> {
             }
         }
     }
-    fallback.and_then(|p| std::fs::read(p).ok())
+    fallback
+        .and_then(|p| std::fs::read(p).ok())
+        .or_else(|| bundled_family(family).map(<[u8]>::to_vec))
 }
 
 /// Family names we can offer in the settings panel: whatever is installed,
 /// deduplicated and sorted, with egui's built-in always available.
 pub fn available_families() -> Vec<String> {
+    available_families_in(&font_dirs())
+}
+
+/// Like `available_families`, over the given folders. EB Garamond is always offered:
+/// it is bundled.
+pub fn available_families_in(dirs: &[PathBuf]) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
-    for dir in font_dirs() {
-        for path in walk(&dir, 0) {
+    for dir in dirs {
+        for path in walk(dir, 0) {
             let ext = path
                 .extension()
                 .map(|e| e.to_string_lossy().to_lowercase())
@@ -88,6 +131,9 @@ pub fn available_families() -> Vec<String> {
                 }
             }
         }
+    }
+    if !names.iter().any(|n| normalise(n).starts_with("ebgaramond")) {
+        names.push("EB Garamond".to_string());
     }
     names.sort();
     names.insert(0, "Default".to_string());
@@ -151,6 +197,67 @@ mod tests {
         assert_eq!(family_of("EBGaramond12-Regular"), "EBGaramond12");
         assert_eq!(family_of("FiraCode_Bold"), "FiraCode");
         assert_eq!(family_of("Simple"), "Simple");
+    }
+
+    // ── a machine without the font (a fresh Windows) ─────────────────────────
+
+    #[test]
+    fn eb_garamond_is_bundled_under_any_spelling_and_nothing_else_is() {
+        for name in ["EB Garamond", "EBGaramond", "ebgaramond12", "eb-garamond"] {
+            assert!(bundled_family(name).is_some(), "{name}");
+        }
+        assert!(bundled_family("Consolas").is_none());
+        assert!(bundled_family("").is_none());
+    }
+
+    #[test]
+    fn the_bundled_bytes_are_a_real_font() {
+        let bytes = bundled_family("EB Garamond").unwrap();
+        assert!(bytes.len() > 100_000);
+        assert!(crate::typeset::TypeFont::from_bytes(bytes.to_vec()).is_some());
+    }
+
+    #[test]
+    fn with_no_font_folders_at_all_eb_garamond_is_still_found() {
+        let got = load_family_from("EB Garamond", &[]).expect("falls back to the bundled one");
+        assert_eq!(got.as_slice(), bundled_family("EB Garamond").unwrap());
+    }
+
+    #[test]
+    fn another_family_that_is_missing_stays_missing() {
+        assert!(load_family_from("Consolas", &[]).is_none());
+    }
+
+    #[test]
+    fn an_installed_font_wins_over_the_bundled_one() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("EBGaramond12-Regular.ttf"), b"installed").unwrap();
+        let got = load_family_from("EB Garamond", &[d.path().to_path_buf()]).unwrap();
+        assert_eq!(got, b"installed");
+    }
+
+    #[test]
+    fn the_offered_list_has_eb_garamond_even_when_nothing_is_installed() {
+        let list = available_families_in(&[]);
+        assert_eq!(list.first().map(String::as_str), Some("Default"));
+        assert!(list.iter().any(|n| normalise(n) == "ebgaramond"), "{list:?}");
+    }
+
+    #[test]
+    fn it_is_not_listed_twice_when_it_is_installed_too() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("EBGaramond12-Regular.ttf"), b"x").unwrap();
+        let list = available_families_in(&[d.path().to_path_buf()]);
+        assert_eq!(list.iter().filter(|n| normalise(n).starts_with("ebgaramond")).count(), 1, "{list:?}");
+    }
+
+    #[test]
+    fn windows_looks_in_the_system_and_the_per_user_font_folders() {
+        let d = windows_font_dirs(Some("C:\\Windows"), Some("C:\\Users\\f\\AppData\\Local"));
+        assert_eq!(d[0], PathBuf::from("C:\\Windows").join("Fonts"));
+        assert_eq!(d[1], PathBuf::from("C:\\Users\\f\\AppData\\Local").join("Microsoft").join("Windows").join("Fonts"));
+        assert_eq!(windows_font_dirs(None, None), Vec::<PathBuf>::new());
+        assert_eq!(windows_font_dirs(Some("C:\\Windows"), None).len(), 1);
     }
 
     #[test]
