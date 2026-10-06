@@ -262,34 +262,7 @@ impl VoiderApp {
                 egui::Event::Text(_) if self.voider.help_open => {}
                 // Con el navegador abierto no se escribe: la tecla es para él.
                 egui::Event::Text(_) if self.voider.browser.is_some() => {}
-                egui::Event::Text(t) => match self.voider.view {
-                    View::F1 => {
-                        let _ = self.voider.type_text(&t, caps);
-                    }
-                    View::F2 => {
-                        if self.voider.f2_search.is_some() {
-                            self.voider.f2_search_type(&text_line::neutralize_caps(&t, caps));
-                        } else {
-                            self.voider.entry.insert(&text_line::neutralize_caps(&t, caps));
-                            let _ = self.voider.doc_live_save();
-                        }
-                    }
-                    // In F3 the line is the title (or the name being given): typing
-                    // edits it, and leaving renames. Separators and the portal
-                    // don't take typing.
-                    View::F3 => {
-                        if self.voider.f3_search.is_some() {
-                            self.voider.f3_search_type(&text_line::neutralize_caps(&t, caps));
-                        } else {
-                            self.voider.f3_type(&text_line::neutralize_caps(&t, caps));
-                        }
-                    }
-                    // F9's text goes into egui's own multiline widget, which
-                    // reads the same events itself — typing it again here would
-                    // double every character.
-                    View::F4 | View::F5 | View::F6 | View::F7 | View::F8 | View::F9 | View::F10
-                    | View::Concat => {}
-                },
+                egui::Event::Text(t) => self.route_text(&t, caps),
                 egui::Event::Key { key, pressed: true, modifiers, .. } => {
                     // The help is a reference, not a mode: any key at all puts
                     // it away, and that key does nothing else.
@@ -355,6 +328,44 @@ impl VoiderApp {
                 }
                 _ => {}
             }
+        }
+    }
+
+    /// Typed text that no prompt or overlay took, for the view you are in.
+    fn route_text(&mut self, t: &str, caps: bool) {
+        match self.voider.view {
+            // '*' is Tab's twin in the line editors (widgets/circular_view):
+            // the cut-up, never a character.
+            View::F1 if t == "*" => self.voider.recycle_line(),
+            View::F1 => {
+                let _ = self.voider.type_text(t, caps);
+            }
+            View::F2 if t == "*" && self.voider.f2_search.is_none() => {
+                let _ = self.voider.doc_tab();
+            }
+            View::F2 => {
+                if self.voider.f2_search.is_some() {
+                    self.voider.f2_search_type(&text_line::neutralize_caps(t, caps));
+                } else {
+                    self.voider.entry.insert(&text_line::neutralize_caps(t, caps));
+                    let _ = self.voider.doc_live_save();
+                }
+            }
+            // In F3 the line is the title (or the name being given): typing
+            // edits it, and leaving renames. Separators and the portal don't
+            // take typing.
+            View::F3 => {
+                if self.voider.f3_search.is_some() {
+                    self.voider.f3_search_type(&text_line::neutralize_caps(t, caps));
+                } else {
+                    self.voider.f3_type(&text_line::neutralize_caps(t, caps));
+                }
+            }
+            // F9's text goes into egui's own multiline widget, which reads the
+            // same events itself — typing it again here would double every
+            // character.
+            View::F4 | View::F5 | View::F6 | View::F7 | View::F8 | View::F9 | View::F10
+            | View::Concat => {}
         }
     }
 
@@ -580,10 +591,22 @@ impl VoiderApp {
                     let _ = self.voider.doc_backspace();
                 } // scriptio continua: type and send, no editing
             }
+            // Delete at the very end (nothing selected) joins the next line on.
+            Key::Delete
+                if self.voider.entry.selection().is_none()
+                    && self.voider.entry.caret() == self.voider.entry.len() =>
+            {
+                let _ = self.voider.doc_join_next();
+            }
             Key::Delete => {
                 self.voider.entry.delete();
                 let _ = self.voider.doc_live_save();
             }
+            // Ctrl+↑/↓: the start / end of the line (with Shift, selecting there).
+            Key::ArrowUp if m.ctrl && m.shift => self.voider.entry.extend_home(),
+            Key::ArrowDown if m.ctrl && m.shift => self.voider.entry.extend_end(),
+            Key::ArrowUp if m.ctrl => self.voider.entry.home(),
+            Key::ArrowDown if m.ctrl => self.voider.entry.end(),
             // Alt+Shift duplicates, the copy going where the arrow points. Before
             // the plain Alt arms below or they would swallow it.
             Key::ArrowUp if m.alt && m.shift => {
@@ -620,8 +643,7 @@ impl VoiderApp {
             Key::ArrowRight if m.shift => self.voider.entry.extend_caret(1),
             Key::Home if m.shift => self.voider.entry.extend_home(),
             Key::End if m.shift => self.voider.entry.extend_end(),
-            Key::ArrowLeft => self.voider.entry.move_caret(-1),
-            Key::ArrowRight => self.voider.entry.move_caret(1),
+            Key::ArrowLeft | Key::ArrowRight => self.wrap_caret(key),
             Key::Home => self.voider.doc_jump_edge(false),
             Key::End => self.voider.doc_jump_edge(true),
             Key::PageUp => self.voider.goto_dot(-1),
@@ -729,8 +751,7 @@ impl VoiderApp {
             }
             Key::ArrowLeft if m.shift => self.voider.entry.extend_caret(-1),
             Key::ArrowRight if m.shift => self.voider.entry.extend_caret(1),
-            Key::ArrowLeft if !m.alt => self.voider.entry.move_caret(-1),
-            Key::ArrowRight if !m.alt => self.voider.entry.move_caret(1),
+            Key::ArrowLeft | Key::ArrowRight if !m.alt => self.wrap_caret(key),
             // Alt+Shift+↑/↓ duplicates the chapter, the copy going where the arrow
             // points. Before the plain arrows or they would just move the cursor.
             Key::ArrowUp if m.alt && m.shift => {
@@ -786,6 +807,20 @@ impl VoiderApp {
         let after = (self.voider.library.index, self.voider.library.current().to_string());
         if after != before {
             self.voider.f3_sync_entry();
+        }
+    }
+
+    /// ←/→ in a ring's line (F2, F3): one character — except that ← at the very
+    /// start goes round to the end and → at the end back to the start, as the
+    /// Python's line editor does.
+    fn wrap_caret(&mut self, key: egui::Key) {
+        let e = &mut self.voider.entry;
+        let free = e.selection().is_none();
+        match key {
+            egui::Key::ArrowLeft if free && e.caret() == 0 => e.end(),
+            egui::Key::ArrowRight if free && e.caret() == e.len() => e.home(),
+            egui::Key::ArrowLeft => e.move_caret(-1),
+            _ => e.move_caret(1),
         }
     }
 
@@ -2482,6 +2517,61 @@ mod tests {
         assert_eq!(app.voider.view, app::View::F3);
         assert!(app.voider.pending_new);
         assert_eq!(app.voider.library.entries, vec!["Uno.txt", "", "Dos.txt"]);
+    }
+
+    // ── F2 line editing (circular_view.CustomLineEdit) ──────────────────────
+
+    fn f2_app(lines: &[&str], index: usize) -> (tempfile::TempDir, VoiderApp) {
+        let (d, mut app) = f5_app(lines);
+        app.voider.ring.index = index;
+        app.voider.switch_to(app::View::F2);
+        (d, app)
+    }
+
+    #[test]
+    fn delete_at_the_end_of_the_line_joins_the_next_one() {
+        let (_d, mut app) = f2_app(&[".", "hola", "mundo"], 1);
+        app.voider.entry.end();
+        app.route_key(egui::Key::Delete, none());
+        assert_eq!(app.voider.ring.lines, vec![".", "holamundo"]);
+    }
+
+    #[test]
+    fn left_at_the_start_wraps_to_the_end_and_right_at_the_end_to_the_start() {
+        let (_d, mut app) = f2_app(&[".", "hola"], 1);
+        assert_eq!(app.voider.entry.caret(), 0);
+        app.route_key(egui::Key::ArrowLeft, none());
+        assert_eq!(app.voider.entry.caret(), 4);
+        app.route_key(egui::Key::ArrowRight, none());
+        assert_eq!(app.voider.entry.caret(), 0);
+    }
+
+    #[test]
+    fn ctrl_up_and_down_go_to_the_start_and_end_of_the_line() {
+        let (_d, mut app) = f2_app(&[".", "hola"], 1);
+        app.route_key(egui::Key::ArrowDown, ctrl_only());
+        assert_eq!(app.voider.entry.caret(), 4);
+        assert_eq!(app.voider.ring.index, 1, "Ctrl+↓ moved to another line");
+        app.route_key(egui::Key::ArrowUp, ctrl_only());
+        assert_eq!(app.voider.entry.caret(), 0);
+        let ctrl_shift = egui::Modifiers { ctrl: true, command: true, shift: true, ..Default::default() };
+        app.route_key(egui::Key::ArrowDown, ctrl_shift);
+        assert_eq!(app.voider.entry.selection(), Some((0, 4)));
+    }
+
+    #[test]
+    fn a_star_in_f2_is_tab_not_a_character() {
+        let (_d, mut app) = f2_app(&[".", "a", "b", ".", "c"], 0);
+        app.route_text("*", false);
+        assert!(!app.voider.ring.lines.iter().any(|l| l.contains('*')));
+    }
+
+    #[test]
+    fn a_star_in_f1_recycles_a_line_instead_of_typing_it() {
+        let (_d, mut app) = f5_app(&[".", "a"]);
+        app.voider.switch_to(app::View::F1);
+        app.route_text("*", false);
+        assert!(!app.voider.entry.text().contains('*'));
     }
 
     // ── Ctrl+Z: only where Python has it (new_interface.eventFilter) ────────

@@ -281,8 +281,7 @@ impl Voider {
         let current_file = file.into();
         let doc = void::load_doc(&current_file);
         let config = Config::load(&void_dir);
-        let mut ring = LineRing::new(doc.lines);
-        ring.index = restored_index(&void_dir, &current_file, ring.lines.len());
+        let ring = doc_ring(&void_dir, &current_file, &doc);
         Self {
             typewriter: config.typewriter,
             quit_requested: false,
@@ -2283,8 +2282,7 @@ impl Voider {
     pub fn set_active_file(&mut self, path: impl Into<PathBuf>) {
         let path = path.into();
         let doc = void::load_doc(&path);
-        let mut ring = LineRing::new(doc.lines);
-        ring.index = restored_index(&self.void_dir, &path, ring.lines.len());
+        let ring = doc_ring(&self.void_dir, &path, &doc);
         self.current_file = path;
         self.ring = ring;
         self.load_failed = doc.read_failed;
@@ -3161,8 +3159,11 @@ impl Voider {
             return Ok(());
         }
         if self.para_focus {
+            // Python leaves the focus and then goes on with the line it was on.
+            let at = self.ring.index;
             self.exit_para_focus();
-            return Ok(());
+            self.ring.index = at;
+            self.sync_entry();
         }
         if cur.trim().is_empty() {
             self.switch_to(View::F1);
@@ -4326,6 +4327,34 @@ impl Voider {
         self.save()
     }
 
+    /// Delete at the end of the line in F2: join the line below onto this one —
+    /// the Python's `_doc_join_next`. Never across a dot (that would erase a
+    /// paragraph boundary nobody asked to erase). The caret sits at the seam.
+    pub fn doc_join_next(&mut self) -> io::Result<()> {
+        let i = self.ring.index;
+        let n = self.ring.lines.len();
+        if i + 1 >= n || self.ring.lines[i] == "." || self.ring.lines[i + 1] == "." {
+            return Ok(());
+        }
+        // Whatever is typed in the line is what joins.
+        let _ = self.doc_live_save();
+        let next = self.ring.lines.remove(i + 1);
+        let seam = self.ring.lines[i].chars().count();
+        self.ring.lines[i].push_str(&next);
+        if self.para_focus {
+            self.para_focus_content.retain(|&k| k != i + 1);
+            for k in self.para_focus_content.iter_mut() {
+                if *k > i + 1 {
+                    *k -= 1;
+                }
+            }
+        }
+        let joined = self.ring.lines[i].clone();
+        self.entry.set_text(&joined);
+        self.entry.set_caret(seam);
+        self.save()
+    }
+
     // ── F10: settings ─────────────────────────────────────────────────────────
 
     /// The font families this machine can offer.
@@ -4531,6 +4560,19 @@ fn titled_chapter(entry: &str, text: &str) -> String {
     } else {
         format!("{header}\n{body}")
     }
+}
+
+/// A loaded file as the ring Voider edits: at the line it was left on — and a
+/// file with nothing but dots gets a blank line to write in, the cursor on it
+/// (the Python's `load_doc_lines`). The blank isn't on disk until typed into.
+fn doc_ring(void_dir: &Path, file: &Path, doc: &void::Doc) -> LineRing {
+    let mut ring = LineRing::new(doc.lines.clone());
+    ring.index = restored_index(void_dir, file, ring.lines.len());
+    if !doc.read_failed && ring.lines.iter().all(|l| l == ".") {
+        ring.lines.push(String::new());
+        ring.index = ring.lines.len() - 1;
+    }
+    ring
 }
 
 fn restored_index(void_dir: &Path, file: &Path, total: usize) -> usize {
@@ -4858,6 +4900,47 @@ mod tests {
         assert_eq!(v.ring.index, 2); // landed on the new line
         assert_eq!(v.entry.text(), " mundo");
         assert_eq!(v.entry.caret(), 0);
+    }
+
+    #[test]
+    fn delete_at_the_end_joins_with_the_line_below() {
+        let (_d, mut v) = app(&[".", "hola", "mundo", ".", "otro"]);
+        v.ring.index = 1;
+        v.switch_to(View::F2);
+        v.doc_join_next().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "holamundo", ".", "otro"]);
+        assert_eq!(v.ring.index, 1);
+        assert_eq!(v.entry.caret(), 4);
+        // …but never across a dot.
+        v.doc_join_next().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "holamundo", ".", "otro"]);
+    }
+
+    #[test]
+    fn a_file_with_nothing_but_dots_opens_on_a_blank_line_to_write_in() {
+        let d = tempfile::tempdir().unwrap();
+        let f = d.path().join("I/vacio.txt");
+        void::atomic_write(&f, &[".".to_string()], false).unwrap();
+        let v = Voider::open(d.path(), &f);
+        assert_eq!(v.ring.lines, vec![".", ""]);
+        assert_eq!(v.ring.index, 1);
+        // The blank line is not written until something is typed in it.
+        assert_eq!(void::load_doc(&f).lines, vec!["."]);
+    }
+
+    #[test]
+    fn enter_at_the_start_while_focused_leaves_focus_and_still_splits() {
+        let (_d, mut v) = app(&[".", "uno", "dos"]);
+        v.ring.index = 0;
+        v.switch_to(View::F2);
+        v.doc_confirm_edit().unwrap(); // on the dot: focus the paragraph
+        assert!(v.para_focus);
+        v.ring.index = 2;
+        v.sync_entry();
+        v.doc_confirm_edit().unwrap();
+        assert!(!v.para_focus);
+        // Python: leaving focus, then a non-empty line splits at 0 (a blank above).
+        assert!(v.ring.lines.iter().filter(|l| l.is_empty()).count() == 1, "{:?}", v.ring.lines);
     }
 
     #[test]
@@ -6656,9 +6739,9 @@ mod tests {
         v.ring.index = 2;
         v.save_last_line();
         // The file shrank between sessions — reopening must not go out of range.
-        void::atomic_write(&v.current_file, &[".".to_string()], false).unwrap();
+        void::atomic_write(&v.current_file, &[".".to_string(), "x".to_string()], false).unwrap();
         let reopened = Voider::open(&v.void_dir, &v.current_file);
-        assert_eq!(reopened.ring.index, 0);
+        assert_eq!(reopened.ring.index, 1);
     }
 
     #[test]
