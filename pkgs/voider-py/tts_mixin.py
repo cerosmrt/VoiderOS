@@ -6,11 +6,12 @@ import threading
 
 class TtsMixin:
 
-    _TTS_MODELS = {
-        'en': os.path.expanduser('~/void/tts/en_GB-alan-medium.onnx'),
-        'es': os.path.expanduser('~/void/tts/es_ES-sharvard-medium.onnx'),
-        'it': os.path.expanduser('~/void/tts/it_IT-riccardo-x_low.onnx'),
-    }
+    @property
+    def _TTS_MODELS(self):
+        """The voice models, under the configured void (not under ~, which is a Linux
+        habit): read each time, so a different void gives different paths."""
+        from platform_paths import tts_models
+        return tts_models(getattr(self, 'void_dir', ''))
 
     def _detect_lang(self, text):
         try:

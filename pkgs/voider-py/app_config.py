@@ -29,7 +29,7 @@ DEFAULT_CONFIG = {
     "sale_bundle_dir_es": "",
     "sale_bundle_dir_en": "",
     "void_key": "enter",
-    "font_family": "Consolas",
+    "font_family": "EB Garamond",
     "font_size": 11,
     # F4 reading/print font — a book serif, independent of the editing font above.
     "reading_font": "EB Garamond",

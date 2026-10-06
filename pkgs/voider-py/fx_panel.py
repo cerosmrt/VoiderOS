@@ -41,7 +41,9 @@ TITLES = {
     'bw':    'BLACK & WHITE',
 }
 
-STATE_FILE = '/tmp/voider-fx'
+from platform_paths import tmp_file
+
+STATE_FILE = tmp_file('voider-fx')
 
 # Flat map of all parameter defaults (used for initial state)
 _ALL_DEFAULTS: dict = {}
