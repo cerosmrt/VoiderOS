@@ -4,19 +4,21 @@
 //! long paragraphs; Voider wants a line per sentence so lines can be moved,
 //! recirculated and read one at a time. Blank lines become `.` separators.
 //!
-//! A full stop only ends a sentence when what follows starts a new one, and
-//! never after an ellipsis, an abbreviation, an initial, or inside a decimal.
+//! A full stop only ends a sentence when what follows starts a new one, and not
+//! on the first dot of an ellipsis, an abbreviation, an initial, or inside a
+//! decimal — the Python's rules exactly (see `split_sentences`).
 
 #![allow(dead_code)]
 
-/// Abbreviations that do not end a sentence.
-const ABBREVS: [&str; 24] = [
+/// Abbreviations that do not end a sentence — the Python's `ABBREVS`.
+const ABBREVS: [&str; 23] = [
     "mr", "dr", "mrs", "ms", "st", "prof", "jr", "sr", "ud", "vd", "pág", "núm", "art", "ed",
-    "vol", "fig", "cap", "e.g", "i.e", "etc", "vs", "cf", "no", "sra",
+    "vol", "fig", "cap", "e.g", "i.e", "etc", "vs", "cf", "no",
 ];
 
-/// Punctuation that can trail a sentence's final mark: `.»` `?"` `.)`.
-const TRAILING: [char; 8] = ['.', '!', '?', '\'', '"', '»', ')', '…'];
+/// Punctuation that can trail a sentence's final mark: `.»` `?"` `.)` — the
+/// Python's `'.!?\'"»)'`.
+const TRAILING: [char; 7] = ['.', '!', '?', '\'', '"', '»', ')'];
 
 /// Reformat lines the way Voider's own format expects: every line is its own
 /// unit — NEVER joined with its neighbour, because by the time text reaches
@@ -183,52 +185,45 @@ fn normalise_spaces(s: &str) -> String {
 
 /// Split one paragraph's text into sentences.
 pub fn split_sentences(text: &str) -> Vec<String> {
+    // A line-for-line port of the Python's `split_sentences` (io_mixin.py
+    // `reformat_active_file`, f5678_mixin.py `_reformat_raw_to_lines`): the F6
+    // reader's positions are indices into its output, so the cut must be the
+    // same to the character.
     let chars: Vec<char> = text.chars().collect();
     let mut sentences: Vec<String> = Vec::new();
     let mut start = 0usize;
     let mut i = 0usize;
 
+    let push = |sentences: &mut Vec<String>, from: usize, to: usize| {
+        let s: String = chars[from..to].iter().collect();
+        sentences.push(s.trim().to_string());
+    };
+
     while i < chars.len() {
         let ch = chars[i];
-        if ch != '.' && ch != '!' && ch != '?' {
-            i += 1;
-            continue;
-        }
-        if ch == '.' && is_exception(&chars, i) {
-            i += 1;
-            continue;
-        }
-        // Swallow the marks that belong to this sentence's ending.
-        let mut end = i + 1;
-        while end < chars.len() && TRAILING.contains(&chars[end]) {
-            end += 1;
-        }
-        let rest: String = chars[end..].iter().collect();
-        if rest.trim().is_empty() {
-            let s: String = chars[start..end].iter().collect();
-            let s = s.trim().to_string();
-            if !s.is_empty() {
-                sentences.push(s);
+        if ch == '.' || ch == '!' || ch == '?' {
+            if ch == '.' && is_exception(&chars, i) {
+                i += 1;
+                continue;
             }
-            start = end;
-            i = end;
-            continue;
-        }
-        // A new sentence only begins on whitespace followed by an opening.
-        let after: Vec<char> = chars[end..].to_vec();
-        let spaces = after.iter().take_while(|c| c.is_whitespace()).count();
-        let opens = after
-            .get(spaces)
-            .is_some_and(|c| c.is_uppercase() || ['"', '«', '¿', '¡', '('].contains(c));
-        if spaces > 0 && opens {
-            let s: String = chars[start..end].iter().collect();
-            let s = s.trim().to_string();
-            if !s.is_empty() {
-                sentences.push(s);
+            let mut end = i + 1;
+            while end < chars.len() && TRAILING.contains(&chars[end]) {
+                end += 1;
             }
-            start = end + spaces;
-            i = start;
-            continue;
+            if chars[end..].iter().all(|c| c.is_whitespace()) {
+                push(&mut sentences, start, end);
+                start = end;
+                i = end;
+                continue;
+            }
+            // `re.match(r'\s+([A-ZÁÉÍÓÚÜÑ"«¿¡(])', rest)`
+            let spaces = chars[end..].iter().take_while(|c| c.is_whitespace()).count();
+            if spaces > 0 && chars.get(end + spaces).is_some_and(|c| OPENERS.contains(*c)) {
+                push(&mut sentences, start, end);
+                start = end + spaces;
+                i = start;
+                continue;
+            }
         }
         i += 1;
     }
@@ -237,44 +232,41 @@ pub fn split_sentences(text: &str) -> Vec<String> {
     if !tail.is_empty() {
         sentences.push(tail);
     }
-    sentences
+    sentences.into_iter().filter(|s| !s.is_empty()).collect()
 }
 
+/// What may open a new sentence — the Python's `[A-ZÁÉÍÓÚÜÑ"«¿¡(]`, exactly:
+/// ASCII capitals plus the Spanish accented ones, not every Unicode capital.
+const OPENERS: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZÁÉÍÓÚÜÑ\"«¿¡(";
+
 /// Whether the dot at `pos` (a character index) is *not* a sentence boundary.
+/// The Python's `is_exception`, rule for rule — including that only the FIRST
+/// dot of a `...` is protected: after `olla... Odottakaas` the sentence ends.
 pub fn is_exception(chars: &[char], pos: usize) -> bool {
-    // An ellipsis, from either side of it.
+    // Ellipsis: `text[pos:pos+3] == '...'` or `text[pos-2:pos] == '..'`.
     if chars.get(pos..pos + 3).is_some_and(|w| w == ['.', '.', '.']) {
         return true;
     }
     if pos >= 2 && chars[pos - 2] == '.' && chars[pos - 1] == '.' {
         return true;
     }
-    if pos >= 1 && chars[pos - 1] == '.' {
-        return true;
-    }
-    if chars.get(pos + 1).is_some_and(|c| *c == '.') {
-        return true;
-    }
     // A decimal number: 3.50
-    if pos > 0
-        && chars[pos - 1].is_ascii_digit()
-        && chars.get(pos + 1).is_some_and(char::is_ascii_digit)
-    {
+    if pos > 0 && chars[pos - 1].is_numeric() && chars.get(pos + 1).is_some_and(|c| c.is_numeric()) {
         return true;
     }
-    // A standalone initial: J. R.
-    if pos > 0 && chars[pos - 1].is_uppercase() && (pos == 1 || chars[pos - 2].is_whitespace()) {
+    // A standalone initial: J. R. (preceded by a space or a tab, or the start)
+    if pos > 0 && chars[pos - 1].is_uppercase() && (pos == 1 || chars[pos - 2] == ' ' || chars[pos - 2] == '\t') {
         return true;
     }
-    // A known abbreviation.
-    let mut word_start = pos;
+    // A known abbreviation: the char before the dot, plus the letters before it.
+    if pos == 0 {
+        return false;
+    }
+    let mut word_start = pos - 1;
     while word_start > 0 && chars[word_start - 1].is_alphabetic() {
         word_start -= 1;
     }
-    let word: String = chars[word_start..pos]
-        .iter()
-        .flat_map(|c| c.to_lowercase())
-        .collect();
+    let word: String = chars[word_start..pos].iter().flat_map(|c| c.to_lowercase()).collect();
     ABBREVS.contains(&word.as_str())
 }
 
@@ -303,10 +295,20 @@ mod tests {
     }
 
     #[test]
-    fn an_ellipsis_does_not_split() {
+    fn an_ellipsis_ends_the_sentence_when_a_new_one_starts_like_the_python() {
+        // Python: ['Pensé...', 'Que no vendrías.'] — only the first dot of the
+        // three is protected, so the last one closes the sentence.
         assert_eq!(
             split_sentences("Pensé... Que no vendrías."),
-            v(&["Pensé... Que no vendrías."])
+            v(&["Pensé...", "Que no vendrías."])
+        );
+    }
+
+    #[test]
+    fn an_ellipsis_followed_by_lowercase_stays_in_its_sentence() {
+        assert_eq!(
+            split_sentences("Pensé... que no vendrías."),
+            v(&["Pensé... que no vendrías."])
         );
     }
 

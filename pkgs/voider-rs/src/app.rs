@@ -1358,13 +1358,12 @@ impl Voider {
             self.status = "No se pudo leer ese libro".into();
             return false;
         };
-        let lines: Vec<String> = text
-            .lines()
-            .map(|l| l.trim_end().to_string())
-            .filter(|l| !l.trim().is_empty())
-            .collect();
-        self.o_ring = LineRing::new(if lines.is_empty() { vec![".".to_string()] } else { lines });
-        let pos = self.ws.position_of(&name);
+        // Lo mismo que ve el Python: sin la cabecera de Gutenberg y una oración
+        // por línea. Las posiciones de .working_set.json son índices sobre esto.
+        let lines = corpus::reader_lines(&corpus::strip_gutenberg(&text));
+        self.o_ring = LineRing::new(lines);
+        // Sin posición guardada, la 1: el punto de arriba no se lee.
+        let pos = self.ws.position_of(&name).max(1);
         self.o_ring.index = pos.min(self.o_ring.lines.len().saturating_sub(1));
         self.o_file = name;
         true
@@ -5713,7 +5712,7 @@ mod tests {
         let o = v.void_dir.join("O");
         std::fs::create_dir_all(&o).unwrap();
         for b in books {
-            std::fs::write(o.join(b), "primera linea\n.\nsegunda linea\n").unwrap();
+            std::fs::write(o.join(b), "Primera linea.\n\nSegunda linea.\n").unwrap();
         }
         corpus::rebuild_cache(&v.void_dir, &o).unwrap();
         v.o_books = corpus::load_cache(&v.void_dir);
@@ -5766,7 +5765,23 @@ mod tests {
         v.ws_tab();
         assert!(v.open_o_book());
         assert_eq!(v.o_file, "a.txt");
-        assert!(v.o_ring.lines.contains(&"primera linea".to_string()));
+        assert!(v.o_ring.lines.contains(&"Primera linea.".to_string()));
+    }
+
+    #[test]
+    fn f6_abre_el_libro_como_el_python_sin_gutenberg_y_una_oracion_por_linea() {
+        let (_d, mut v) = corpus_app(&["a.txt"]);
+        std::fs::write(
+            v.o_dir().join("a.txt"),
+            "Licencia.\n*** START OF THE PROJECT GUTENBERG EBOOK A ***\n\nUno. Dos\nsigue.\n\nTres.\n*** END OF THE PROJECT GUTENBERG EBOOK A ***\nfin",
+        )
+        .unwrap();
+        v.switch_to(View::F7);
+        v.ws_tab();
+        assert!(v.open_o_book());
+        assert_eq!(v.o_ring.lines, vec![".", "Uno.", "Dos sigue.", ".", "Tres."]);
+        // Sin posición guardada arranca en 1, salteando el punto de arriba.
+        assert_eq!(v.o_ring.index, 1);
     }
 
     #[test]
@@ -5799,7 +5814,7 @@ mod tests {
     fn el_oraculo_saca_una_linea_del_corpus() {
         let (_d, mut v) = corpus_app(&["a.txt"]);
         v.switch_to(View::F8);
-        assert!(v.oracle == "primera linea" || v.oracle == "segunda linea");
+        assert!(v.oracle == "Primera linea." || v.oracle == "Segunda linea.");
     }
 
     #[test]

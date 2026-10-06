@@ -375,9 +375,138 @@ pub fn oracle_line(dir: &Path, names: &[String]) -> String {
     "...".to_string()
 }
 
+/// Sacarle a un libro la cabecera y el pie de Project Gutenberg — el Python's
+/// `_strip_gutenberg_boilerplate`. Lo que hay antes de la línea
+/// `*** START OF THE/THIS PROJECT GUTENBERG…` (incluida) y desde
+/// `*** END OF …` se va; sin marcas, el texto queda entero. Sin mayúsculas.
+pub fn strip_gutenberg(raw: &str) -> String {
+    let mut text = raw;
+    if let Some(end_of_line) = find_marker(text, "start of").and_then(|at| {
+        text[at..].find('\n').map(|nl| at + nl + 1)
+    }) {
+        text = &text[end_of_line..];
+    }
+    if let Some(at) = find_marker(text, "end of") {
+        text = &text[..at];
+    }
+    text.trim().to_string()
+}
+
+/// Dónde empieza `***<espacios>START OF THE|THIS PROJECT GUTENBERG` (o `END OF`).
+/// Comparación ASCII sin mayúsculas, que no corre los índices de bytes.
+fn find_marker(text: &str, what: &str) -> Option<usize> {
+    let lower = text.to_ascii_lowercase();
+    let mut from = 0;
+    while let Some(rel) = lower[from..].find("***") {
+        let at = from + rel;
+        let rest = lower[at + 3..].trim_start();
+        for which in ["this", "the"] {
+            if rest.starts_with(&format!("{what} {which} project gutenberg")) {
+                return Some(at);
+            }
+        }
+        from = at + 3;
+    }
+    None
+}
+
+/// Un libro crudo → las líneas que muestra F6: un punto al principio, un punto
+/// entre párrafos, una oración por línea — el Python's `_reformat_raw_to_lines`.
+/// Las posiciones de `.working_set.json` son índices sobre ESTAS líneas, así que
+/// las dos apps tienen que cortar igual.
+pub fn reader_lines(raw: &str) -> Vec<String> {
+    let mut out = vec![".".to_string()];
+    for (i, para) in raw_paragraphs(raw).iter().enumerate() {
+        let text = para.split_whitespace().collect::<Vec<_>>().join(" ");
+        if text.is_empty() || text == "." {
+            continue;
+        }
+        if i > 0 {
+            out.push(".".to_string());
+        }
+        out.extend(crate::reformat::split_sentences(&text));
+    }
+    out
+}
+
+/// Los párrafos de `re.split(r'\n\s*\n+', raw)`: corta en cada renglón en
+/// blanco (o de solo espacios). Los párrafos vacíos cuentan, como en el Python,
+/// porque el índice decide si va un punto adelante.
+fn raw_paragraphs(raw: &str) -> Vec<String> {
+    let mut paras: Vec<String> = Vec::new();
+    let mut cur: Vec<&str> = Vec::new();
+    let mut in_gap = false;
+    for line in raw.split('\n') {
+        if line.trim().is_empty() && !cur.is_empty() {
+            in_gap = true;
+            continue;
+        }
+        if in_gap {
+            paras.push(cur.join("\n"));
+            cur.clear();
+            in_gap = false;
+        }
+        cur.push(line);
+    }
+    paras.push(cur.join("\n"));
+    paras
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── abrir un libro en F6: lo mismo que ve el Python ───────────────────────
+    // Los esperados salen de correr `_strip_gutenberg_boilerplate` +
+    // `_reformat_raw_to_lines` del Python sobre estas mismas entradas.
+
+    fn reader(raw: &str) -> Vec<String> {
+        reader_lines(&strip_gutenberg(raw))
+    }
+
+    #[test]
+    fn un_libro_de_gutenberg_pierde_cabecera_y_pie_y_queda_una_oracion_por_linea() {
+        let raw = "The Project Gutenberg eBook of X\nheader stuff\n*** START OF THE PROJECT GUTENBERG EBOOK X ***\n\nChapter I.\n\nIt was a dark night. The rain fell\nhard on Mr. Smith. He ran!\n\n\nThe end... or not.\n*** END OF THE PROJECT GUTENBERG EBOOK X ***\nlicense text";
+        assert_eq!(
+            reader(raw),
+            vec![".", "Chapter I.", ".", "It was a dark night.",
+                 "The rain fell hard on Mr. Smith.", "He ran!", ".", "The end... or not."]
+        );
+    }
+
+    #[test]
+    fn la_marca_de_gutenberg_no_distingue_mayusculas() {
+        let raw = "***start of this project gutenberg ebook\nUno. Dos.\n\nTres";
+        assert_eq!(reader(raw), vec![".", "Uno.", "Dos.", ".", "Tres"]);
+    }
+
+    #[test]
+    fn un_parrafo_que_es_solo_un_punto_no_duplica_separadores() {
+        let raw = "  Hola mundo. ¿Qué tal? Bien.\n\n.\n\nOtro párrafo con 3.5 litros y el Dr. Pérez.";
+        assert_eq!(
+            reader(raw),
+            vec![".", "Hola mundo.", "¿Qué tal?", "Bien.", ".",
+                 "Otro párrafo con 3.5 litros y el Dr. Pérez."]
+        );
+    }
+
+    /// Comparación contra el Python sobre un libro real, a mano:
+    /// `VOIDER_RS_CHECK_BOOK=<libro> VOIDER_RS_CHECK_OUT=<salida> cargo test -- --ignored`
+    /// escribe las líneas de F6, una por renglón, para compararlas con las del Python.
+    #[test]
+    #[ignore]
+    fn volcar_un_libro_real_para_comparar_con_el_python() {
+        let (Ok(book), Ok(out)) = (std::env::var("VOIDER_RS_CHECK_BOOK"), std::env::var("VOIDER_RS_CHECK_OUT")) else {
+            return;
+        };
+        let raw = String::from_utf8_lossy(&std::fs::read(book).unwrap()).to_string();
+        std::fs::write(out, reader(&raw).join("\n")).unwrap();
+    }
+
+    #[test]
+    fn las_lineas_cortadas_de_un_parrafo_se_juntan() {
+        assert_eq!(reader("linea sin punto\notra linea"), vec![".", "linea sin punto otra linea"]);
+    }
 
     // ── títulos ───────────────────────────────────────────────────────────────
 
