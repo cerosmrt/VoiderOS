@@ -114,6 +114,88 @@ impl Library {
         self.index = (self.index as isize + delta).rem_euclid(len) as usize;
     }
 
+    /// `[start, end)` of the book whose separator is at `i`.
+    fn block_bounds(&self, i: usize) -> (usize, usize) {
+        let mut j = i + 1;
+        while j < self.entries.len() && !is_separator(&self.entries[j]) {
+            j += 1;
+        }
+        (i, j)
+    }
+
+    /// Alt+↑/↓ in F3 — the Python's `_book_swap_up/down`. On a separator the
+    /// whole book (its dot and its chapters) moves past the neighbouring book;
+    /// on a chapter it swaps with the row next to it, crossing a separator only
+    /// when there is a book on the other side. Returns whether anything moved.
+    pub fn swap(&mut self, direction: isize) -> bool {
+        let n = self.entries.len();
+        let idx = self.index;
+        if idx >= n {
+            return false;
+        }
+        if is_separator(&self.entries[idx]) {
+            let (s, e) = self.block_bounds(idx);
+            let order: Vec<usize> = if direction < 0 {
+                let Some(p) = (0..s).rev().find(|&p| is_separator(&self.entries[p])) else {
+                    return false; // no book above
+                };
+                self.index = p;
+                (0..p).chain(s..e).chain(p..s).chain(e..n).collect()
+            } else {
+                if e >= n {
+                    return false; // no book below
+                }
+                let (_, e2) = self.block_bounds(e);
+                self.index = s + (e2 - e);
+                (0..s).chain(e..e2).chain(s..e).chain(e2..n).collect()
+            };
+            self.entries = order.into_iter().map(|k| self.entries[k].clone()).collect();
+            return true;
+        }
+        let j = idx as isize + direction;
+        if j < 0 || j as usize >= n {
+            return false;
+        }
+        let j = j as usize;
+        if is_separator(&self.entries[j]) {
+            // Cross the separator only if there is a book over there.
+            let beyond = if direction < 0 { &self.entries[..j] } else { &self.entries[j + 1..] };
+            if !beyond.iter().any(|e| !is_separator(e)) {
+                return false;
+            }
+        }
+        self.entries.swap(idx, j);
+        self.index = j;
+        true
+    }
+
+    /// Ctrl+0 in F3: the current entry becomes the first; the cursor then steps
+    /// off a separator onto a title — the Python's `_book_rebase`.
+    pub fn rebase(&mut self) {
+        let n = self.entries.len();
+        if self.index == 0 || self.index >= n {
+            return;
+        }
+        self.entries.rotate_left(self.index);
+        self.index = 0;
+        while is_separator(self.current()) && n > 1 {
+            self.move_by(1);
+            if self.index == 0 {
+                break; // only separators
+            }
+        }
+    }
+
+    /// '.' typed in F3: a separator just above the highlighted title, the
+    /// cursor on it. Nothing on a separator.
+    pub fn insert_separator(&mut self) -> bool {
+        if self.entries.is_empty() || is_separator(self.current()) {
+            return false;
+        }
+        self.entries.insert(self.index, SEPARATOR.to_string());
+        true
+    }
+
     /// PageUp/PageDown in F3: the separator before / after the cursor, wrapping.
     /// Stays put when there is none.
     pub fn goto_dot(&mut self, direction: isize) {
@@ -299,6 +381,99 @@ mod tests {
             entries: entries.iter().map(|s| s.to_string()).collect(),
             index: 0,
         }
+    }
+
+    // ── Alt+↑/↓ in F3 (test_book_reorder.py) ─────────────────────────────────
+
+    fn names(entries: &[&str]) -> Library {
+        let mut l = lib(&entries
+            .iter()
+            .map(|e| if *e == "." { ".".to_string() } else { format!("{e}.txt") })
+            .collect::<Vec<_>>()
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>());
+        l.index = 0;
+        l
+    }
+
+    fn shown(l: &Library) -> Vec<String> {
+        l.entries.iter().map(|e| display_name(e)).collect()
+    }
+
+    #[test]
+    fn a_chapter_swaps_with_its_immediate_neighbour() {
+        let mut l = names(&[".", "A", "B", "C"]);
+        l.index = 2;
+        assert!(l.swap(-1));
+        assert_eq!(shown(&l), vec![".", "B", "A", "C"]);
+        assert_eq!(l.index, 1);
+    }
+
+    #[test]
+    fn a_chapter_at_the_edge_crosses_into_the_next_book() {
+        let mut l = names(&[".", "A", "B", ".", "C", "D"]);
+        l.index = 2;
+        l.swap(1);
+        assert_eq!(shown(&l), vec![".", "A", ".", "B", "C", "D"]);
+        assert_eq!(l.index, 3);
+    }
+
+    #[test]
+    fn a_chapter_does_not_cross_into_nothing() {
+        let mut l = names(&[".", "A", "B"]);
+        l.index = 1;
+        assert!(!l.swap(-1));
+        assert_eq!(shown(&l), vec![".", "A", "B"]);
+    }
+
+    #[test]
+    fn a_dot_moves_its_whole_book_down() {
+        let mut l = names(&[".", "A", "B", ".", "C"]);
+        l.index = 0;
+        l.swap(1);
+        assert_eq!(shown(&l), vec![".", "C", ".", "A", "B"]);
+        assert_eq!(l.index, 2);
+    }
+
+    #[test]
+    fn a_dot_moves_its_whole_book_up() {
+        let mut l = names(&[".", "A", ".", "B", "C"]);
+        l.index = 2;
+        l.swap(-1);
+        assert_eq!(shown(&l), vec![".", "B", "C", ".", "A"]);
+        assert_eq!(l.index, 0);
+    }
+
+    #[test]
+    fn the_first_book_cannot_move_up_nor_the_last_down() {
+        let mut l = names(&[".", "A", ".", "B"]);
+        l.index = 0;
+        assert!(!l.swap(-1));
+        l.index = 2;
+        assert!(!l.swap(1));
+        assert_eq!(shown(&l), vec![".", "A", ".", "B"]);
+    }
+
+    // ── Ctrl+0 and '.' in F3 ────────────────────────────────────────────────
+
+    #[test]
+    fn rebase_makes_the_current_entry_first_and_skips_to_a_title() {
+        let mut l = names(&["A", ".", "B", "C"]);
+        l.index = 1;
+        l.rebase();
+        assert_eq!(shown(&l), vec![".", "B", "C", "A"]);
+        assert_eq!(l.index, 1);
+    }
+
+    #[test]
+    fn a_dot_typed_on_a_title_inserts_a_separator_above_it() {
+        let mut l = names(&["A", "B"]);
+        l.index = 1;
+        assert!(l.insert_separator());
+        assert_eq!(shown(&l), vec!["A", ".", "B"]);
+        assert_eq!(l.index, 1);
+        assert!(!l.insert_separator(), "on a separator it does nothing");
     }
 
     #[test]

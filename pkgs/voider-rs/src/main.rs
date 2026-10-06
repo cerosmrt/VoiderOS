@@ -735,6 +735,29 @@ impl VoiderApp {
             Key::ArrowDown if m.alt && m.shift => {
                 let _ = self.voider.book_duplicate(1);
             }
+            // Alt+↑/↓: on a dot the whole book moves; on a chapter it swaps.
+            Key::ArrowUp if m.alt => {
+                let _ = self.voider.book_swap(-1);
+            }
+            Key::ArrowDown if m.alt => {
+                let _ = self.voider.book_swap(1);
+            }
+            // Ctrl+0: the highlighted entry becomes the first of the library.
+            Key::Num0 if m.ctrl => {
+                let _ = self.voider.book_rebase();
+            }
+            // Ctrl+Delete at the start of the line: out of the library (to 0.txt,
+            // or — on the trash — emptied). Anywhere else it is a word, as usual.
+            Key::Delete if m.ctrl && self.voider.entry.caret() == 0 => {
+                let _ = self.voider.book_send_to_zero();
+            }
+            Key::Delete if m.ctrl && self.f3_editable() => {
+                self.voider.entry.delete_word_forward();
+            }
+            Key::Home if !m.shift => self.voider.f3_jump_edge(false),
+            Key::End if !m.shift => self.voider.f3_jump_edge(true),
+            Key::Home => self.voider.entry.extend_home(),
+            Key::End => self.voider.entry.extend_end(),
             // Moving away settles a named entry and renames an edited title.
             Key::ArrowUp => self.voider.f3_move(-1),
             Key::ArrowDown => self.voider.f3_move(1),

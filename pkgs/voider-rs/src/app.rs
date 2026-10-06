@@ -2401,8 +2401,17 @@ impl Voider {
     }
 
     /// Typing in F3: into the name being given, or over the title.
+    ///
+    /// A '.' is a command here, as in the Python's book_view (`intercept_period`):
+    /// it puts a separator above the title instead of typing. (Not while naming
+    /// a new entry or a merge — there it would split the row being named.)
     pub fn f3_type(&mut self, text: &str) {
-        if !(self.pending_new || self.pending_merge) && self.f3_on_structure() {
+        let naming = self.pending_new || self.pending_merge;
+        if text == "." && !naming {
+            let _ = self.book_insert_separator();
+            return;
+        }
+        if !naming && self.f3_on_structure() {
             return;
         }
         self.entry.insert(text);
@@ -2478,6 +2487,146 @@ impl Voider {
         );
         self.status = format!("{fname} → {new_fname}");
         Ok(true)
+    }
+
+    /// Ctrl+Delete at the start of the F3 line — the Python's `_book_send_to_zero`.
+    /// On a separator: take it out. On the portal: take the marker out (0.txt is
+    /// never touched). On `trash.txt`: EMPTY it — the lines were thrown away on
+    /// purpose once already, sending them to 0.txt would bring them all back.
+    /// On any other chapter: its lines go to 0.txt behind a dot, and the file
+    /// is deleted. Never on 0.txt itself. One undo step (library + files).
+    pub fn book_send_to_zero(&mut self) -> io::Result<()> {
+        if self.pending_new || self.pending_merge {
+            return Ok(());
+        }
+        let idx = self.library.index;
+        let Some(entry) = self.library.entries.get(idx).cloned() else {
+            return Ok(());
+        };
+        if library::is_separator(&entry) || library::is_portal(&entry) {
+            self.library.entries.remove(idx);
+            if self.library.entries.is_empty() {
+                self.library.entries.push(library::SEPARATOR.to_string());
+            }
+            let n = self.library.entries.len();
+            self.library.index = idx % n;
+            if library::is_separator(&entry) {
+                self.f3_skip_dots_forward();
+            }
+            self.save_library()?;
+            self.f3_sync_entry();
+            return Ok(());
+        }
+        let path = library::chapter_path(&self.void_dir, &entry);
+        let scratch = self.scratch_path();
+        if !path.exists() || same_file(&path, &scratch) {
+            return Ok(());
+        }
+        let lib_before = self.lib_state();
+        let content = void::load_doc(&path).lines;
+        let lines: Vec<String> = content
+            .iter()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty() && l != ".")
+            .collect();
+        let emptying = same_file(&path, &self.trash_path());
+        let mut changes = Vec::new();
+        if !lines.is_empty() && !emptying {
+            let zero_before = void::load_doc(&scratch).lines;
+            let mut zero_after = zero_before.clone();
+            zero_after.push(".".to_string());
+            zero_after.extend(lines.iter().cloned());
+            void::atomic_write(&scratch, &zero_after, false)?;
+            changes.push(undo::FileChange { path: scratch.clone(), before: zero_before, after: zero_after });
+        }
+        std::fs::remove_file(&path)?;
+        changes.push(undo::FileChange { path: path.clone(), before: content, after: Vec::new() });
+
+        self.library.entries.remove(idx);
+        if self.library.entries.is_empty() {
+            self.library.entries.push(library::SEPARATOR.to_string());
+        }
+        let n = self.library.entries.len();
+        self.library.index = idx % n;
+        self.f3_skip_dots_forward();
+        self.save_library()?;
+        // The file on screen is gone, or the scratch just grew: show what's real.
+        if same_file(&self.current_file, &scratch) || self.current_file == path {
+            self.set_active_file(scratch);
+        }
+        let lib_after = self.lib_state();
+        self.undo.record_library(changes, lib_before, lib_after, Some("delete".into()));
+        self.f3_sync_entry();
+        self.status = if emptying {
+            format!("Basura vaciada: {} línea(s). Ctrl+Z la devuelve.", lines.len())
+        } else {
+            format!("{} línea(s) de {} → 0.txt", lines.len(), library::display_name(&entry))
+        };
+        Ok(())
+    }
+
+    /// Off a separator onto the next title (when there is one).
+    fn f3_skip_dots_forward(&mut self) {
+        let n = self.library.entries.len();
+        for _ in 0..n {
+            if !library::is_separator(self.library.current()) {
+                break;
+            }
+            self.library.move_by(1);
+        }
+    }
+
+    /// Alt+↑/↓ in F3: an edited title is renamed first, then the book (on a dot)
+    /// or the chapter moves. One undo step.
+    pub fn book_swap(&mut self, direction: isize) -> io::Result<()> {
+        self.f3_leave_entry()?;
+        let before = self.lib_state();
+        if self.library.swap(direction) {
+            self.save_library()?;
+            let after = self.lib_state();
+            self.undo.record_library(vec![], before, after, Some("reorder".into()));
+        }
+        self.f3_sync_entry();
+        Ok(())
+    }
+
+    /// Ctrl+0 in F3: the highlighted entry becomes the library's first.
+    pub fn book_rebase(&mut self) -> io::Result<()> {
+        self.settle_pending()?;
+        if self.library.index == 0 {
+            return Ok(());
+        }
+        self.library.rebase();
+        self.save_library()?;
+        self.f3_sync_entry();
+        Ok(())
+    }
+
+    /// '.' typed in F3: a separator above the highlighted title.
+    pub fn book_insert_separator(&mut self) -> io::Result<()> {
+        if self.f3_on_structure() {
+            return Ok(());
+        }
+        self.book_try_rename()?;
+        if self.library.insert_separator() {
+            self.save_library()?;
+        }
+        self.f3_sync_entry();
+        Ok(())
+    }
+
+    /// Home/End in F3: the first / last entry that is not a separator.
+    pub fn f3_jump_edge(&mut self, to_end: bool) {
+        let _ = self.f3_leave_entry();
+        let found = if to_end {
+            self.library.entries.iter().rposition(|e| !library::is_separator(e))
+        } else {
+            self.library.entries.iter().position(|e| !library::is_separator(e))
+        };
+        if let Some(i) = found {
+            self.library.index = i;
+        }
+        self.f3_sync_entry();
     }
 
     /// Enter in F3 with the caret at the start: open what is highlighted (after
@@ -4835,6 +4984,134 @@ mod tests {
         v.f3_enter_at_end().unwrap();
         assert_eq!(v.library.entries, vec!["Dos bis.txt", "", "Uno.txt"]);
         assert!(v.pending_new);
+    }
+
+    // ── F3 Ctrl+Delete (test_empty_trash.py, test_portal.py) ─────────────────
+
+    fn lib_app(entries: &[&str]) -> (tempfile::TempDir, Voider) {
+        let (d, mut v) = book();
+        let i = v.void_dir.join("I");
+        void::atomic_write(&i.join("0.txt"), &[".".into(), "scratch".into()], false).unwrap();
+        void::atomic_write(&i.join("trash.txt"), &[".".into(), "basura".into()], false).unwrap();
+        v.switch_to(View::F3);
+        v.library.entries = entries.iter().map(|s| s.to_string()).collect();
+        v.library.save(&v.void_dir).unwrap();
+        v.library.index = 0;
+        v.f3_sync_entry();
+        (d, v)
+    }
+
+    #[test]
+    fn ctrl_delete_on_a_chapter_sends_its_lines_to_zero_and_deletes_it() {
+        let (_d, mut v) = lib_app(&["Dos.txt", "Uno.txt"]);
+        v.book_send_to_zero().unwrap();
+        assert!(!v.void_dir.join("I/Dos.txt").exists());
+        assert_eq!(v.library.entries, vec!["Uno.txt"]);
+        let zero = void::load_doc(&v.scratch_path()).lines;
+        assert_eq!(zero, vec![".", "scratch", ".", "de dos"]);
+    }
+
+    #[test]
+    fn ctrl_delete_on_the_trash_empties_it_without_sending_anything_back() {
+        let (_d, mut v) = lib_app(&["trash.txt", "Uno.txt"]);
+        v.book_send_to_zero().unwrap();
+        assert!(!v.trash_path().exists());
+        assert_eq!(v.library.entries, vec!["Uno.txt"]);
+        assert!(!void::load_doc(&v.scratch_path()).lines.contains(&"basura".to_string()));
+        // …and Ctrl+Z brings it back.
+        v.undo().unwrap();
+        assert!(void::load_doc(&v.trash_path()).lines.contains(&"basura".to_string()));
+        assert_eq!(v.library.entries, vec!["trash.txt", "Uno.txt"]);
+    }
+
+    #[test]
+    fn ctrl_delete_on_the_portal_removes_only_the_marker() {
+        let (_d, mut v) = lib_app(&["0.txt", "Uno.txt"]);
+        v.book_send_to_zero().unwrap();
+        assert_eq!(v.library.entries, vec!["Uno.txt"]);
+        assert!(v.scratch_path().exists());
+    }
+
+    #[test]
+    fn ctrl_delete_on_a_dot_removes_the_separator() {
+        let (_d, mut v) = lib_app(&["Uno.txt", ".", "Dos.txt"]);
+        v.library.index = 1;
+        v.book_send_to_zero().unwrap();
+        assert_eq!(v.library.entries, vec!["Uno.txt", "Dos.txt"]);
+    }
+
+    #[test]
+    fn deleting_the_active_chapter_leaves_voider_on_the_scratch() {
+        let (_d, mut v) = lib_app(&["Uno.txt", "Dos.txt"]); // active is Uno
+        v.book_send_to_zero().unwrap();
+        assert_eq!(v.current_file, v.scratch_path());
+        v.save().unwrap();
+        assert!(!v.void_dir.join("I/Uno.txt").exists());
+    }
+
+    #[test]
+    fn undoing_a_chapter_deletion_brings_file_list_and_zero_back() {
+        let (_d, mut v) = lib_app(&["Dos.txt", "Uno.txt"]);
+        v.book_send_to_zero().unwrap();
+        v.undo().unwrap();
+        assert!(v.void_dir.join("I/Dos.txt").exists());
+        assert_eq!(v.library.entries, vec!["Dos.txt", "Uno.txt"]);
+        assert_eq!(void::load_doc(&v.scratch_path()).lines, vec![".", "scratch"]);
+    }
+
+    // ── F3 Alt+↑/↓, Ctrl+0, '.', Home/End ────────────────────────────────────
+
+    #[test]
+    fn alt_up_commits_an_edited_title_first_then_moves_it() {
+        let (_d, mut v) = lib_app(&[".", "Uno.txt", "Dos.txt"]);
+        v.library.index = 2;
+        v.f3_sync_entry();
+        v.entry.set_text("Dos bis");
+        v.book_swap(-1).unwrap();
+        assert!(v.void_dir.join("I/Dos bis.txt").exists());
+        assert_eq!(v.library.entries, vec![".", "Dos bis.txt", "Uno.txt"]);
+        assert_eq!(Library::load(&v.void_dir).entries, vec![".", "Dos bis.txt", "Uno.txt"]);
+    }
+
+    #[test]
+    fn a_reorder_is_one_undo_step() {
+        let (_d, mut v) = lib_app(&[".", "Uno.txt", "Dos.txt"]);
+        v.library.index = 2;
+        v.f3_sync_entry();
+        v.book_swap(-1).unwrap();
+        v.undo().unwrap();
+        assert_eq!(v.library.entries, vec![".", "Uno.txt", "Dos.txt"]);
+    }
+
+    #[test]
+    fn ctrl_zero_in_f3_rotates_the_library() {
+        let (_d, mut v) = lib_app(&["Uno.txt", "Dos.txt"]);
+        v.library.index = 1;
+        v.f3_sync_entry();
+        v.book_rebase().unwrap();
+        assert_eq!(Library::load(&v.void_dir).entries, vec!["Dos.txt", "Uno.txt"]);
+        assert_eq!(v.entry.text(), "Dos");
+    }
+
+    #[test]
+    fn a_typed_dot_in_f3_is_a_separator_above() {
+        let (_d, mut v) = lib_app(&["Uno.txt", "Dos.txt"]);
+        v.library.index = 1;
+        v.f3_sync_entry();
+        v.f3_type(".");
+        assert_eq!(v.library.entries, vec!["Uno.txt", ".", "Dos.txt"]);
+        assert_eq!(v.entry.text(), ".");
+        assert_eq!(Library::load(&v.void_dir).entries, vec!["Uno.txt", ".", "Dos.txt"]);
+    }
+
+    #[test]
+    fn home_and_end_in_f3_go_to_the_first_and_last_title() {
+        let (_d, mut v) = lib_app(&[".", "Uno.txt", ".", "Dos.txt", "."]);
+        v.library.index = 2;
+        v.f3_jump_edge(true);
+        assert_eq!(v.library.index, 3);
+        v.f3_jump_edge(false);
+        assert_eq!(v.library.index, 1);
     }
 
     // ── F3 undo: one Ctrl+Z puts the library back too (test_f3_undo.py) ─────
