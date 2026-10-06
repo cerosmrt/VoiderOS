@@ -1975,6 +1975,14 @@ impl Voider {
             self.library.index = idx;
         }
         self.f3_sync_entry();
+        // As the Python: confirming a search opens what was found, in F2.
+        let cur = self.library.current().to_string();
+        if !cur.is_empty()
+            && !library::is_separator(&cur)
+            && library::chapter_path(&self.void_dir, &cur).is_file()
+        {
+            self.open_current_chapter();
+        }
     }
 
     pub fn f3_search_cancel(&mut self) {
@@ -4984,6 +4992,18 @@ mod tests {
         v.f3_enter_at_end().unwrap();
         assert_eq!(v.library.entries, vec!["Dos bis.txt", "", "Uno.txt"]);
         assert!(v.pending_new);
+    }
+
+    #[test]
+    fn confirming_an_f3_search_opens_the_chapter_in_f2() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.open_f3_search();
+        v.f3_search_type("dos");
+        v.f3_search_confirm();
+        assert_eq!(v.view, View::F2);
+        assert!(v.current_file.ends_with("Dos.txt"));
+        assert!(v.ring.lines.contains(&"de dos".to_string()));
     }
 
     // ── F3 Ctrl+Delete (test_empty_trash.py, test_portal.py) ─────────────────

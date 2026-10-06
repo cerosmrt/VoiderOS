@@ -406,6 +406,8 @@ impl VoiderApp {
             Key::F4 if m.alt => self.voider.request_quit(),
             Key::F1 => self.voider.switch_to(View::F1),
             Key::F2 => self.voider.switch_to(View::F2),
+            // F3 from F3 does nothing — re-entering would reload and move the cursor.
+            Key::F3 if self.voider.view == View::F3 => {}
             Key::F3 => self.voider.switch_to(View::F3),
             Key::F4 => self.voider.switch_to(View::F4),
             Key::F5 => self.voider.switch_to(View::F5),
@@ -2376,6 +2378,16 @@ mod tests {
         app.voider.library.index = 0;
         app.voider.f3_sync_entry();
         (d, app)
+    }
+
+    #[test]
+    fn pressing_f3_while_in_f3_keeps_the_cursor_where_it_is() {
+        let (_d, mut app) = f3_app();
+        app.voider.library.index = 1;
+        app.voider.f3_sync_entry();
+        app.route_key(egui::Key::F3, none());
+        assert_eq!(app.voider.library.index, 1);
+        assert_eq!(app.voider.entry.text(), "Dos");
     }
 
     #[test]
