@@ -60,7 +60,7 @@ pub const ROWS: &[Row] = &[
     ("Ctrl+Shift+Delete", Some("Collapse the document into one paragraph (on the first dot) — then Tab shuffles it all")),
     ("Enter  (on a dot)", Some("Focus that paragraph alone; Enter again releases it")),
     ("Enter  (mid-line)", Some("Split the line in two")),
-    ("Ctrl+Delete / Ctrl+⌫", Some("Send the line down: file → scratch → trash → gone")),
+    ("Ctrl+Delete", Some("Send the line to trash.txt (from the trash: back to 0.txt)")),
     ("", None),
     ("THE LIBRARY  (F3)", None),
     ("Enter", Some("Open the highlighted chapter")),

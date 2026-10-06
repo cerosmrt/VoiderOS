@@ -546,7 +546,7 @@ impl VoiderApp {
                 let _ = self.voider.doc_split_line();
             }
             // Ctrl+Delete at the START of the line sends the whole line down the
-            // trash cascade (other file → 0.txt → trash → gone). Anywhere else it
+            // trash (any file → trash.txt; trash.txt → 0.txt). Anywhere else it
             // deletes the next word, like any editor. Ctrl+Backspace has no such
             // exception: it is always one word back, even at the end of the line.
             // Ctrl+Shift+Delete flattens the document into one paragraph (only on
@@ -556,7 +556,7 @@ impl VoiderApp {
                 let _ = self.voider.doc_collapse_to_one_paragraph();
             }
             Key::Delete if m.ctrl && self.voider.entry.caret() == 0 => {
-                let _ = self.voider.delete_line_to_zero();
+                let _ = self.voider.delete_line_to_trash();
             }
             Key::Delete if m.ctrl => {
                 self.voider.entry.delete_word_forward();

@@ -3807,11 +3807,10 @@ impl Voider {
         library::chapter_path(&self.void_dir, "trash.txt")
     }
 
-    /// Ctrl+Delete in F2: a three-level cascade. Deleting from any other file
-    /// sends the line to the scratch; from the scratch, to `trash.txt`; from
-    /// `trash.txt`, it is simply gone. The line is never filtered — even a `.`
-    /// separator travels down the cascade like any other line.
-    pub fn delete_line_to_zero(&mut self) -> io::Result<()> {
+    /// Ctrl+Delete in F2: the trash, both ways — the Python's `_delete_line_to_trash`.
+    /// Any file (the scratch included) → `trash.txt`; `trash.txt` → the scratch.
+    /// The line is never filtered — even a `.` separator travels like any other.
+    pub fn delete_line_to_trash(&mut self) -> io::Result<()> {
         let n = self.ring.lines.len();
         if n <= 1 {
             return Ok(());
@@ -3821,14 +3820,15 @@ impl Voider {
         let scratch = self.scratch_path();
         let trash = self.trash_path();
 
-        if self.current_file == trash {
-            self.status = "Deleted permanently".into();
-        } else if self.current_file == scratch {
-            self.append_line(&trash, &line)?;
-            self.status = "→ trash.txt".into();
-        } else {
+        // Nothing is ever deleted for good: from the trash the line goes back
+        // to the scratch, from anywhere else (the scratch included) to the
+        // trash. `?` leaves the line here if the destination can't be written.
+        if same_file(&self.current_file, &trash) {
             self.append_line(&scratch, &line)?;
             self.status = "→ 0.txt".into();
+        } else {
+            self.append_line(&trash, &line)?;
+            self.status = "→ trash.txt".into();
         }
 
         self.ring.lines.remove(cur);
@@ -8018,13 +8018,15 @@ mod tests {
     }
 
     #[test]
-    fn delete_from_another_file_goes_to_the_scratch() {
+    fn delete_from_another_file_goes_straight_to_trash() {
         let (_d, mut v) = app(&["From book.", ".", "Stay."]);
         v.ring = LineRing::new(["From book.", ".", "Stay."]);
         v.ring.index = 0;
-        v.delete_line_to_zero().unwrap();
+        v.delete_line_to_trash().unwrap();
+        let trash = void::load_doc(&v.trash_path());
+        assert!(trash.lines.contains(&"From book.".to_string()));
         let scratch = void::load_doc(&v.scratch_path());
-        assert!(scratch.lines.contains(&"From book.".to_string()));
+        assert!(!scratch.lines.contains(&"From book.".to_string()));
     }
 
     #[test]
@@ -8032,7 +8034,7 @@ mod tests {
         let (_d, mut v) = app(&["Hello world.", ".", "Keep this."]);
         v.ring = LineRing::new(["Hello world.", ".", "Keep this."]);
         v.ring.index = 0;
-        v.delete_line_to_zero().unwrap();
+        v.delete_line_to_trash().unwrap();
         assert!(!v.ring.lines.contains(&"Hello world.".to_string()));
     }
 
@@ -8040,7 +8042,7 @@ mod tests {
     fn delete_from_the_scratch_goes_to_trash() {
         let (_d, mut v) = scratch_app(&["Hello world.", ".", "Keep this."]);
         v.ring.index = 0; // 'Hello world.'
-        v.delete_line_to_zero().unwrap();
+        v.delete_line_to_trash().unwrap();
         let trash = void::load_doc(&v.trash_path());
         assert!(trash.lines.contains(&"Hello world.".to_string()));
         assert!(!v.ring.lines.contains(&"Hello world.".to_string()));
@@ -8050,28 +8052,41 @@ mod tests {
     fn a_dot_deleted_from_the_scratch_goes_to_trash_too() {
         let (_d, mut v) = scratch_app(&[".", "Line."]);
         v.ring.index = 0; // the dot itself
-        v.delete_line_to_zero().unwrap();
+        v.delete_line_to_trash().unwrap();
         let trash = void::load_doc(&v.trash_path());
         assert!(trash.lines.iter().any(|l| l == "."));
     }
 
     #[test]
-    fn delete_from_trash_is_permanent() {
+    fn delete_from_trash_restores_to_the_scratch() {
         let (_d, mut v) = trash_app(&["Trashed line.", ".", "Another."]);
         v.ring.index = 0;
-        v.delete_line_to_zero().unwrap();
+        v.delete_line_to_trash().unwrap();
 
         assert!(!v.ring.lines.contains(&"Trashed line.".to_string()));
-        // gone from the file on disk too, and never duplicated back into it
         let on_disk = void::load_doc(&v.trash_path());
         assert!(!on_disk.lines.contains(&"Trashed line.".to_string()));
+        // Nothing is ever deleted for good: from the trash it goes back to 0.txt.
+        let scratch = void::load_doc(&v.scratch_path());
+        assert!(scratch.lines.contains(&"Trashed line.".to_string()));
+    }
+
+    #[test]
+    fn if_the_destination_cannot_be_written_the_line_stays() {
+        let (d, mut v) = app(&["Keep me.", ".", "Other."]);
+        v.ring = LineRing::new(["Keep me.", ".", "Other."]);
+        v.ring.index = 0;
+        // A directory where trash.txt should be: the append must fail.
+        std::fs::create_dir_all(d.path().join("I/trash.txt")).unwrap();
+        assert!(v.delete_line_to_trash().is_err());
+        assert!(v.ring.lines.contains(&"Keep me.".to_string()));
     }
 
     #[test]
     fn deleting_down_to_one_line_is_a_noop_guard() {
         let (_d, mut v) = app(&["sola"]);
         v.ring = LineRing::new(["sola"]);
-        v.delete_line_to_zero().unwrap();
+        v.delete_line_to_trash().unwrap();
         assert_eq!(v.ring.lines, vec!["sola"]); // never empties the file
     }
 
