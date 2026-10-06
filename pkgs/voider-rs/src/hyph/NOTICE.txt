@@ -1,0 +1,6 @@
+Hyphenation dictionaries used by voider-rs (hyphen.rs), copied unchanged from the
+`pyphen` package that the Python Voider already uses:
+
+  hyph_es.dic     Spanish patterns from LibreOffice/Apache OpenOffice. Triple-licensed
+                  (GPL v3+ / LGPL v3+ / MPL 1.1+, your choice) — see README_hyph_es.txt.
+  hyph_en_US.dic  American English patterns, BSD-style licence — see README_hyph_en_US.txt.

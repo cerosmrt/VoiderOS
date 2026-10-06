@@ -21,6 +21,7 @@ mod corpus;
 mod f5;
 mod fonts;
 mod help;
+mod hyphen;
 mod ipc;
 mod library;
 mod paragraphs;
