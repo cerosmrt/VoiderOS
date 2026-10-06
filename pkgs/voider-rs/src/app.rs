@@ -3230,11 +3230,20 @@ impl Voider {
         }
         self.save_library()?;
 
-        self.ring = if container_removed {
-            LineRing::new([".".to_string()])
+        if container_removed {
+            // The file we were in is gone: hand the active file to the first
+            // sealed chapter (or the scratch), as the Python does. Staying on
+            // the deleted path would bring it back empty on the next save.
+            let next = plan
+                .sealed
+                .first()
+                .map(|c| library::chapter_path(&self.void_dir, &format!("{}.txt", c.name)))
+                .filter(|p| p.exists())
+                .unwrap_or_else(|| self.scratch_path());
+            self.set_active_file(next);
         } else {
-            LineRing::new(void::load_doc(&self.current_file).lines)
-        };
+            self.ring = LineRing::new(void::load_doc(&self.current_file).lines);
+        }
         self.sync_entry();
         self.undo.record_transaction(changes, Some("split".into()));
         let n = plan.sealed.len();
@@ -4820,6 +4829,19 @@ mod tests {
         let lib = Library::load(&v.void_dir);
         assert!(lib.entries.contains(&"Sellado.txt".to_string()));
         assert!(!lib.entries.contains(&"Uno.txt".to_string())); // emptied, so delisted
+    }
+
+    #[test]
+    fn an_emptied_container_hands_the_active_file_to_the_first_sealed_chapter() {
+        let (_d, mut v) = book(); // active is Uno.txt
+        let uno = v.current_file.clone();
+        v.ring.lines = vec!["/Sellado".into(), "todo".into(), "/Otro".into(), "mas".into()];
+        v.split_at_markers().unwrap();
+        assert!(v.current_file.ends_with("Sellado.txt"), "{:?}", v.current_file);
+        assert!(v.ring.lines.contains(&"todo".to_string()));
+        // A save now must not bring the deleted container back.
+        v.save().unwrap();
+        assert!(!uno.exists());
     }
 
     #[test]
