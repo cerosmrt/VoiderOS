@@ -3578,8 +3578,11 @@ impl Voider {
     /// sortear en vez de apilar.
     fn insert_fragment(&mut self, line: &str) -> io::Result<()> {
         let mut fragment = line.trim_end_matches('.').to_string();
-        let (start, end) = match self.pending_fragment {
-            Some((idx, s, e)) if idx == self.ring.index && self.entry.caret() == e => (s, e),
+        // A selection is replaced — and the fragment is left selected below, as
+        // the Python does, so Tab again re-rolls it.
+        let (start, end) = match (self.entry.selection(), self.pending_fragment) {
+            (Some((s, e)), _) => (s, e),
+            (None, Some((idx, s, e))) if idx == self.ring.index && self.entry.caret() == e => (s, e),
             _ => (self.entry.caret(), self.entry.caret()),
         };
         if start > 0 {
@@ -3593,7 +3596,9 @@ impl Voider {
         let frag_len = fragment.chars().count();
         self.entry.replace_range(start, end, &fragment);
         self.pending_fragment = Some((self.ring.index, start, start + frag_len));
-        self.doc_live_save()
+        let saved = self.doc_live_save();
+        self.entry.select_range(start, start + frag_len);
+        saved
     }
 
     /// Ctrl+C with nothing selected: copy the contextual unit. F2: the current
@@ -6398,6 +6403,19 @@ mod tests {
         assert_eq!(v.entry.text(), "mineloop");
         v.doc_tab().unwrap(); // caret is still right where the fragment ends
         assert_eq!(v.entry.text(), "mineloop"); // replaced, not doubled
+    }
+
+    #[test]
+    fn the_fragment_tab_brings_is_left_selected() {
+        // Python selects it (setSelection), so the next Tab replaces it and you
+        // can see exactly what arrived.
+        let (_d, mut v) = app(&[".", "mine"]);
+        std::fs::create_dir_all(v.void_dir.join("I")).unwrap();
+        std::fs::write(v.void_dir.join("I").join("src.txt"), "loop\n").unwrap();
+        v.ring.index = 1;
+        v.entry = TextLine::new("mine");
+        v.doc_tab().unwrap();
+        assert_eq!(v.entry.selection(), Some((4, 8)));
     }
 
     #[test]
