@@ -303,7 +303,7 @@ pub enum Slide {
 /// decides what a carousel is, so the on-screen preview and the files written to
 /// disk cannot disagree.
 pub fn plan(sections: &[(String, Vec<String>)], font: &TypeFont, w: u32, h: u32) -> Vec<Slide> {
-    let geo = crate::carousel::geometry(w, h);
+    let geo = crate::carousel::geometry_for(font, w, h);
     let line_h = leading(font, geo.font_px);
     let mut out = Vec::new();
     for (name, lines) in sections {
@@ -321,7 +321,7 @@ pub fn plan(sections: &[(String, Vec<String>)], font: &TypeFont, w: u32, h: u32)
 
 /// Draw one slide of a plan onto a `w` × `h` canvas.
 pub fn render_slide(slide: &Slide, font: &TypeFont, w: u32, h: u32) -> Canvas {
-    let geo = crate::carousel::geometry(w, h);
+    let geo = crate::carousel::geometry_for(font, w, h);
     match slide {
         Slide::Title(title) => render_title_slide(title, font, w, h, geo.font_px, PAPER, INK),
         Slide::Body(lines) => render_body_page(font, &geo, lines, PAPER, INK),
@@ -361,7 +361,7 @@ pub struct BookPlan {
 /// chapter opens a new page with its title sunk into it, then its paragraphs,
 /// justified.
 pub fn book_plan(sections: &[(String, Vec<String>)], font: &TypeFont, w: u32, h: u32) -> BookPlan {
-    let geo = crate::carousel::geometry(w, h);
+    let geo = crate::carousel::geometry_for(font, w, h);
     let line_h = leading(font, geo.font_px);
     let mut plan = BookPlan { pages: Vec::new(), para_page: Vec::new() };
     for (name, lines) in sections {
@@ -415,7 +415,7 @@ pub struct Run {
 /// Every piece of text one page of a book plan puts down, in place. The screen
 /// rasterises these; the PDF writes them as text — so the two can't differ.
 pub fn book_page_runs(page: &BookPage, font: &TypeFont, w: u32, h: u32) -> Vec<Run> {
-    let geo = crate::carousel::geometry(w, h);
+    let geo = crate::carousel::geometry_for(font, w, h);
     let mut runs = Vec::new();
     let mut body_top = 0.0;
     if let Some(title) = &page.title {

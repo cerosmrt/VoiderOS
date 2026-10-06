@@ -907,6 +907,7 @@ impl Voider {
     pub fn type_font(&self) -> typeset::TypeFont {
         // The READING font (the Python's reading_font), not the writing one.
         typeset::TypeFont::load(&self.config.reading_font)
+            .with_size(self.config.reading_size)
             .with_hyphenation(hyphen::Mode::from_config(&self.config.reading_hyphen_lang))
     }
 
@@ -992,7 +993,7 @@ impl Voider {
         std::fs::create_dir_all(&dir)?;
         let (w, h) = self.carousel_size();
         let font = self.type_font();
-        let font_px = carousel::geometry(w, h).font_px;
+        let font_px = carousel::geometry_for(&font, w, h).font_px;
         let back_title = match self.reading.as_slice() {
             [only] => only.name.clone(),
             _ => out_name.trim().to_string(),
@@ -8348,6 +8349,23 @@ mod tests {
         let (_d, mut v) = app(&refs);
         v.switch_to(View::F4);
         std::fs::write(out, v.book_pdf_bytes("Muestra").unwrap()).unwrap();
+    }
+
+    #[test]
+    fn a_bigger_reading_size_sets_the_book_bigger() {
+        let mut lines = vec![".".to_string()];
+        for k in 0..80 {
+            lines.push(format!("Oración {k}, con algo de largo para llenar renglones."));
+        }
+        let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+        let (_d, mut v) = app(&refs);
+        v.switch_to(View::F4);
+        let sections: Vec<(String, Vec<String>)> =
+            v.reading.iter().map(|s| (s.name.clone(), s.lines.clone())).collect();
+        let pages = |v: &Voider| slides::book_plan(&sections, &v.type_font(), 1748, 2480).pages.len();
+        let at_13 = pages(&v);
+        v.config.reading_size = 20.0;
+        assert!(pages(&v) > at_13, "reading_size didn't change the setting");
     }
 
     #[test]

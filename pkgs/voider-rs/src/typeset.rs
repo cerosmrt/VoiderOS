@@ -18,6 +18,8 @@ pub struct TypeFont {
     bytes: std::sync::Arc<Vec<u8>>,
     /// The family that was asked for and found; empty for the fallback face.
     family: String,
+    /// The size the book is set at, in points (the Python's reading_size).
+    size_pt: f32,
     /// Whether and how words may be broken across lines. Off until asked.
     hyph: crate::hyphen::Mode,
 }
@@ -47,6 +49,7 @@ impl TypeFont {
             font,
             bytes: kept,
             family: String::new(),
+            size_pt: crate::carousel::BOOK_SIZE_PT,
             hyph: crate::hyphen::Mode::Off,
         })
     }
@@ -59,6 +62,18 @@ impl TypeFont {
     /// The font file, for embedding.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
+    }
+
+    /// The same font, set at `pt` points.
+    pub fn with_size(mut self, pt: f32) -> TypeFont {
+        if pt > 0.0 {
+            self.size_pt = pt;
+        }
+        self
+    }
+
+    pub fn size_pt(&self) -> f32 {
+        self.size_pt
     }
 
     /// The same font, set with the given hyphenation.

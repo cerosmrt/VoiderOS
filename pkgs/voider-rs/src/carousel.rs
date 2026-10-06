@@ -100,6 +100,13 @@ pub struct Geometry {
     pub font_px: f32,
 }
 
+/// The geometry for a font set at its own size (reading_size).
+pub fn geometry_for(font: &crate::typeset::TypeFont, w_px: u32, h_px: u32) -> Geometry {
+    let mut g = geometry(w_px, h_px);
+    g.font_px = font.size_pt() * crate::ring::PX_PER_PT * g.scale;
+    g
+}
+
 pub fn geometry(w_px: u32, h_px: u32) -> Geometry {
     let scale = w_px as f32 / a5_width_pt();
     let px = |mm: f32| mm_to_pt(mm) * scale;
