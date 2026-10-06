@@ -274,13 +274,14 @@ impl VoiderApp {
                             let _ = self.voider.doc_live_save();
                         }
                     }
-                    // In F3 typing only means something while naming a new entry,
-                    // a book being merged, or searching.
+                    // In F3 the line is the title (or the name being given): typing
+                    // edits it, and leaving renames. Separators and the portal
+                    // don't take typing.
                     View::F3 => {
                         if self.voider.f3_search.is_some() {
                             self.voider.f3_search_type(&text_line::neutralize_caps(&t, caps));
-                        } else if self.voider.pending_new || self.voider.pending_merge {
-                            self.voider.entry.insert(&text_line::neutralize_caps(&t, caps));
+                        } else {
+                            self.voider.f3_type(&text_line::neutralize_caps(&t, caps));
                         }
                     }
                     // F9's text goes into egui's own multiline widget, which
@@ -677,6 +678,7 @@ impl VoiderApp {
             }
             return;
         }
+        let before = (self.voider.library.index, self.voider.library.current().to_string());
         match key {
             // Ctrl+F: search the library's chapters.
             Key::F if m.ctrl && !m.shift => self.voider.open_f3_search(),
@@ -701,16 +703,23 @@ impl VoiderApp {
                 if self.voider.pending_new {
                     let _ = self.voider.settle_pending();
                 } else {
-                    self.voider.open_current_chapter();
+                    let _ = self.voider.f3_enter();
                 }
             }
             Key::Escape if self.voider.pending_merge => self.voider.book_cancel_merge(),
             Key::Escape => self.voider.cancel_pending(),
-            Key::Backspace => {
-                if self.voider.pending_new || self.voider.pending_merge {
-                    self.voider.entry.backspace();
-                }
+            // Editing the line: the name being given, or the title (never a
+            // separator or the portal).
+            Key::Backspace if self.f3_editable() => {
+                self.voider.entry.backspace();
             }
+            Key::Delete if self.f3_editable() && !m.ctrl => {
+                self.voider.entry.delete();
+            }
+            Key::ArrowLeft if m.shift => self.voider.entry.extend_caret(-1),
+            Key::ArrowRight if m.shift => self.voider.entry.extend_caret(1),
+            Key::ArrowLeft if !m.alt => self.voider.entry.move_caret(-1),
+            Key::ArrowRight if !m.alt => self.voider.entry.move_caret(1),
             // Alt+Shift+↑/↓ duplicates the chapter, the copy going where the arrow
             // points. Before the plain arrows or they would just move the cursor.
             Key::ArrowUp if m.alt && m.shift => {
@@ -719,30 +728,39 @@ impl VoiderApp {
             Key::ArrowDown if m.alt && m.shift => {
                 let _ = self.voider.book_duplicate(1);
             }
-            // Moving away settles a named entry instead of losing it.
-            Key::ArrowUp => {
-                let _ = self.voider.settle_pending();
-                self.voider.library.move_by(-1);
-            }
-            Key::ArrowDown => {
-                let _ = self.voider.settle_pending();
-                self.voider.library.move_by(1);
-            }
+            // Moving away settles a named entry and renames an edited title.
+            Key::ArrowUp => self.voider.f3_move(-1),
+            Key::ArrowDown => self.voider.f3_move(1),
             // PageUp/PageDown: the separator before / after — book by book.
             Key::PageUp => {
-                let _ = self.voider.settle_pending();
+                let _ = self.voider.f3_leave_entry();
                 self.voider.library.goto_dot(-1);
             }
             Key::PageDown => {
-                let _ = self.voider.settle_pending();
+                let _ = self.voider.f3_leave_entry();
                 self.voider.library.goto_dot(1);
             }
             // On a separator: shuffle that book. On a title: jump to a random one.
             Key::Tab => {
+                let _ = self.voider.f3_leave_entry();
                 let _ = self.voider.book_tab();
             }
             _ => {}
         }
+        // Whatever moved the cursor (or changed the row under it), the line now
+        // shows the new title.
+        let after = (self.voider.library.index, self.voider.library.current().to_string());
+        if after != before {
+            self.voider.f3_sync_entry();
+        }
+    }
+
+    /// Whether the F3 line takes editing keys now.
+    fn f3_editable(&self) -> bool {
+        let cur = self.voider.library.current();
+        self.voider.pending_new
+            || self.voider.pending_merge
+            || !(library::is_separator(cur) || library::is_portal(cur))
     }
 
     fn handle_f5_key(&mut self, key: egui::Key, m: egui::Modifiers) {
@@ -1146,8 +1164,8 @@ impl VoiderApp {
 
         if n > 0 {
             for offset in -reach..=reach {
-                if offset == 0 && (self.voider.pending_new || self.voider.pending_merge) {
-                    continue; // the name being typed is drawn as the entry line
+                if offset == 0 {
+                    continue; // the centre is the editable line, drawn below
                 }
                 let i = (lib.index as isize + offset).rem_euclid(n) as usize;
                 let label = library::display_name(&lib.entries[i]);
@@ -1171,9 +1189,9 @@ impl VoiderApp {
                 );
             }
         }
-        if self.voider.pending_new || self.voider.pending_merge {
-            self.draw_entry_line(painter, ctx, centre, rect, false);
-        }
+        // The centre is the line you edit, as in the Python's book_view: the
+        // title (or `.` / `0`), or the name being given.
+        self.draw_entry_line(painter, ctx, centre, rect, false);
     }
 
     /// Paragraphs in order, the current one centred and lit, drawn outward from

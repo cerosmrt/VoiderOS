@@ -518,6 +518,10 @@ impl Voider {
         if view != View::F3 {
             self.f3_search_cancel();
         }
+        // Leaving F3 settles a half-named entry and renames an edited title.
+        if self.view == View::F3 && view != View::F3 {
+            let _ = self.f3_leave_entry();
+        }
         // Salir del lector guarda por dónde ibas, como en el Python.
         if self.view == View::F6 && view != View::F6 {
             self.save_o_position();
@@ -542,6 +546,7 @@ impl Voider {
                         self.library.index = i;
                     }
                 }
+                self.f3_sync_entry();
             }
             View::F10 => {
                 // Start the highlight on the font currently in use.
@@ -1854,6 +1859,9 @@ impl Voider {
         if self.f3_search.is_some() {
             return;
         }
+        // Settle a half-named entry / an edited title BEFORE the search moves
+        // the cursor — the path on which the Python lost entries.
+        let _ = self.f3_leave_entry();
         let saved_index = self.library.index;
         let matches = self.matching_library_entries("");
         let highlight = matches.iter().position(|&i| i == saved_index).unwrap_or(0);
@@ -1908,6 +1916,7 @@ impl Voider {
         if let Some(&idx) = search.matches.get(search.highlight) {
             self.library.index = idx;
         }
+        self.f3_sync_entry();
     }
 
     pub fn f3_search_cancel(&mut self) {
@@ -1915,6 +1924,7 @@ impl Voider {
             return;
         };
         self.library.index = search.saved_index;
+        self.f3_sync_entry();
     }
 
     // ── F5: paragraphs ────────────────────────────────────────────────────────
@@ -2308,6 +2318,108 @@ impl Voider {
 
     /// Enter in F3: open the highlighted chapter in F2. Separators are structure,
     /// not chapters — they open nothing.
+    // ── F3: the line under the cursor is the title, and it can be edited ─────
+    //
+    // As in the Python's book_view: the entry shows the highlighted title
+    // (`.` on a separator, `0` on the portal — both read-only), caret at the
+    // start. Typing changes it; leaving the entry renames the file.
+
+    /// Whether the F3 cursor sits on a separator or the portal — rows that are
+    /// structure, not a file, so they can't be renamed or typed into.
+    fn f3_on_structure(&self) -> bool {
+        let cur = self.library.current();
+        library::is_separator(cur) || library::is_portal(cur)
+    }
+
+    /// Put the highlighted title in the entry, caret at the start.
+    pub fn f3_sync_entry(&mut self) {
+        if self.pending_new || self.pending_merge {
+            return;
+        }
+        let cur = self.library.current().to_string();
+        let shown = if library::is_separator(&cur) { ".".to_string() } else { library::display_name(&cur) };
+        self.entry.set_text(&shown);
+        self.entry.home();
+    }
+
+    /// Typing in F3: into the name being given, or over the title.
+    pub fn f3_type(&mut self, text: &str) {
+        if !(self.pending_new || self.pending_merge) && self.f3_on_structure() {
+            return;
+        }
+        self.entry.insert(text);
+    }
+
+    /// Before the F3 cursor leaves an entry: a half-named new one is settled, an
+    /// edited title is renamed.
+    pub fn f3_leave_entry(&mut self) -> io::Result<bool> {
+        self.settle_pending()?;
+        self.book_try_rename()
+    }
+
+    /// ↑/↓ in F3.
+    pub fn f3_move(&mut self, delta: isize) {
+        let _ = self.f3_leave_entry();
+        self.library.move_by(delta);
+        self.f3_sync_entry();
+    }
+
+    /// Rename the highlighted chapter to what the entry says — the Python's
+    /// `_book_try_rename`. Refused (and the old title put back) for an empty or
+    /// dotted name, for "0" (the scratch's name: renaming onto it would erase
+    /// 0.txt), and for a name another file already has. `Ok(false)` only when
+    /// the rename itself failed.
+    pub fn book_try_rename(&mut self) -> io::Result<bool> {
+        if self.pending_new || self.pending_merge || self.f3_on_structure() {
+            return Ok(true);
+        }
+        let fname = self.library.current().to_string();
+        if fname.is_empty() {
+            return Ok(true);
+        }
+        let new_display = self.entry.text().trim().to_string();
+        let new_fname = format!("{new_display}.txt");
+        let old_path = library::chapter_path(&self.void_dir, &fname);
+        let new_path = library::chapter_path(&self.void_dir, &new_fname);
+        let refused = new_display.is_empty()
+            || new_display.starts_with('.')
+            || new_display == "0"
+            || new_display.eq_ignore_ascii_case("0.txt");
+        if new_fname == fname {
+            return Ok(true);
+        }
+        if refused || !old_path.exists() || new_path.exists() {
+            if new_path.exists() && !refused {
+                self.status = format!("Ya existe {new_display} — no se renombró");
+            }
+            self.f3_sync_entry();
+            return Ok(true);
+        }
+        if let Err(e) = std::fs::rename(&old_path, &new_path) {
+            self.status = format!("No se pudo renombrar: {e}");
+            return Ok(false);
+        }
+        if same_file(&self.current_file, &old_path) || self.current_file == old_path {
+            self.current_file = new_path.clone();
+            self.save_active_file();
+        }
+        let idx = self.library.index;
+        self.library.entries[idx] = new_fname.clone();
+        self.save_library()?;
+        self.status = format!("{fname} → {new_fname}");
+        Ok(true)
+    }
+
+    /// Enter in F3 with the caret at the start: open what is highlighted (after
+    /// renaming it if its title was edited).
+    pub fn f3_enter(&mut self) -> io::Result<()> {
+        if !self.book_try_rename()? {
+            return Ok(());
+        }
+        self.open_current_chapter();
+        Ok(())
+    }
+
     pub fn open_current_chapter(&mut self) {
         let entry = self.library.current().to_string();
         if entry.is_empty() || library::is_separator(&entry) {
@@ -4407,6 +4519,94 @@ mod tests {
         assert_eq!(v.library.current(), "Tres.txt");
         // and it survives a reload from disk
         assert!(Library::load(&v.void_dir).entries.contains(&"Tres.txt".to_string()));
+    }
+
+    // ── F3: the title under the cursor is the line you edit (P1-33) ─────────
+    // Python's book_view editor shows the title; typing over it renames the
+    // file when you leave (navigate, Enter, change view) — _book_try_rename.
+
+    #[test]
+    fn entering_f3_puts_the_title_in_the_line() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        assert_eq!(v.entry.text(), "Uno");
+        assert_eq!(v.entry.caret(), 0);
+    }
+
+    #[test]
+    fn a_separator_shows_a_dot_and_the_portal_a_zero_and_neither_takes_typing() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.entries = vec![".".into(), "0.txt".into(), "Uno.txt".into()];
+        v.library.index = 0;
+        v.f3_sync_entry();
+        assert_eq!(v.entry.text(), ".");
+        v.f3_type("x");
+        assert_eq!(v.entry.text(), ".");
+        v.f3_move(1);
+        assert_eq!(v.entry.text(), "0");
+        v.f3_type("x");
+        assert_eq!(v.entry.text(), "0");
+    }
+
+    #[test]
+    fn typing_over_a_title_and_moving_renames_the_file() {
+        let (_d, mut v) = book(); // active is Uno.txt
+        v.switch_to(View::F3);
+        v.entry.set_text("Uno nuevo");
+        v.f3_move(1);
+        let i = v.void_dir.join("I");
+        assert!(!i.join("Uno.txt").exists());
+        assert!(void::load_doc(&i.join("Uno nuevo.txt")).lines.contains(&"de uno".to_string()));
+        assert!(v.library.entries.contains(&"Uno nuevo.txt".to_string()));
+        assert!(Library::load(&v.void_dir).entries.contains(&"Uno nuevo.txt".to_string()));
+        // It was the active file: Voider follows it to its new name.
+        assert!(v.current_file.ends_with("Uno nuevo.txt"));
+    }
+
+    #[test]
+    fn renaming_to_zero_is_refused() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.entry.set_text("0");
+        assert!(v.book_try_rename().unwrap());
+        assert!(v.void_dir.join("I/Uno.txt").exists());
+        assert_eq!(v.entry.text(), "Uno");
+    }
+
+    #[test]
+    fn renaming_onto_an_existing_chapter_is_refused() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.entry.set_text("Dos");
+        v.book_try_rename().unwrap();
+        assert!(v.void_dir.join("I/Uno.txt").exists());
+        assert!(void::load_doc(&v.void_dir.join("I/Dos.txt")).lines.contains(&"de dos".to_string()));
+        assert_eq!(v.entry.text(), "Uno");
+    }
+
+    #[test]
+    fn an_empty_title_just_puts_the_old_one_back() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.entry.set_text("   ");
+        v.book_try_rename().unwrap();
+        assert!(v.void_dir.join("I/Uno.txt").exists());
+        assert_eq!(v.entry.text(), "Uno");
+    }
+
+    #[test]
+    fn enter_on_an_edited_title_renames_then_opens_it() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.index = v.library.position("Dos.txt").unwrap();
+        v.f3_sync_entry();
+        v.entry.set_text("Dos bis");
+        v.entry.home();
+        v.f3_enter().unwrap();
+        assert_eq!(v.view, View::F2);
+        assert!(v.current_file.ends_with("Dos bis.txt"));
+        assert!(v.ring.lines.contains(&"de dos".to_string()));
     }
 
     // A new entry named "." or "0" is structure, not a chapter (test_portal.py).
