@@ -135,8 +135,11 @@ class TtsMixin:
             if cur != '.':
                 self._tts_speak(cur)
             self._tts_timer.start()
-        elif view_index == 4:                        # F5 — single O/ line
-            self._tts_speak(self.entry.text())
+        elif view_index == 4:                        # F5 — el párrafo actual
+            for u in self._f5_units():
+                if u['kind'] == 'para' and u['ordinal'] == self._f5_para_idx:
+                    self._tts_speak(u['text'])
+                    break
         elif view_index == 5:                        # F6 — sequential through O/ book
             cur = self.o_reader_ring.current()
             if cur not in ('.', ''):
