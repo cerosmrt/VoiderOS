@@ -1299,12 +1299,16 @@ class IoMixin:
     def switch_to_file(self, file_path):
         if not os.path.exists(file_path):
             open(file_path, 'w', encoding='utf-8').close()
+        # Recordar por dónde ibas en el archivo que dejás, y CARGAR el nuevo.
+        # Antes solo cambiaba current_file_path y el anillo seguía siendo el del
+        # archivo anterior: el próximo Enter lo escribía encima del nuevo.
+        self._save_last_line()
         self.current_file_path = file_path
         self.current_file_index = self.txt_files.index(file_path)
+        self.load_doc_lines()
         print(f"📂 Write target: {os.path.basename(file_path)}")
         if self.current_view == 0:
-            self.entry.setText(self.line_ring.current())
-            self.entry.setCursorPosition(0)
+            self._f1_show_current()
 
     def show_previous_file(self):
         if not self.txt_files:
