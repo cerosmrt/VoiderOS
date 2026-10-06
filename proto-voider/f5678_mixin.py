@@ -105,14 +105,27 @@ class F5678Mixin:
         self.oracle_o_view.update()
 
     def _oracle_o_confirm(self):
+        """Enter en F8: quedarse con la línea (como la hayas editado). Entra en el
+        documento activo debajo de donde estabas, y sale otra tirada.
+
+        Antes reemplazaba el anillo del lector de F6 por ['.', línea] sin soltar
+        el libro abierto y saltaba a F5: el próximo guardado en F6 escribía esas
+        dos líneas encima del libro de O/, que no tiene git. El lector no se toca.
+        """
         new_text = self.oracle_o_view.editor.text().strip()
         if not new_text:
             return
-        self.o_reader_ring = LineRing(['.', new_text])
-        self.o_reader_ring.index = 1
-        if self.transform_view:
-            self.transform_view.ring = self.o_reader_ring
-        self.switch_to_view(4)
+        insert_pos = self.line_ring.index + 1
+        self.line_ring.lines.insert(insert_pos, new_text)
+        self.line_ring.index = insert_pos
+        self.auto_save_circular()
+        self._refresh_oracle_o()
+        view = self.oracle_o_view
+        view._offset = 0.0
+        view.editor.setText(self.oracle_o_ring.current())
+        view.editor.setCursorPosition(0)
+        view.update()
+        print(f"✅ Oráculo → documento [{insert_pos}]: '{new_text[:60]}'")
 
     # ── F7: O/ book browser — working set ────────────────────────────────────
 
