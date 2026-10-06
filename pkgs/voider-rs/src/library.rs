@@ -111,6 +111,23 @@ impl Library {
         self.index = (self.index as isize + delta).rem_euclid(len) as usize;
     }
 
+    /// PageUp/PageDown in F3: the separator before / after the cursor, wrapping.
+    /// Stays put when there is none.
+    pub fn goto_dot(&mut self, direction: isize) {
+        let n = self.entries.len() as isize;
+        if n == 0 {
+            return;
+        }
+        let mut i = self.index as isize;
+        for _ in 0..n {
+            i = (i + direction).rem_euclid(n);
+            if is_separator(&self.entries[i as usize]) {
+                self.index = i as usize;
+                return;
+            }
+        }
+    }
+
     /// Insert a chapter just below `at`, so a new file lands next to the one it
     /// came from rather than at some stale cursor.
     pub fn insert_below(&mut self, at: usize, entry: impl Into<String>) {

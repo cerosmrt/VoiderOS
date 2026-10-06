@@ -463,6 +463,35 @@ impl Voider {
         self.entry.clear();
     }
 
+    /// Before F1 leaves a line, what you typed goes into it — the Python's
+    /// `_f1_persist_entry`: only real text, only if it changed, never over a dot.
+    pub fn f1_persist_entry(&mut self) -> io::Result<()> {
+        let t = self.entry.text().trim().to_string();
+        let i = self.ring.index;
+        if i >= self.ring.lines.len() || self.ring.lines[i] == "." {
+            return Ok(());
+        }
+        if !t.is_empty() && t != self.ring.lines[i] {
+            self.ring.lines[i] = t;
+            self.save()?;
+        }
+        Ok(())
+    }
+
+    /// ↑/↓ in F1: keep the edit, move, show the new line.
+    pub fn f1_navigate(&mut self, delta: isize) {
+        let _ = self.f1_persist_entry();
+        self.ring.move_by(delta);
+        self.show_current();
+    }
+
+    /// PageUp/PageDown in F1: keep the edit, jump to the neighbouring dot.
+    pub fn f1_goto_dot(&mut self, direction: isize) {
+        let _ = self.f1_persist_entry();
+        self.goto_dot(direction);
+        self.show_current();
+    }
+
     /// Mirror the current ring line into the entry (blank for a `.` separator).
     pub fn show_current(&mut self) {
         let cur = self.ring.current();
@@ -4127,6 +4156,47 @@ mod tests {
         let n = v.ring.lines.len();
         v.goto_end();
         assert_eq!(v.ring.lines.len(), n); // already blank at the end
+    }
+
+    // F1 ↑/↓/PageUp/PageDown keep what you typed (the Python's _f1_persist_entry).
+
+    #[test]
+    fn moving_in_f1_keeps_the_edit_in_the_line_you_left() {
+        let (_d, mut v) = app(&[".", "a", "b"]);
+        v.switch_to(View::F1);
+        v.ring.index = 1;
+        v.show_current();
+        v.entry.set_text("a corregida");
+        v.f1_navigate(1);
+        assert_eq!(v.ring.lines[1], "a corregida");
+        assert_eq!(v.ring.index, 2);
+        assert_eq!(v.entry.text(), "b");
+        assert!(void::load_doc(&v.current_file).lines.contains(&"a corregida".to_string()));
+    }
+
+    #[test]
+    fn paragraph_jumps_in_f1_keep_the_edit_too() {
+        let (_d, mut v) = app(&[".", "a", ".", "b"]);
+        v.switch_to(View::F1);
+        v.ring.index = 1;
+        v.entry.set_text("a nueva");
+        v.f1_goto_dot(1);
+        assert_eq!(v.ring.lines[1], "a nueva");
+        assert_eq!(v.ring.index, 2);
+    }
+
+    #[test]
+    fn an_empty_entry_or_a_dot_is_never_written_when_moving() {
+        let (_d, mut v) = app(&[".", "a", "b"]);
+        v.switch_to(View::F1);
+        v.ring.index = 1;
+        v.entry.set_text("   ");
+        v.f1_navigate(1);
+        assert_eq!(v.ring.lines[1], "a");
+        v.ring.index = 0; // the dot
+        v.entry.set_text("encima del punto");
+        v.f1_navigate(1);
+        assert_eq!(v.ring.lines[0], ".");
     }
 
     #[test]

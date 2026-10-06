@@ -349,37 +349,46 @@ impl VoiderApp {
                         }
                         continue;
                     }
-                    // Ctrl+A selects the whole line in F1 and F2. (Ctrl+C / X / V never
-                    // get here as keys: egui-winit turns them into Copy / Cut / Paste
-                    // events, handled above.)
-                    let no_search =
-                        self.voider.f2_search.is_none() && self.voider.f3_search.is_none();
-                    if modifiers.ctrl
-                        && no_search
-                        && key == egui::Key::A
-                        && matches!(self.voider.view, View::F1 | View::F2)
-                    {
-                        self.voider.entry.select_all();
-                        continue;
-                    }
-                    if self.handle_global_key(key, modifiers) {
-                        continue;
-                    }
-                    match self.voider.view {
-                        View::F1 => self.handle_f1_key(key, caps, modifiers),
-                        View::F2 => self.handle_f2_key(key, caps, modifiers),
-                        View::F3 => self.handle_f3_key(key, modifiers),
-                        View::F4 => self.handle_f4_key(key, modifiers),
-                        View::F6 => self.handle_f6_key(key),
-                        View::F7 => self.handle_f7_key(key, modifiers),
-                        View::F8 => self.handle_f8_key(key),
-                        View::F5 => self.handle_f5_key(key, modifiers),
-                        View::F9 => self.handle_f9_key(key, modifiers),
-                        View::F10 => self.handle_f10_key(key, modifiers),
-                    }
+                    self.route_key_with(key, modifiers, caps);
                 }
                 _ => {}
             }
+        }
+    }
+
+    /// A key that no prompt or overlay took: Ctrl+A, then the global keys, then
+    /// the view's own.
+    fn route_key(&mut self, key: egui::Key, modifiers: egui::Modifiers) {
+        self.route_key_with(key, modifiers, caps_lock_on());
+    }
+
+    fn route_key_with(&mut self, key: egui::Key, modifiers: egui::Modifiers, caps: bool) {
+        // Ctrl+A selects the whole line in F1 and F2. (Ctrl+C / X / V never
+        // get here as keys: egui-winit turns them into Copy / Cut / Paste
+        // events, handled above.)
+        let no_search = self.voider.f2_search.is_none() && self.voider.f3_search.is_none();
+        if modifiers.ctrl
+            && no_search
+            && key == egui::Key::A
+            && matches!(self.voider.view, View::F1 | View::F2)
+        {
+            self.voider.entry.select_all();
+            return;
+        }
+        if self.handle_global_key(key, modifiers) {
+            return;
+        }
+        match self.voider.view {
+            View::F1 => self.handle_f1_key(key, caps, modifiers),
+            View::F2 => self.handle_f2_key(key, caps, modifiers),
+            View::F3 => self.handle_f3_key(key, modifiers),
+            View::F4 => self.handle_f4_key(key, modifiers),
+            View::F6 => self.handle_f6_key(key),
+            View::F7 => self.handle_f7_key(key, modifiers),
+            View::F8 => self.handle_f8_key(key),
+            View::F5 => self.handle_f5_key(key, modifiers),
+            View::F9 => self.handle_f9_key(key, modifiers),
+            View::F10 => self.handle_f10_key(key, modifiers),
         }
     }
 
@@ -443,9 +452,8 @@ impl VoiderApp {
             }
             // Backtick: round trip to the scratch, from wherever you are.
             Key::Backtick => self.voider.scratch_toggle(),
-            // Paragraph jumps, everywhere the document is on screen.
-            Key::PageDown => self.voider.goto_dot(1),
-            Key::PageUp => self.voider.goto_dot(-1),
+            // PageUp/PageDown are NOT global: each view means something else by
+            // them (a paragraph, a book in the library, a page) — see its handler.
             _ => return false,
         }
         true
@@ -487,14 +495,11 @@ impl VoiderApp {
             Key::ArrowUp if m.alt => self.voider.step_file(-1),
             Key::ArrowDown if m.alt => self.voider.step_file(1),
             Key::End => self.voider.entry.end(),
-            Key::ArrowUp => {
-                self.voider.ring.move_by(-1);
-                self.voider.show_current();
-            }
-            Key::ArrowDown => {
-                self.voider.ring.move_by(1);
-                self.voider.show_current();
-            }
+            // Moving keeps what you typed in the line you leave.
+            Key::ArrowUp => self.voider.f1_navigate(-1),
+            Key::ArrowDown => self.voider.f1_navigate(1),
+            Key::PageUp => self.voider.f1_goto_dot(-1),
+            Key::PageDown => self.voider.f1_goto_dot(1),
             _ => {}
         }
     }
@@ -615,6 +620,8 @@ impl VoiderApp {
             Key::ArrowRight => self.voider.entry.move_caret(1),
             Key::Home => self.voider.doc_jump_edge(false),
             Key::End => self.voider.doc_jump_edge(true),
+            Key::PageUp => self.voider.goto_dot(-1),
+            Key::PageDown => self.voider.goto_dot(1),
             // Contextual: paragraph order on the leading dot, a paragraph's own
             // lines on any other dot, a random I/ fragment on a content line.
             // Shift+Tab: el fragmento viene del corpus (los libros del working
@@ -720,6 +727,15 @@ impl VoiderApp {
             Key::ArrowDown => {
                 let _ = self.voider.settle_pending();
                 self.voider.library.move_by(1);
+            }
+            // PageUp/PageDown: the separator before / after — book by book.
+            Key::PageUp => {
+                let _ = self.voider.settle_pending();
+                self.voider.library.goto_dot(-1);
+            }
+            Key::PageDown => {
+                let _ = self.voider.settle_pending();
+                self.voider.library.goto_dot(1);
             }
             // On a separator: shuffle that book. On a title: jump to a random one.
             Key::Tab => {
@@ -2222,6 +2238,69 @@ mod tests {
         assert!(app.voider.void_dir.join("carousel").join("c").join("1_titulo.png").is_file());
         app.handle_f4_key(egui::Key::B, ctrl_shift());
         assert_eq!(app.voider.browser.as_ref().map(|b| b.purpose), Some(browse::Purpose::Cover));
+    }
+
+    // ── PageUp/PageDown belong to each view, not to everyone (P1-1) ─────────
+
+    fn none() -> egui::Modifiers {
+        egui::Modifiers::default()
+    }
+
+    #[test]
+    fn page_keys_are_not_global() {
+        let (_d, mut app) = f5_app(&[".", "a", ".", "b"]);
+        assert!(!app.handle_global_key(egui::Key::PageDown, none()));
+        assert!(!app.handle_global_key(egui::Key::PageUp, none()));
+    }
+
+    #[test]
+    fn page_down_in_f4_turns_the_page() {
+        let lines = long_file(400);
+        let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+        let (_d, mut app) = f5_app(&refs);
+        app.voider.switch_to(app::View::F4);
+        app.reading_pages = 5;
+        let before = app.voider.page;
+        app.route_key(egui::Key::PageDown, none());
+        assert_eq!(app.voider.page, before + 1);
+        let ring_before = app.voider.ring.index;
+        app.route_key(egui::Key::PageUp, none());
+        assert_eq!(app.voider.page, before);
+        assert_eq!(app.voider.ring.index, ring_before, "PageUp moved the document under F4");
+    }
+
+    #[test]
+    fn page_down_in_f1_keeps_the_edit_and_jumps_a_paragraph() {
+        let (_d, mut app) = f5_app(&[".", "a", ".", "b"]);
+        app.voider.switch_to(app::View::F1);
+        app.voider.ring.index = 1;
+        app.voider.entry.set_text("a cambiada");
+        app.route_key(egui::Key::PageDown, none());
+        assert_eq!(app.voider.ring.lines[1], "a cambiada");
+        assert_eq!(app.voider.ring.index, 2);
+    }
+
+    #[test]
+    fn page_down_in_f3_jumps_to_the_next_book_not_the_document() {
+        let (_d, mut app) = f5_app(&[".", "a", ".", "b"]);
+        app.voider.switch_to(app::View::F3);
+        app.voider.library.entries = vec![".".into(), "A.txt".into(), "B.txt".into(), ".".into(), "C.txt".into()];
+        app.voider.library.index = 1;
+        let doc = app.voider.ring.index;
+        app.route_key(egui::Key::PageDown, none());
+        assert_eq!(app.voider.library.index, 3);
+        assert_eq!(app.voider.ring.index, doc);
+        app.route_key(egui::Key::PageUp, none());
+        assert_eq!(app.voider.library.index, 0);
+    }
+
+    #[test]
+    fn page_keys_in_f5_do_not_move_the_document() {
+        let (_d, mut app) = f5_app(&[".", "a", ".", "b"]);
+        app.voider.switch_to(app::View::F5);
+        let doc = app.voider.ring.index;
+        app.route_key(egui::Key::PageDown, none());
+        assert_eq!(app.voider.ring.index, doc);
     }
 
     // ── the carousel preview in F4, without a window ─────────────────────────
