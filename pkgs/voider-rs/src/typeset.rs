@@ -100,8 +100,23 @@ pub fn typeset(
     line_h: f32,
     paragraphs: &[String],
 ) -> Vec<Line> {
+    typeset_marked(font, px, width, indent, line_h, paragraphs).0
+}
+
+/// Like `typeset`, and also the index of the line each paragraph starts on —
+/// what a reader needs to open at "the paragraph you were in". A paragraph with
+/// no words has no lines and so no entry.
+pub fn typeset_marked(
+    font: &TypeFont,
+    px: f32,
+    width: f32,
+    indent: f32,
+    line_h: f32,
+    paragraphs: &[String],
+) -> (Vec<Line>, Vec<usize>) {
     let space = font.advance(" ", px);
     let mut lines: Vec<Line> = Vec::new();
+    let mut starts: Vec<usize> = Vec::new();
 
     for para in paragraphs {
         let words: Vec<String> = para
@@ -111,6 +126,7 @@ pub fn typeset(
         if words.is_empty() {
             continue;
         }
+        starts.push(lines.len());
         let widths: Vec<f32> = words.iter().map(|w| font.advance(w, px)).collect();
 
         // Greedy: put words on the line while they still fit.
@@ -149,7 +165,7 @@ pub fn typeset(
             first = false;
         }
     }
-    lines
+    (lines, starts)
 }
 
 /// A word that is wider than the whole column, cut into pieces that each fit —
@@ -177,22 +193,48 @@ pub(crate) fn split_to_fit(font: &TypeFont, px: f32, width: f32, word: &str) -> 
 /// Cut the set text into pages of `block_h`, never splitting a line, each page's
 /// `y` starting again from 0. Always at least one page, even for no text.
 pub fn paginate(lines: Vec<Line>, line_h: f32, block_h: f32) -> Vec<Vec<Line>> {
-    // Whole lines only: a page holds as many as fit, and at least one, so a
-    // block shorter than a line cannot stall the pagination.
-    let per_page = ((block_h + 0.01) / line_h.max(0.01)).floor().max(1.0) as usize;
+    paginate_first(lines, line_h, block_h, block_h)
+}
+
+/// Like `paginate`, but the FIRST page has only `first_h` to fill — a chapter's
+/// title takes the top of it. Every later page has `block_h`.
+pub fn paginate_first(lines: Vec<Line>, line_h: f32, first_h: f32, block_h: f32) -> Vec<Vec<Line>> {
     if lines.is_empty() {
         return vec![Vec::new()];
     }
-    lines
-        .chunks(per_page)
-        .map(|chunk| {
-            chunk
+    let first = lines_that_fit(first_h, line_h);
+    let per_page = lines_that_fit(block_h, line_h);
+    let mut pages: Vec<Vec<Line>> = Vec::new();
+    let mut at = 0;
+    while at < lines.len() {
+        let take = if pages.is_empty() { first } else { per_page };
+        let end = (at + take).min(lines.len());
+        pages.push(
+            lines[at..end]
                 .iter()
                 .enumerate()
                 .map(|(i, l)| Line { words: l.words.clone(), y: i as f32 * line_h })
-                .collect()
-        })
-        .collect()
+                .collect(),
+        );
+        at = end;
+    }
+    pages
+}
+
+/// Which page line number `line` falls on, for the page sizes `paginate_first`
+/// uses (in lines: `first` on the first page, `per_page` on every later one).
+pub fn page_of_line(line: usize, first: usize, per_page: usize) -> usize {
+    if line < first {
+        0
+    } else {
+        1 + (line - first) / per_page.max(1)
+    }
+}
+
+/// How many whole lines fit in `height`, never fewer than one — so a block
+/// shorter than a line cannot stall the pagination.
+pub fn lines_that_fit(height: f32, line_h: f32) -> usize {
+    (((height + 0.01) / line_h.max(0.01)).floor().max(1.0)) as usize
 }
 
 #[cfg(test)]
@@ -378,6 +420,82 @@ mod tests {
         for p in &pages {
             assert_eq!(p[0].y, 0.0); // each page starts at the top again
         }
+    }
+
+    // ── a first page with less room (the title takes the top of it) ──────────
+
+    #[test]
+    fn the_first_page_can_hold_fewer_lines_than_the_rest() {
+        // 400 high pages hold 10 lines of 40; the first has only 200: 5 lines
+        let pages = paginate_first(many(30), 40.0, 200.0, 400.0);
+        let sizes: Vec<usize> = pages.iter().map(|p| p.len()).collect();
+        assert_eq!(sizes, vec![5, 10, 10, 5]);
+    }
+
+    #[test]
+    fn every_line_still_lands_once_in_order_and_y_restarts_on_each_page() {
+        let pages = paginate_first(many(23), 40.0, 120.0, 400.0);
+        let names: Vec<String> = pages.iter().flatten().map(|l| l.text()).collect();
+        assert_eq!(names, (0..23).map(|i| format!("l{i}")).collect::<Vec<_>>());
+        for p in &pages {
+            assert_eq!(p[0].y, 0.0);
+        }
+    }
+
+    #[test]
+    fn with_a_full_first_page_it_is_the_same_as_paginate() {
+        let a = paginate(many(37), 40.0, 400.0);
+        let b = paginate_first(many(37), 40.0, 400.0, 400.0);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn a_first_page_with_no_room_still_makes_progress() {
+        let pages = paginate_first(many(3), 40.0, 5.0, 400.0);
+        assert_eq!(pages.iter().map(|p| p.len()).sum::<usize>(), 3);
+        let none = paginate_first(Vec::new(), 40.0, 5.0, 400.0);
+        assert_eq!(none.len(), 1);
+    }
+
+    #[test]
+    fn page_of_line_agrees_with_where_paginate_first_put_it() {
+        let pages = paginate_first(many(30), 40.0, 200.0, 400.0);
+        let (first, per) = (lines_that_fit(200.0, 40.0), lines_that_fit(400.0, 40.0));
+        for (page_no, p) in pages.iter().enumerate() {
+            for l in p {
+                let n: usize = l.text()[1..].parse().unwrap();
+                assert_eq!(page_of_line(n, first, per), page_no, "line {n}");
+            }
+        }
+    }
+
+    #[test]
+    fn lines_that_fit_is_whole_lines_and_at_least_one() {
+        assert_eq!(lines_that_fit(400.0, 40.0), 10);
+        assert_eq!(lines_that_fit(399.0, 40.0), 9);
+        assert_eq!(lines_that_fit(5.0, 40.0), 1);
+        assert_eq!(lines_that_fit(0.0, 40.0), 1);
+    }
+
+    // ── where each paragraph starts ──────────────────────────────────────────
+
+    #[test]
+    fn each_paragraph_reports_the_line_it_starts_on() {
+        let f = font();
+        let (lines, starts) = typeset_marked(&f, PX, 300.0, 0.0, 40.0, &paras(&[&lorem(40), "una linea.", &lorem(30)]));
+        assert_eq!(starts.len(), 3);
+        assert_eq!(starts[0], 0);
+        assert!(starts[1] > 1 && starts[2] > starts[1]);
+        assert_eq!(lines[starts[1]].text(), "una linea.");
+        assert_eq!(lines.len(), typeset(&f, PX, 300.0, 0.0, 40.0, &paras(&[&lorem(40), "una linea.", &lorem(30)])).len());
+    }
+
+    #[test]
+    fn a_paragraph_with_no_words_has_no_start() {
+        let f = font();
+        let (lines, starts) = typeset_marked(&f, PX, 300.0, 0.0, 40.0, &paras(&["", "hola.", "  "]));
+        assert_eq!(starts, vec![0]);
+        assert_eq!(lines.len(), 1);
     }
 
     #[test]
