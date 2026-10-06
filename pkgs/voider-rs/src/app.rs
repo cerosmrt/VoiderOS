@@ -585,9 +585,15 @@ impl Voider {
         if view != View::F3 {
             self.f3_search_cancel();
         }
-        // Leaving F3 settles a half-named entry and renames an edited title.
+        // Leaving F3 settles a half-named entry and renames an edited title, then
+        // makes the highlighted chapter the active file (once, on the way out —
+        // not on every highlight) and remembers where the cursor was.
         if self.view == View::F3 && view != View::F3 {
             let _ = self.f3_leave_entry();
+            self.book_activate_current();
+            self.config.last_book_index = Some(self.library.index);
+            self.config.last_book_entry = Some(self.library.current().to_string()).filter(|e| !e.is_empty());
+            let _ = self.config.save(&self.void_dir);
         }
         // Salir del lector guarda por dónde ibas, como en el Python.
         if self.view == View::F6 && view != View::F6 {
@@ -607,12 +613,7 @@ impl Voider {
             }
             View::F3 => {
                 self.library = Library::load(&self.void_dir);
-                // Land on the file you were just in, not on some stale cursor.
-                if let Some(name) = self.current_file.file_name() {
-                    if let Some(i) = self.library.position(&name.to_string_lossy()) {
-                        self.library.index = i;
-                    }
-                }
+                self.library.index = self.resolve_f3_index();
                 self.f3_sync_entry();
             }
             View::F10 => {
@@ -2400,6 +2401,48 @@ impl Voider {
     // As in the Python's book_view: the entry shows the highlighted title
     // (`.` on a separator, `0` on the portal — both read-only), caret at the
     // start. Typing changes it; leaving the entry renames the file.
+
+    /// Where F3 lands — the Python's `_resolve_f3_index`: the remembered entry
+    /// by its exact index (how a particular dot or portal is kept), else that
+    /// entry by name (it survives a reorder), else the active file's row, else
+    /// the top.
+    fn resolve_f3_index(&self) -> usize {
+        let lib = &self.library.entries;
+        let n = lib.len();
+        if n == 0 {
+            return 0;
+        }
+        let entry = self.config.last_book_entry.as_deref();
+        if let (Some(i), Some(e)) = (self.config.last_book_index, entry) {
+            if i < n && lib[i] == e {
+                return i;
+            }
+        }
+        if let Some(e) = entry {
+            if !library::is_separator(e) && !library::is_portal(e) {
+                if let Some(i) = self.library.position(e) {
+                    return i;
+                }
+            }
+        }
+        self.current_file
+            .file_name()
+            .and_then(|name| self.library.position(&name.to_string_lossy()))
+            .unwrap_or(0)
+    }
+
+    /// Leaving F3: the highlighted chapter becomes the active file — never a dot
+    /// or the portal. The Python's `_book_activate_current`.
+    fn book_activate_current(&mut self) {
+        let cur = self.library.current().to_string();
+        if cur.is_empty() || library::is_separator(&cur) || library::is_portal(&cur) {
+            return;
+        }
+        let path = library::chapter_path(&self.void_dir, &cur);
+        if path.is_file() && !same_file(&path, &self.current_file) {
+            self.set_active_file(path);
+        }
+    }
 
     /// Whether the F3 cursor sits on a separator or the portal — rows that are
     /// structure, not a file, so they can't be renamed or typed into.
@@ -5079,6 +5122,62 @@ mod tests {
         assert_eq!(v.view, View::F2);
         assert!(v.current_file.ends_with("Dos.txt"));
         assert!(v.ring.lines.contains(&"de dos".to_string()));
+    }
+
+    // ── F3 remembers where you were; leaving it activates the chapter ────────
+    // (test_f3_position.py, new_interface.switch_to_view)
+
+    #[test]
+    fn leaving_f3_makes_the_highlighted_chapter_the_active_file() {
+        let (_d, mut v) = lib_app(&["Uno.txt", "Dos.txt"]); // active is Uno
+        v.library.index = 1;
+        v.f3_sync_entry();
+        v.switch_to(View::F1);
+        assert!(v.current_file.ends_with("Dos.txt"));
+        assert!(v.ring.lines.contains(&"de dos".to_string()));
+    }
+
+    #[test]
+    fn leaving_f3_on_a_dot_or_the_portal_keeps_the_active_file() {
+        let (_d, mut v) = lib_app(&[".", "0.txt", "Dos.txt"]);
+        for i in [0, 1] {
+            v.switch_to(View::F3);
+            v.library.index = i;
+            v.f3_sync_entry();
+            v.switch_to(View::F1);
+            assert!(v.current_file.ends_with("Uno.txt"));
+        }
+    }
+
+    #[test]
+    fn f3_comes_back_to_the_exact_entry_you_left_even_a_dot() {
+        let (_d, mut v) = lib_app(&["Uno.txt", ".", "Dos.txt"]);
+        v.library.index = 1;
+        v.switch_to(View::F1);
+        v.switch_to(View::F3);
+        assert_eq!(v.library.index, 1);
+    }
+
+    #[test]
+    fn the_remembered_entry_is_found_by_name_after_a_reorder() {
+        let (_d, mut v) = lib_app(&["Uno.txt", "Dos.txt"]);
+        v.library.index = 1; // Dos
+        v.switch_to(View::F1);
+        Library { entries: vec!["Nuevo.txt".into(), "Dos.txt".into(), "Uno.txt".into()], index: 0 }
+            .save(&v.void_dir)
+            .unwrap();
+        v.switch_to(View::F3);
+        assert_eq!(v.library.current(), "Dos.txt");
+    }
+
+    #[test]
+    fn the_f3_cursor_survives_a_restart() {
+        let (d, mut v) = lib_app(&["Uno.txt", ".", "Dos.txt"]);
+        v.library.index = 1;
+        v.switch_to(View::F1);
+        let mut again = Voider::open(d.path(), v.current_file.clone());
+        again.switch_to(View::F3);
+        assert_eq!(again.library.index, 1);
     }
 
     // ── Enter on a dot in F3: the whole book, read-only (view 9 in Python) ───

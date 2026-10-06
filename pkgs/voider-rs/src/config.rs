@@ -36,6 +36,10 @@ pub struct Config {
     /// is guessed), a language (`es`, `en`), or empty for none. The Python's
     /// `reading_hyphen_lang`.
     pub reading_hyphen_lang: String,
+    /// Where F3's cursor was left — by index and by name, so it survives a
+    /// restart and a reorder (the Python's `last_book_index` / `last_book_entry`).
+    pub last_book_index: Option<usize>,
+    pub last_book_entry: Option<String>,
 }
 
 impl Default for Config {
@@ -54,6 +58,8 @@ impl Default for Config {
             carousel_w: 1080,
             carousel_h: 1350,
             reading_hyphen_lang: "auto".to_string(),
+            last_book_index: None,
+            last_book_entry: None,
         }
     }
 }
@@ -118,6 +124,12 @@ impl Config {
             // Written even when empty: an empty value is how hyphenation is turned off.
             lines.push(format!("reading_hyphen_lang = {}", self.reading_hyphen_lang));
         }
+        if let Some(i) = self.last_book_index {
+            lines.push(format!("last_book_index = {i}"));
+        }
+        if let Some(e) = &self.last_book_entry {
+            lines.push(format!("last_book_entry = {e}"));
+        }
         if self.carousel_w != 1080 {
             lines.push(format!("carousel_w = {}", self.carousel_w));
         }
@@ -157,6 +169,8 @@ impl Config {
                 "sale_bundle_dir_es" => c.sale_bundle_dir_es = value.to_string(),
                 "sale_bundle_dir_en" => c.sale_bundle_dir_en = value.to_string(),
                 "reading_hyphen_lang" => c.reading_hyphen_lang = value.to_string(),
+                "last_book_index" => c.last_book_index = value.parse().ok(),
+                "last_book_entry" if !value.is_empty() => c.last_book_entry = Some(value.to_string()),
                 "carousel_preset" if !value.is_empty() => c.carousel_preset = value.to_string(),
                 "carousel_w" => {
                     if let Ok(v) = value.parse::<u32>() {
@@ -293,6 +307,8 @@ mod tests {
             carousel_w: 800,
             carousel_h: 600,
             reading_hyphen_lang: "es_ES".into(),
+            last_book_index: Some(444),
+            last_book_entry: Some("ATTACK BY DRAWING.txt".into()),
         };
         c.save(d.path()).unwrap();
         assert_eq!(Config::load(d.path()), c);
