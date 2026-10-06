@@ -2321,6 +2321,21 @@ impl Voider {
         if name.is_empty() {
             return Ok(None);
         }
+        // "." and "0" are structure, not chapters: a separator, and the scratch
+        // portal (only ever one — any other is dropped, this one stays).
+        if name == "." || name == "0" {
+            let at = self.library.index;
+            let entry = if name == "." { library::SEPARATOR } else { library::PORTAL };
+            self.library.insert_below(at, entry);
+            self.library.index = (at + 1).min(self.library.entries.len() - 1);
+            if name == "0" {
+                if let Some(s) = self.library.dedupe_portals(Some(self.library.index)) {
+                    self.library.index = s;
+                }
+            }
+            self.save_library()?;
+            return Ok(None);
+        }
         // A name already taken — listed, or a file sitting on disk — never
         // shares that file: two rows behind one file edit each other. It steps
         // to "name-2", "name-3", ... like a merge does, and the original stays.
@@ -4323,6 +4338,32 @@ mod tests {
         assert_eq!(v.library.current(), "Tres.txt");
         // and it survives a reload from disk
         assert!(Library::load(&v.void_dir).entries.contains(&"Tres.txt".to_string()));
+    }
+
+    // A new entry named "." or "0" is structure, not a chapter (test_portal.py).
+
+    #[test]
+    fn a_new_entry_named_dot_becomes_a_separator() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.index = v.library.position("Dos.txt").unwrap();
+        v.new_chapter(".").unwrap();
+        assert_eq!(v.library.entries, vec!["Dos.txt", ".", "Uno.txt"]);
+        assert!(!v.void_dir.join("I/..txt").exists());
+    }
+
+    #[test]
+    fn a_new_entry_named_zero_becomes_the_one_portal() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.entries = vec!["0.txt".into(), "Dos.txt".into(), "Uno.txt".into()];
+        v.library.index = 1;
+        v.new_chapter("0").unwrap();
+        // Only the new portal survives, right below Dos; no 0-2.txt anywhere.
+        assert_eq!(v.library.entries, vec!["Dos.txt", "0.txt", "Uno.txt"]);
+        assert_eq!(v.library.current(), "0.txt");
+        assert!(!v.void_dir.join("I/0-2.txt").exists());
+        assert!(Library::load(&v.void_dir).entries.contains(&"0.txt".to_string()));
     }
 
     #[test]
