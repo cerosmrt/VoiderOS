@@ -3387,13 +3387,15 @@ impl Voider {
         }
     }
 
-    /// Ctrl+0: rotate the file so the current line becomes its first.
+    /// Ctrl+0: on a dot, that paragraph becomes the first; on a line, it becomes
+    /// the first of its paragraph. The file always still opens on a dot.
     pub fn rebase_to_current(&mut self) -> io::Result<()> {
-        if self.ring.index == 0 {
-            return Ok(());
-        }
         self.doc_live_save()?;
-        self.ring.rebase_to_current();
+        let Some((lines, index)) = paragraphs::rebase(&self.ring.lines, self.ring.index) else {
+            return Ok(());
+        };
+        self.ring.lines = lines;
+        self.ring.index = index;
         self.sync_entry();
         self.save()
     }
@@ -7523,15 +7525,44 @@ mod tests {
         assert_eq!(v.entry.caret(), 0);
     }
 
+    // Ctrl+0 — ported from test_movement.py. The index 0 is always a dot: on a
+    // line it rotates that paragraph's lines, on a dot it rotates paragraphs.
+
     #[test]
-    fn rebasing_makes_the_current_line_first() {
-        let (_d, mut v) = app(&[".", "a", ".", "b"]);
-        v.ring.index = 3; // on 'b'
+    fn rebase_on_a_line_rotates_its_paragraph() {
+        let (_d, mut v) = app(&[".", "a", "b", "c"]);
+        v.ring.index = 2; // on 'b'
         v.switch_to(View::F2);
         v.rebase_to_current().unwrap();
-        assert_eq!(v.ring.lines, vec!["b", ".", "a", "."]);
+        assert_eq!(v.ring.lines, vec![".", "b", "c", "a"]);
+        assert_eq!(v.ring.index, 1);
+        assert_eq!(void::load_doc(&v.current_file).lines, vec![".", "b", "c", "a"]);
+    }
+
+    #[test]
+    fn rebase_on_the_first_line_of_its_paragraph_changes_nothing() {
+        let (_d, mut v) = app(&[".", "a", "b"]);
+        v.ring.index = 1;
+        v.rebase_to_current().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "a", "b"]);
+    }
+
+    #[test]
+    fn rebase_on_a_dot_makes_that_paragraph_first() {
+        let (_d, mut v) = app(&[".", "a", ".", "b"]);
+        v.ring.index = 2;
+        v.rebase_to_current().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "b", ".", "a"]);
         assert_eq!(v.ring.index, 0);
-        assert_eq!(void::load_doc(&v.current_file).lines[0], "."); // reloads well-formed
+    }
+
+    #[test]
+    fn rebase_inside_a_long_paragraph_only_rotates_that_one() {
+        let (_d, mut v) = app(&[".", "w", "x", "y", "z", ".", "otro"]);
+        v.ring.index = 3; // on 'y'
+        v.rebase_to_current().unwrap();
+        assert_eq!(v.ring.lines, vec![".", "y", "z", "w", "x", ".", "otro"]);
+        assert_eq!(v.ring.index, 1);
     }
 
     #[test]

@@ -51,6 +51,38 @@ pub fn para_at_dot(lines: &[String], line_idx: usize) -> Option<usize> {
     dots.iter().position(|&d| d == line_idx)
 }
 
+/// Ctrl+0 — the Python's `rebase_to_index_zero`. On a dot, the paragraphs rotate
+/// so that one comes first (cursor on index 0). On a line, the lines of ITS
+/// paragraph rotate so that one comes first (cursor right after the dot). The
+/// index 0 stays a dot either way. `None` when nothing would change.
+pub fn rebase(lines: &[String], index: usize) -> Option<(Vec<String>, usize)> {
+    let (dots, mut paras) = from_lines(lines);
+    if dots.is_empty() || index >= lines.len() {
+        return None;
+    }
+    if lines[index] == "." {
+        let k = dots.iter().position(|&d| d == index)?;
+        if k == 0 {
+            return None;
+        }
+        paras.rotate_left(k);
+        return Some((to_lines(&paras), 0));
+    }
+    for (k, &dot) in dots.iter().enumerate() {
+        let next = dot + 1 + paras[k].len();
+        if dot < index && index < next {
+            let offset = index - dot - 1;
+            if offset == 0 {
+                return None;
+            }
+            paras[k].rotate_left(offset);
+            let at = dot_line_index(k, &paras) + 1;
+            return Some((to_lines(&paras), at));
+        }
+    }
+    None
+}
+
 /// Move paragraph `k`. Between paragraphs it swaps; at either end it moves
 /// round to the other side. Returns the new lines and the moved paragraph's
 /// new index.
