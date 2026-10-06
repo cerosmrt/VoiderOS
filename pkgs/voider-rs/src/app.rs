@@ -236,6 +236,9 @@ pub struct Voider {
     pub o_file: String,
     /// F7: los libros elegidos a mano.
     pub ws: corpus::WorkingSet,
+    /// Whether `ws` has been read from O/.working_set.json this session. Its
+    /// default holds one empty slot, so "is it empty?" can't tell.
+    pub ws_loaded: bool,
     /// F7: la posición del cursor en el anillo del working set.
     pub ws_index: usize,
     /// Los nombres de O/, desde el cache — nunca se recorre en vivo.
@@ -341,6 +344,7 @@ impl Voider {
             o_ring: LineRing::new([".".to_string()]),
             o_file: String::new(),
             ws: corpus::WorkingSet::default(),
+            ws_loaded: false,
             ws_index: 1,
             o_books: Vec::new(),
             oracle: String::new(),
@@ -488,6 +492,15 @@ impl Voider {
                 let _ = std::fs::remove_file(&change.path);
             } else {
                 void::atomic_write(&change.path, lines, false)?;
+            }
+            // The book open in F6: show its restored lines too.
+            if self.o_path().as_ref() == Some(&change.path) {
+                let keep = self.o_ring.index;
+                self.o_ring = LineRing::new(if lines.is_empty() { vec![".".to_string()] } else { lines.clone() });
+                self.o_ring.index = keep.min(self.o_ring.lines.len().saturating_sub(1));
+                if self.view == View::F6 {
+                    self.o_sync_entry();
+                }
             }
             // If it's the file on screen, show the restored version at once.
             if change.path == self.current_file {
@@ -699,6 +712,13 @@ impl Voider {
         }
         self.view = view;
         match view {
+            // From the reader, the book's line comes along into the line to
+            // write, selected, to keep or change (the Python's fork from F6).
+            View::F1 if from == View::F6 && !self.o_file.is_empty() && self.o_ring.current() != "." && !self.o_ring.current().is_empty() => {
+                let line = self.o_ring.current().to_string();
+                self.entry.set_text(&line);
+                self.entry.select_all();
+            }
             View::F1 => self.show_current(),
             View::F2 => {
                 // Coming back to F2 after a Ctrl+Enter peek: the file you were in.
@@ -739,7 +759,7 @@ impl Voider {
                 self.enter_reading(from);
                 self.rebuild_carousel_plan();
             }
-            View::F6 => self.enter_o_reader(),
+            View::F6 => self.enter_o_reader(from),
             View::F7 => self.enter_o_browser(),
             View::F8 => self.refresh_oracle(),
             // book_open_concat has already filled the ring.
@@ -1473,8 +1493,9 @@ impl Voider {
         if self.o_books.is_empty() {
             self.o_books = corpus::load_cache(&self.void_dir);
         }
-        if self.ws.books.is_empty() {
+        if !self.ws_loaded {
             self.ws = corpus::WorkingSet::load(&self.o_dir());
+            self.ws_loaded = true;
         }
     }
 
@@ -1484,10 +1505,25 @@ impl Voider {
         if self.ws.books.is_empty() {
             self.ws = corpus::WorkingSet::load(&self.o_dir());
         }
+        // Back to the slot you were on last time (kept in .working_set.json).
         let n = self.ws.browser_entries().len();
+        let kept = self.ws.browser_index;
+        if kept > 0 && kept < n {
+            self.ws_index = kept;
+        }
         if self.ws_index == 0 || self.ws_index >= n {
             self.ws_index = 1.min(n.saturating_sub(1));
         }
+        if self.ws_index % 2 == 0 && n > 1 {
+            self.ws_index = (self.ws_index + 1) % n; // off a separator
+        }
+    }
+
+    /// Keep the highlighted slot, every time it changes (the Python saves on
+    /// every move, so a hard kill doesn't lose it).
+    fn ws_keep_index(&mut self) {
+        self.ws.browser_index = self.ws_index;
+        let _ = self.ws.save(&self.o_dir());
     }
 
     /// Qué ranura está señalando el cursor de F7, si no está sobre un separador.
@@ -1510,6 +1546,7 @@ impl Voider {
             }
         }
         self.ws_index = i as usize;
+        self.ws_keep_index();
     }
 
     /// Tab en F7: llenar la ranura con un libro al azar que no esté ya en otra.
@@ -1535,6 +1572,7 @@ impl Voider {
         let at = self.ws.add_slot(self.ws_current_slot());
         let _ = self.ws.save(&self.o_dir());
         self.ws_index = self.ws.ring_index_of(at);
+        self.ws_keep_index();
         self.status = format!("{} ranura(s)", self.ws.books.len());
     }
 
@@ -1546,6 +1584,7 @@ impl Voider {
             Some(next) => {
                 let _ = self.ws.save(&self.o_dir());
                 self.ws_index = self.ws.ring_index_of(next);
+                self.ws_keep_index();
                 self.status = format!("{} ranura(s)", self.ws.books.len());
             }
             None => self.status = "Ese libro está abierto en el lector".into(),
@@ -1576,11 +1615,17 @@ impl Voider {
     }
 
     /// F6: el lector. Si no hay libro cargado, trae el de la ranura actual.
-    pub fn enter_o_reader(&mut self) {
+    /// Coming from F7 it opens the highlighted slot's book (an empty slot
+    /// leaves the reader as it was), as the Python's switch_to_view does.
+    pub fn enter_o_reader(&mut self, from: View) {
         self.ensure_corpus_loaded();
-        if self.o_file.is_empty() {
+        let slot_has_book = self
+            .ws_current_slot()
+            .is_some_and(|s| !self.ws.books[s].path.is_empty());
+        if self.o_file.is_empty() || (from == View::F7 && slot_has_book) {
             self.open_o_book();
         }
+        self.o_sync_entry();
     }
 
     /// Guardar por dónde ibas leyendo. Al salir de F6.
@@ -1593,10 +1638,251 @@ impl Voider {
         let _ = self.ws.save(&self.o_dir());
     }
 
+    // ── F6 edits the book (f5678_mixin, "Editar un libro de O/") ─────────────
+    //
+    // The books of O/ are read by taking them apart: what serves you is
+    // harvested to 0.txt and leaves the book. DESTRUCTIVE AND WITHOUT A NET:
+    // O/ is a symlink to /mnt/data and is not in git. And the first save
+    // rewrites the book in Voider's form (the reader shows it reformatted).
+    // Both are Federico's decision, made with that in front of him.
+
+    fn o_path(&self) -> Option<PathBuf> {
+        (!self.o_file.is_empty()).then(|| self.o_dir().join(&self.o_file))
+    }
+
+    /// The line under the cursor into the entry — blank on a dot (which can't
+    /// be written), caret at the start.
+    pub fn o_sync_entry(&mut self) {
+        let cur = self.o_ring.current().to_string();
+        self.entry.set_text(if cur == "." { "" } else { &cur });
+        self.entry.home();
+    }
+
+    /// Write the reader's ring to the book, atomically, as one undo step per
+    /// `key` burst.
+    fn o_save(&mut self, key: Option<String>) -> io::Result<()> {
+        let Some(path) = self.o_path() else {
+            return Ok(());
+        };
+        let before: Vec<String> = std::fs::read_to_string(&path)
+            .map(|t| t.lines().map(str::to_string).collect())
+            .unwrap_or_default();
+        let after = self.o_ring.lines.clone();
+        void::atomic_write(&path, &after, false)?;
+        self.undo.record(path, before, after, key);
+        Ok(())
+    }
+
+    /// Whether the reader can be written into right now.
+    fn o_editable(&self) -> bool {
+        !self.o_file.is_empty() && self.o_ring.current() != "."
+    }
+
+    /// Every key typed in F6 goes to the book, as in F2 it goes to the chapter.
+    /// A blank line is never written: emptying it can't empty the book's line.
+    pub fn o_live_save(&mut self) -> io::Result<()> {
+        let text = self.entry.text();
+        if !self.o_editable() || text.trim().is_empty() {
+            return Ok(());
+        }
+        let i = self.o_ring.index;
+        self.o_ring.lines[i] = text;
+        self.o_save(Some(format!("o_reader:{i}")))
+    }
+
+    pub fn o_type(&mut self, text: &str) {
+        if !self.o_editable() {
+            return;
+        }
+        self.entry.insert(text);
+        let _ = self.o_live_save();
+    }
+
+    /// Enter in F6 splits the line at the caret — always.
+    pub fn o_split_line(&mut self) -> io::Result<()> {
+        if !self.o_editable() {
+            return Ok(());
+        }
+        let chars: Vec<char> = self.entry.text().chars().collect();
+        let pos = self.entry.caret().min(chars.len());
+        let i = self.o_ring.index;
+        self.o_ring.lines[i] = chars[..pos].iter().collect();
+        self.o_ring.lines.insert(i + 1, chars[pos..].iter().collect());
+        self.o_ring.index = i + 1;
+        self.o_save(None)?;
+        self.o_sync_entry();
+        Ok(())
+    }
+
+    /// Backspace at the start: join onto the line above — never across a dot.
+    pub fn o_join_prev(&mut self) -> io::Result<()> {
+        let i = self.o_ring.index;
+        if self.o_file.is_empty() || i == 0 || self.o_ring.lines[i] == "." || self.o_ring.lines[i - 1] == "." {
+            return Ok(());
+        }
+        let cur = self.o_ring.lines.remove(i);
+        let seam = self.o_ring.lines[i - 1].chars().count();
+        self.o_ring.lines[i - 1].push_str(&cur);
+        self.o_ring.index = i - 1;
+        self.o_save(None)?;
+        self.o_sync_entry();
+        self.entry.set_caret(seam);
+        Ok(())
+    }
+
+    /// Delete at the end: join the line below on — never across a dot.
+    pub fn o_join_next(&mut self) -> io::Result<()> {
+        let i = self.o_ring.index;
+        let n = self.o_ring.lines.len();
+        if self.o_file.is_empty() || i + 1 >= n || self.o_ring.lines[i] == "." || self.o_ring.lines[i + 1] == "." {
+            return Ok(());
+        }
+        let next = self.o_ring.lines.remove(i + 1);
+        let seam = self.o_ring.lines[i].chars().count();
+        self.o_ring.lines[i].push_str(&next);
+        self.o_save(None)?;
+        self.o_sync_entry();
+        self.entry.set_caret(seam);
+        Ok(())
+    }
+
+    /// Alt+↑/↓ in F6: move the line itself — within its paragraph, no wrap.
+    pub fn o_move_line(&mut self, delta: isize) -> io::Result<()> {
+        if !self.o_editable() {
+            return Ok(());
+        }
+        let i = self.o_ring.index as isize;
+        let j = i + delta;
+        if j < 0 || j as usize >= self.o_ring.lines.len() || self.o_ring.lines[j as usize] == "." {
+            return Ok(());
+        }
+        self.o_ring.lines.swap(i as usize, j as usize);
+        self.o_ring.index = j as usize;
+        self.o_save(None)?;
+        self.o_sync_entry();
+        Ok(())
+    }
+
+    /// Alt+←/→ in F6: the same word move as F2 — one implementation for both.
+    pub fn o_swap_words(&mut self, direction: isize) -> io::Result<()> {
+        if !self.o_editable() {
+            return Ok(());
+        }
+        if let Some(r) = words::swap_block(&self.entry.text(), self.entry.caret(), self.entry.selection(), direction) {
+            self.entry.set_text(&r.text);
+            match r.selection {
+                Some((s, e)) => self.entry.select_range(s, e),
+                None => self.entry.set_caret(r.caret),
+            }
+            let i = self.o_ring.index;
+            self.o_ring.lines[i] = r.text;
+            self.o_save(None)?;
+        }
+        Ok(())
+    }
+
+    /// PageUp/PageDown in F6: the dot before / after. The place is kept.
+    pub fn o_para_nav(&mut self, direction: isize) {
+        let n = self.o_ring.lines.len() as isize;
+        if n < 2 {
+            return;
+        }
+        let mut i = self.o_ring.index as isize;
+        for _ in 0..n {
+            i = (i + direction).rem_euclid(n);
+            if self.o_ring.lines[i as usize] == "." {
+                self.o_ring.index = i as usize;
+                break;
+            }
+        }
+        self.o_sync_entry();
+        self.save_o_position();
+    }
+
+    /// Ctrl+Delete in F6 — the harvest: the line (or, on a dot, the whole
+    /// paragraph it opens) goes to 0.txt and leaves the book. If 0.txt can't
+    /// be written, nothing leaves the book.
+    pub fn o_harvest(&mut self) -> io::Result<()> {
+        if self.o_file.is_empty() || self.o_ring.lines.len() <= 1 {
+            return Ok(());
+        }
+        let lines = self.o_ring.lines.clone();
+        let idx = self.o_ring.index;
+        let (take, harvest): (Vec<usize>, Vec<String>) = if lines[idx] == "." {
+            let mut end = idx + 1;
+            while end < lines.len() && lines[end] != "." {
+                end += 1;
+            }
+            ((idx..end).collect(), lines[idx + 1..end].iter().filter(|l| !l.trim().is_empty()).cloned().collect())
+        } else if lines[idx].trim().is_empty() {
+            (vec![idx], Vec::new())
+        } else {
+            (vec![idx], vec![lines[idx].clone()])
+        };
+        if harvest.is_empty() {
+            return Ok(());
+        }
+        let scratch = self.scratch_path();
+        let mut zero = void::load_doc(&scratch).lines;
+        let zero_before = zero.clone();
+        zero.extend(harvest.iter().cloned());
+        void::atomic_write(&scratch, &zero, false)?;
+        self.undo.record(scratch.clone(), zero_before, zero, None);
+
+        let kept: Vec<String> = lines
+            .iter()
+            .enumerate()
+            .filter(|(k, _)| !take.contains(k))
+            .map(|(_, l)| l.clone())
+            .collect();
+        self.o_ring.lines = tidy_after_send(kept);
+        let n = self.o_ring.lines.len();
+        self.o_ring.index = idx.min(n.saturating_sub(1));
+        // Never leave the cursor on a dot: the line would be locked.
+        for _ in 0..n {
+            if self.o_ring.current() != "." {
+                break;
+            }
+            self.o_ring.move_by(1);
+        }
+        self.o_save(None)?;
+        self.save_o_position();
+        self.o_sync_entry();
+        if same_file(&self.current_file, &scratch) {
+            self.reload_doc_from_other();
+        }
+        self.status = if harvest.len() == 1 {
+            "→ 0.txt".into()
+        } else {
+            format!("→ 0.txt: párrafo de {} líneas", harvest.len())
+        };
+        Ok(())
+    }
+
     /// Moverse por el libro. Corta la voz, como toda navegación.
+    ///
+    /// It stops on the dots too (standing on one is what lets a whole
+    /// paragraph be harvested or copied), and the place is kept on every move.
     pub fn o_navigate(&mut self, delta: isize) {
         self.tts.cut();
+        let _ = self.o_live_save();
         self.o_ring.move_by(delta);
+        self.o_sync_entry();
+        self.save_o_position();
+    }
+
+    /// Tab or '*' in F6: a random line of the book.
+    pub fn o_random_line(&mut self) {
+        let candidates: Vec<usize> = (0..self.o_ring.lines.len())
+            .filter(|&k| self.o_ring.lines[k] != "." && !self.o_ring.lines[k].is_empty())
+            .collect();
+        if candidates.is_empty() {
+            return;
+        }
+        let mut c = candidates;
+        library::shuffle(&mut c);
+        self.o_ring.index = c[0];
+        self.o_sync_entry();
     }
 
     /// F8: el oráculo. Una línea al azar del corpus, nueva en cada visita y en
@@ -1606,12 +1892,18 @@ impl Voider {
         let dir = self.o_dir();
         let books = self.o_books.clone();
         self.oracle = corpus::oracle_line(&dir, &books);
+        if self.view == View::F8 {
+            self.entry.set_text(&self.oracle.clone());
+            self.entry.home();
+        }
     }
 
     /// Enter en F8: quedarse con la línea, metiéndola en el documento activo
     /// debajo de donde estabas, y tirar otra.
     pub fn keep_oracle_line(&mut self) -> io::Result<()> {
-        let line = self.oracle.trim().to_string();
+        // The line as you left it in the entry: F8's line can be edited first.
+        let typed = self.entry.text().trim().to_string();
+        let line = if typed.is_empty() { self.oracle.trim().to_string() } else { typed };
         if line.is_empty() || line == "..." {
             return Ok(());
         }
@@ -3708,6 +4000,25 @@ impl Voider {
                 } else {
                     Some(self.ring.current().to_string())
                 }
+            }
+            // F6: the line, or on a dot the paragraph it opens (_reader_smart_copy).
+            View::F6 => {
+                let lines = &self.o_ring.lines;
+                if lines.is_empty() {
+                    return None;
+                }
+                let text = if self.o_ring.current() == "." {
+                    let mut i = self.o_ring.index + 1;
+                    let mut para = Vec::new();
+                    while i < lines.len() && lines[i] != "." {
+                        para.push(lines[i].clone());
+                        i += 1;
+                    }
+                    para.join("\n")
+                } else {
+                    self.o_ring.current().to_string()
+                };
+                (!text.is_empty()).then_some(text)
             }
             View::F3 => {
                 let entries = &self.library.entries;
@@ -7272,6 +7583,188 @@ mod tests {
         assert_eq!(v.oracle, "...");
         v.keep_oracle_line().unwrap(); // no mete "..." en el texto
         assert_eq!(v.ring.lines, vec![".".to_string(), "a".into()]);
+    }
+
+    // ── F6 se edita (test_o_editable.py, test_o_editing_parity.py) ───────────
+
+    /// Un libro abierto en F6, con estas líneas tal cual (ya en formato Voider).
+    fn reader_app(lines: &[&str]) -> (tempfile::TempDir, Voider) {
+        let (d, mut v) = corpus_app(&["Libro.txt"]);
+        void::atomic_write(&v.void_dir.join("I/0.txt"), &[".".to_string()], false).unwrap();
+        v.switch_to(View::F7);
+        v.ws_tab();
+        assert!(v.open_o_book());
+        v.o_ring = LineRing::new(lines.iter().map(|s| s.to_string()));
+        v.o_ring.index = 1;
+        v.view = View::F6;
+        v.o_sync_entry();
+        (d, v)
+    }
+
+    fn book_on_disk(v: &Voider) -> Vec<String> {
+        std::fs::read_to_string(v.o_dir().join(&v.o_file)).unwrap().lines().map(str::to_string).collect()
+    }
+
+    #[test]
+    fn f6_muestra_la_linea_y_un_punto_como_renglon_vacio() {
+        let (_d, mut v) = reader_app(&[".", "uno.", "dos.", ".", "tres."]);
+        assert_eq!(v.entry.text(), "uno.");
+        v.o_navigate(-1);
+        assert_eq!(v.o_ring.index, 0, "navegar se detiene en los puntos");
+        assert_eq!(v.entry.text(), "");
+    }
+
+    #[test]
+    fn escribir_en_f6_llega_al_libro() {
+        let (_d, mut v) = reader_app(&[".", "uno.", "dos."]);
+        v.entry.end();
+        v.o_type("!");
+        assert_eq!(book_on_disk(&v), vec![".", "uno.!", "dos."]);
+        // y 0.txt ni se toca
+        assert_eq!(void::load_doc(&v.scratch_path()).lines, vec!["."]);
+    }
+
+    #[test]
+    fn enter_parte_la_linea_y_el_libro_lo_ve() {
+        let (_d, mut v) = reader_app(&[".", "uno dos.", "tres."]);
+        v.entry.set_caret(3);
+        v.o_split_line().unwrap();
+        assert_eq!(v.o_ring.lines, vec![".", "uno", " dos.", "tres."]);
+        assert_eq!(v.o_ring.index, 2);
+        assert_eq!(book_on_disk(&v), v.o_ring.lines);
+    }
+
+    #[test]
+    fn backspace_al_principio_une_con_la_de_arriba_pero_nunca_cruza_un_punto() {
+        let (_d, mut v) = reader_app(&[".", "uno ", "dos.", ".", "tres."]);
+        v.o_ring.index = 2;
+        v.o_join_prev().unwrap();
+        assert_eq!(v.o_ring.lines, vec![".", "uno dos.", ".", "tres."]);
+        v.o_ring.index = 3;
+        v.o_join_prev().unwrap();
+        assert_eq!(v.o_ring.lines, vec![".", "uno dos.", ".", "tres."]);
+    }
+
+    #[test]
+    fn delete_al_final_une_con_la_de_abajo() {
+        let (_d, mut v) = reader_app(&[".", "uno ", "dos.", ".", "tres."]);
+        v.o_join_next().unwrap();
+        assert_eq!(v.o_ring.lines, vec![".", "uno dos.", ".", "tres."]);
+        v.o_join_next().unwrap();
+        assert_eq!(v.o_ring.lines, vec![".", "uno dos.", ".", "tres."]);
+    }
+
+    #[test]
+    fn alt_flecha_mueve_la_linea_sin_cruzar_puntos() {
+        let (_d, mut v) = reader_app(&[".", "a.", "b.", ".", "c."]);
+        v.o_move_line(1).unwrap();
+        assert_eq!(v.o_ring.lines, vec![".", "b.", "a.", ".", "c."]);
+        assert_eq!(v.o_ring.index, 2);
+        v.o_move_line(1).unwrap();
+        assert_eq!(v.o_ring.lines, vec![".", "b.", "a.", ".", "c."]);
+        assert_eq!(book_on_disk(&v), v.o_ring.lines);
+    }
+
+    #[test]
+    fn alt_derecha_mueve_la_palabra_y_llega_al_libro() {
+        let (_d, mut v) = reader_app(&[".", "uno dos."]);
+        v.o_swap_words(1).unwrap();
+        assert_eq!(v.o_ring.lines[1], "dos uno.");
+        assert_eq!(book_on_disk(&v)[1], "dos uno.");
+    }
+
+    #[test]
+    fn pagedown_va_al_punto_siguiente_y_pageup_vuelve() {
+        let (_d, mut v) = reader_app(&[".", "a.", "b.", ".", "c."]);
+        v.o_para_nav(1);
+        assert_eq!(v.o_ring.index, 3);
+        v.o_para_nav(-1);
+        assert_eq!(v.o_ring.index, 0);
+    }
+
+    #[test]
+    fn ctrl_delete_cosecha_la_linea_a_cero_y_la_saca_del_libro() {
+        let (_d, mut v) = reader_app(&[".", "a.", "b.", ".", "c."]);
+        v.o_harvest().unwrap();
+        assert_eq!(void::load_doc(&v.scratch_path()).lines, vec![".", "a."]);
+        assert_eq!(v.o_ring.lines, vec![".", "b.", ".", "c."]);
+        assert_eq!(book_on_disk(&v), v.o_ring.lines);
+        assert_ne!(v.o_ring.current(), ".", "el cursor queda en una línea real");
+    }
+
+    #[test]
+    fn sobre_un_punto_se_cosecha_el_parrafo_entero_y_el_punto_se_va_con_el() {
+        let (_d, mut v) = reader_app(&[".", "a.", ".", "b.", "c.", ".", "d."]);
+        v.o_ring.index = 2;
+        v.o_harvest().unwrap();
+        assert_eq!(void::load_doc(&v.scratch_path()).lines, vec![".", "b.", "c."]);
+        assert_eq!(v.o_ring.lines, vec![".", "a.", ".", "d."]);
+    }
+
+    #[test]
+    fn ctrl_c_en_f6_copia_la_linea_o_el_parrafo_sobre_un_punto() {
+        let (_d, mut v) = reader_app(&[".", "a.", "b.", ".", "c."]);
+        assert_eq!(v.smart_copy().as_deref(), Some("a."));
+        v.o_ring.index = 0;
+        assert_eq!(v.smart_copy().as_deref(), Some("a.\nb."));
+    }
+
+    #[test]
+    fn de_f6_a_f1_te_llevas_la_linea_seleccionada() {
+        let (_d, mut v) = reader_app(&[".", "una del libro.", "otra."]);
+        v.switch_to(View::F1);
+        assert_eq!(v.entry.text(), "una del libro.");
+        assert_eq!(v.entry.selection(), Some((0, 14)));
+    }
+
+    #[test]
+    fn la_tecla_f6_desde_f7_abre_el_libro_resaltado() {
+        let (_d, mut v) = corpus_app(&["a.txt", "b.txt"]);
+        v.switch_to(View::F7);
+        v.ws_tab();
+        assert!(v.open_o_book());
+        let primero = v.o_file.clone();
+        v.ws_add_slot();
+        v.ws_tab();
+        v.switch_to(View::F6);
+        assert_ne!(v.o_file, primero, "F6 se quedó con el libro de antes");
+    }
+
+    #[test]
+    fn el_working_set_guardado_se_lee_al_reiniciar_y_no_se_pisa() {
+        let (_d, mut v) = corpus_app(&["a.txt", "b.txt"]);
+        v.switch_to(View::F7);
+        v.ws_tab();
+        let elegido = v.ws.books[0].path.clone();
+        let mut again = Voider::open(v.void_dir.clone(), v.current_file.clone());
+        again.switch_to(View::F7);
+        assert_eq!(again.ws.books[0].path, elegido, "arrancó con el working set vacío");
+        again.ws_move(1); // any save now must keep the book
+        let disco = corpus::WorkingSet::load(&again.o_dir());
+        assert_eq!(disco.books[0].path, elegido);
+    }
+
+    #[test]
+    fn f7_recuerda_la_ranura_resaltada() {
+        let (_d, mut v) = corpus_app(&["a.txt", "b.txt"]);
+        v.switch_to(View::F7);
+        v.ws_tab();
+        v.ws_add_slot();
+        v.ws_tab();
+        assert_eq!(v.ws_index, 3);
+        v.switch_to(View::F1);
+        let mut again = Voider::open(v.void_dir.clone(), v.current_file.clone());
+        again.switch_to(View::F7);
+        assert_eq!(again.ws_index, 3);
+    }
+
+    #[test]
+    fn f8_se_queda_con_la_linea_como_la_editaste() {
+        let (_d, mut v) = corpus_app(&["a.txt"]);
+        v.switch_to(View::F8);
+        v.entry.set_text("editada a mano");
+        v.keep_oracle_line().unwrap();
+        assert!(v.ring.lines.contains(&"editada a mano".to_string()));
     }
 
     #[test]

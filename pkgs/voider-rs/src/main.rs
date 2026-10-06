@@ -370,8 +370,10 @@ impl VoiderApp {
             // F9's text goes into egui's own multiline widget, which reads the
             // same events itself — typing it again here would double every
             // character.
-            View::F4 | View::F5 | View::F6 | View::F7 | View::F8 | View::F9 | View::F10
-            | View::Concat => {}
+            View::F6 if t == "*" => self.voider.o_random_line(),
+            View::F6 => self.voider.o_type(&text_line::neutralize_caps(t, caps)),
+            View::F8 => self.voider.entry.insert(&text_line::neutralize_caps(t, caps)),
+            View::F4 | View::F5 | View::F7 | View::F9 | View::F10 | View::Concat => {}
         }
     }
 
@@ -402,7 +404,7 @@ impl VoiderApp {
             View::F2 => self.handle_f2_key(key, caps, modifiers),
             View::F3 => self.handle_f3_key(key, modifiers),
             View::F4 => self.handle_f4_key(key, modifiers),
-            View::F6 => self.handle_f6_key(key),
+            View::F6 => self.handle_f6_key(key, modifiers),
             View::F7 => self.handle_f7_key(key, modifiers),
             View::F8 => self.handle_f8_key(key),
             View::F5 => self.handle_f5_key(key, modifiers),
@@ -993,16 +995,69 @@ impl VoiderApp {
         }
     }
 
-    /// F6, el lector del corpus: moverse por el libro y salir.
-    fn handle_f6_key(&mut self, key: egui::Key) {
+    /// F6, el lector del corpus — se edita como F2 edita un capítulo: Enter
+    /// parte, Backspace/Delete en los bordes unen (nunca a través de un punto),
+    /// Alt mueve la línea o la palabra, PageUp/PageDown van de punto en punto,
+    /// Tab salta al azar, Ctrl+Delete al principio cosecha a 0.txt, Escape a F1.
+    fn handle_f6_key(&mut self, key: egui::Key, m: egui::Modifiers) {
         use egui::Key;
+        let v = &mut self.voider;
+        let at_start = v.entry.caret() == 0 && v.entry.selection().is_none();
+        let at_end = v.entry.caret() == v.entry.len() && v.entry.selection().is_none();
         match key {
-            Key::ArrowUp => self.voider.o_navigate(-1),
-            Key::ArrowDown => self.voider.o_navigate(1),
-            Key::PageUp => self.voider.o_navigate(-10),
-            Key::PageDown => self.voider.o_navigate(10),
-            // Volver al working set, que es de donde se viene.
-            Key::Escape => self.voider.switch_to(View::F7),
+            Key::ArrowUp if m.alt => {
+                let _ = v.o_move_line(-1);
+            }
+            Key::ArrowDown if m.alt => {
+                let _ = v.o_move_line(1);
+            }
+            Key::ArrowLeft if m.alt => {
+                let _ = v.o_swap_words(-1);
+            }
+            Key::ArrowRight if m.alt => {
+                let _ = v.o_swap_words(1);
+            }
+            Key::ArrowUp => v.o_navigate(-1),
+            Key::ArrowDown => v.o_navigate(1),
+            Key::PageUp => v.o_para_nav(-1),
+            Key::PageDown => v.o_para_nav(1),
+            Key::Tab => v.o_random_line(),
+            Key::Enter => {
+                let _ = v.o_split_line();
+            }
+            Key::Delete if m.ctrl && v.entry.caret() == 0 => {
+                let _ = v.o_harvest();
+            }
+            Key::Backspace if at_start => {
+                let _ = v.o_join_prev();
+            }
+            Key::Delete if at_end => {
+                let _ = v.o_join_next();
+            }
+            Key::Backspace => {
+                if m.ctrl {
+                    v.entry.delete_word_back();
+                } else {
+                    v.entry.backspace();
+                }
+                let _ = v.o_live_save();
+            }
+            Key::Delete => {
+                if m.ctrl {
+                    v.entry.delete_word_forward();
+                } else {
+                    v.entry.delete();
+                }
+                let _ = v.o_live_save();
+            }
+            Key::ArrowLeft if m.shift => v.entry.extend_caret(-1),
+            Key::ArrowRight if m.shift => v.entry.extend_caret(1),
+            Key::Home if m.shift => v.entry.extend_home(),
+            Key::End if m.shift => v.entry.extend_end(),
+            Key::Home => v.entry.home(),
+            Key::End => v.entry.end(),
+            Key::ArrowLeft | Key::ArrowRight => self.wrap_caret(key),
+            Key::Escape => self.voider.switch_to(View::F1),
             _ => {}
         }
     }
@@ -1039,6 +1094,17 @@ impl VoiderApp {
                 let _ = self.voider.keep_oracle_line();
             }
             Key::Escape => self.voider.switch_to(View::F1),
+            // The line can be edited before it is kept.
+            Key::Backspace => {
+                self.voider.entry.backspace();
+            }
+            Key::Delete => {
+                self.voider.entry.delete();
+            }
+            Key::ArrowLeft => self.voider.entry.move_caret(-1),
+            Key::ArrowRight => self.voider.entry.move_caret(1),
+            Key::Home => self.voider.entry.home(),
+            Key::End => self.voider.entry.end(),
             _ => {}
         }
     }
@@ -1884,9 +1950,10 @@ impl VoiderApp {
         }
     }
 
-    /// Un anillo de líneas centrado, con la del medio encendida y las demás
-    /// apagándose hacia los bordes. Es la forma que ya tienen F2 y F3; F6 y F7
-    /// la comparten porque son la misma idea sobre otro contenido.
+    /// The rings F6, F7 and F8 are in Python: CircularViews in edit mode. The
+    /// centre is the line (the entry, when `entry_centre`), everything else on
+    /// the ring's curve dimmed by 0.3 — and standing on a dot, the paragraph it
+    /// opens stays lit, as in F2.
     fn draw_ring(
         &self,
         painter: &egui::Painter,
@@ -1894,32 +1961,42 @@ impl VoiderApp {
         rect: egui::Rect,
         lines: &[String],
         index: usize,
-        vacio: &str,
+        entry_centre: bool,
     ) {
         let centre = rect.center();
         let font = egui::FontId::proportional(self.font_size());
         let line_h = self.ring_line_h(ctx, &font);
-        let n = lines.len() as isize;
+        let n = lines.len();
         if n == 0 {
-            painter.text(
-                centre,
-                egui::Align2::CENTER_CENTER,
-                vacio,
-                font,
-                egui::Color32::from_gray(70),
-            );
             return;
         }
+        let on_dot = lines[index % n] == ".";
+        let para_size = if on_dot {
+            (1..n).take_while(|k| lines[(index + k) % n] != ".").count()
+        } else {
+            0
+        };
         let reach = (rect.height() / 2.0 / line_h).ceil() as isize;
         for offset in -reach..=reach {
-            let i = (index as isize + offset).rem_euclid(n) as usize;
+            if offset == 0 && entry_centre {
+                continue; // the editable line, drawn below
+            }
+            let i = (index as isize + offset).rem_euclid(n as isize) as usize;
             let text = lines[i].as_str();
             if text.is_empty() {
                 continue;
             }
-            // Reading rings (F6, F7) are not being edited: the whole ring follows
-            // the curve, nothing is dimmed on top of it.
-            let alpha = ring::to_u8(ring::ring_alpha(offset.unsigned_abs() as f32 * line_h, rect.height() / 2.0));
+            let alpha = if offset == 0 {
+                255
+            } else {
+                ring::to_u8(ring::edit_line_alpha(
+                    offset,
+                    offset.unsigned_abs() as f32 * line_h,
+                    rect.height() / 2.0,
+                    on_dot,
+                    para_size,
+                ))
+            };
             if alpha == 0 {
                 continue;
             }
@@ -1931,68 +2008,29 @@ impl VoiderApp {
                 white_alpha(alpha),
             );
         }
-    }
-
-    /// F6: el libro del corpus, línea por línea.
-    fn draw_f6(&self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
-        let v = &self.voider;
-        self.draw_ring(
-            painter,
-            ctx,
-            rect,
-            &v.o_ring.lines,
-            v.o_ring.index,
-            "sin libro — Enter en F7 para abrir uno",
-        );
-        if !v.o_file.is_empty() {
-            painter.text(
-                egui::pos2(rect.center().x, rect.bottom() - 26.0),
-                egui::Align2::CENTER_CENTER,
-                corpus::clean_book_title(&v.o_file),
-                egui::FontId::proportional(11.0),
-                egui::Color32::from_gray(80),
-            );
+        if entry_centre {
+            self.draw_entry_line(painter, ctx, centre, rect, false);
         }
     }
 
-    /// F7: las ranuras del working set.
+    /// F6: the corpus book, its line under the cursor editable.
+    fn draw_f6(&self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
+        let v = &self.voider;
+        self.draw_ring(painter, ctx, rect, &v.o_ring.lines, v.o_ring.index, true);
+    }
+
+    /// F7: the working set's slots, one per row between dots.
     fn draw_f7(&self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
         let v = &self.voider;
         let entries = v.ws.browser_entries();
-        self.draw_ring(painter, ctx, rect, &entries, v.ws_index, corpus::EMPTY);
-        painter.text(
-            egui::pos2(rect.center().x, rect.bottom() - 26.0),
-            egui::Align2::CENTER_CENTER,
-            "Tab sortea   Shift+Enter agrega   Ctrl+Supr saca   Enter abre",
-            egui::FontId::proportional(11.0),
-            egui::Color32::from_gray(75),
-        );
+        self.draw_ring(painter, ctx, rect, &entries, v.ws_index, false);
     }
 
-    /// F8: una sola línea, la que salió. Ancha, centrada, sin nada alrededor.
+    /// F8: the oracle's line, editable, with its dot above — the Python's
+    /// `['.', line]` ring.
     fn draw_f8(&self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
-        let text = if self.voider.oracle.is_empty() { "..." } else { &self.voider.oracle };
-        let width = rect.width() * 0.62;
-        let galley = ctx.fonts(|f| {
-            f.layout(
-                text.to_string(),
-                egui::FontId::proportional(self.font_size()),
-                egui::Color32::from_gray(225),
-                width,
-            )
-        });
-        let pos = egui::pos2(
-            rect.center().x - galley.size().x / 2.0,
-            rect.center().y - galley.size().y / 2.0,
-        );
-        painter.galley(pos, galley, egui::Color32::from_gray(225));
-        painter.text(
-            egui::pos2(rect.center().x, rect.bottom() - 26.0),
-            egui::Align2::CENTER_CENTER,
-            "↑↓ otra   Enter quedársela",
-            egui::FontId::proportional(11.0),
-            egui::Color32::from_gray(75),
-        );
+        let lines = vec![".".to_string(), self.voider.oracle.clone()];
+        self.draw_ring(painter, ctx, rect, &lines, 1, true);
     }
 
     /// El navegador: la misma forma de anillo que todo lo demás, con el título
@@ -2258,14 +2296,11 @@ fn copy_action(view: View, shift: bool, searching: bool) -> CopyAction {
     }
     match (view, shift) {
         (View::F4, true) => CopyAction::Carousel,
-        (View::F1 | View::F2 | View::F3, false) => CopyAction::Copy,
+        (View::F1 | View::F2 | View::F3 | View::F6, false) => CopyAction::Copy,
         _ => CopyAction::Nothing,
     }
 }
 
-/// A paragraph laid out for F5: wrapped at `wrap_w` and CENTRED, the way F2
-/// centres its lines. egui centres each row on the galley's ORIGIN (x = 0), not
-/// on its left edge, so the galley has to be drawn at the MIDDLE of the column.
 /// `text` cut to fit `max_w` with a trailing `…` — Qt's `elidedText(ElideRight)`.
 fn elide(ctx: &egui::Context, text: &str, font: &egui::FontId, max_w: f32) -> String {
     let width = |s: &str| {
@@ -2289,6 +2324,9 @@ fn elide(ctx: &egui::Context, text: &str, font: &egui::FontId, max_w: f32) -> St
     chars[..lo].iter().collect::<String>() + "…"
 }
 
+/// A paragraph laid out for F5: wrapped at `wrap_w` and CENTRED, the way F2
+/// centres its lines. egui centres each row on the galley's ORIGIN (x = 0), not
+/// on its left edge, so the galley has to be drawn at the MIDDLE of the column.
 fn centered_galley(
     ctx: &egui::Context,
     text: String,
@@ -2579,6 +2617,65 @@ mod tests {
         assert_eq!(app.voider.view, app::View::F3);
         assert!(app.voider.pending_new);
         assert_eq!(app.voider.library.entries, vec!["Uno.txt", "", "Dos.txt"]);
+    }
+
+    // ── F6 / F8 keys (key_router, the reader's editor wiring) ───────────────
+
+    fn reader(lines: &[&str]) -> (tempfile::TempDir, VoiderApp) {
+        let (d, mut app) = f5_app(&[".", "a"]);
+        let o = app.voider.void_dir.join("O");
+        std::fs::create_dir_all(&o).unwrap();
+        std::fs::write(o.join("L.txt"), lines.join("\n")).unwrap();
+        void::atomic_write(&app.voider.void_dir.join("I/0.txt"), &[".".to_string()], false).unwrap();
+        corpus::rebuild_cache(&app.voider.void_dir, &o).unwrap();
+        app.voider.switch_to(app::View::F7);
+        app.voider.ws_tab();
+        app.voider.switch_to(app::View::F6);
+        (d, app)
+    }
+
+    #[test]
+    fn escape_in_f6_goes_to_f1_carrying_the_line() {
+        let (_d, mut app) = reader(&["Uno.", "", "Dos."]);
+        app.route_key(egui::Key::Escape, none());
+        assert_eq!(app.voider.view, app::View::F1);
+        assert_eq!(app.voider.entry.text(), "Uno.");
+    }
+
+    #[test]
+    fn typing_enter_and_ctrl_delete_work_in_f6() {
+        let (_d, mut app) = reader(&["Uno dos.", "", "Tres."]);
+        app.voider.entry.end();
+        app.route_text("!", false);
+        assert_eq!(app.voider.o_ring.lines[1], "Uno dos.!");
+        app.voider.entry.set_caret(3);
+        app.route_key(egui::Key::Enter, none());
+        assert_eq!(app.voider.o_ring.lines[1..3], ["Uno".to_string(), " dos.!".to_string()]);
+        app.voider.entry.home();
+        app.route_key(egui::Key::Delete, ctrl_only());
+        assert!(void::load_doc(&app.voider.scratch_path()).lines.contains(&"dos.!".to_string()));
+    }
+
+    #[test]
+    fn page_down_in_f6_goes_to_the_next_dot() {
+        let (_d, mut app) = reader(&["Uno.", "", "Dos."]);
+        app.route_key(egui::Key::PageDown, none());
+        assert_eq!(app.voider.o_ring.current(), ".");
+    }
+
+    #[test]
+    fn copy_in_f6_is_the_line() {
+        assert_eq!(copy_action(app::View::F6, false, false), CopyAction::Copy);
+    }
+
+    #[test]
+    fn in_f8_the_line_can_be_edited_before_keeping_it() {
+        let (_d, mut app) = reader(&["Uno."]);
+        app.voider.switch_to(app::View::F8);
+        app.voider.entry.set_text("");
+        app.route_text("mía", false);
+        app.route_key(egui::Key::Enter, none());
+        assert!(app.voider.ring.lines.contains(&"mía".to_string()));
     }
 
     // ── F1 keys (key_router _handle_f1_keys, widgets.CustomLineEdit) ────────
