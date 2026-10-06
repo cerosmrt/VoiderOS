@@ -695,9 +695,16 @@ impl VoiderApp {
             // Shift+Enter opens a blank entry to name; Enter confirms it, or
             // opens the highlighted chapter when we're just browsing. A pending
             // merge takes priority — it's naming a book, not a single chapter.
-            Key::Enter if m.shift => self.voider.begin_new_chapter(),
+            // Shift+Enter and Ctrl+Enter both open a blank row to name, wherever
+            // the caret is (Ctrl+Enter also works standing on the portal).
+            Key::Enter if m.shift || m.ctrl => self.voider.begin_new_chapter(),
             Key::Enter if self.voider.pending_merge => {
                 let _ = self.voider.book_do_merge();
+            }
+            // Caret at the start: settle the name / open what's highlighted.
+            // Anywhere else (the end of a name): settle it and add a row below.
+            Key::Enter if self.voider.entry.caret() > 0 => {
+                let _ = self.voider.f3_enter_at_end();
             }
             Key::Enter => {
                 if self.voider.pending_new {
@@ -707,7 +714,8 @@ impl VoiderApp {
                 }
             }
             Key::Escape if self.voider.pending_merge => self.voider.book_cancel_merge(),
-            Key::Escape => self.voider.cancel_pending(),
+            Key::Escape if self.voider.pending_new => self.voider.cancel_pending(),
+            Key::Escape => self.voider.switch_to(View::F1),
             // Editing the line: the name being given, or the title (never a
             // separator or the portal).
             Key::Backspace if self.f3_editable() => {
@@ -2319,6 +2327,67 @@ mod tests {
         let doc = app.voider.ring.index;
         app.route_key(egui::Key::PageDown, none());
         assert_eq!(app.voider.ring.index, doc);
+    }
+
+    // ── F3 keys (test_ctrl_enter.py, key_router _handle_f3_keys) ────────────
+
+    fn ctrl_only() -> egui::Modifiers {
+        egui::Modifiers { ctrl: true, command: true, ..Default::default() }
+    }
+
+    fn f3_app() -> (tempfile::TempDir, VoiderApp) {
+        let (d, mut app) = f5_app(&[".", "a"]);
+        let i = app.voider.void_dir.join("I");
+        void::atomic_write(&i.join("Uno.txt"), &[".".into(), "uno".into()], false).unwrap();
+        void::atomic_write(&i.join("Dos.txt"), &[".".into(), "dos".into()], false).unwrap();
+        app.voider.switch_to(app::View::F3);
+        app.voider.library.entries = vec!["Uno.txt".into(), "Dos.txt".into()];
+        app.voider.library.index = 0;
+        app.voider.f3_sync_entry();
+        (d, app)
+    }
+
+    #[test]
+    fn escape_in_f3_with_nothing_pending_goes_to_f1() {
+        let (_d, mut app) = f3_app();
+        app.route_key(egui::Key::Escape, none());
+        assert_eq!(app.voider.view, app::View::F1);
+    }
+
+    #[test]
+    fn escape_in_f3_while_naming_only_drops_the_name() {
+        let (_d, mut app) = f3_app();
+        app.route_key(egui::Key::Enter, egui::Modifiers { shift: true, ..Default::default() });
+        assert!(app.voider.pending_new);
+        app.route_key(egui::Key::Escape, none());
+        assert!(!app.voider.pending_new);
+        assert_eq!(app.voider.view, app::View::F3);
+    }
+
+    #[test]
+    fn ctrl_enter_in_f3_creates_and_does_not_open() {
+        let (_d, mut app) = f3_app();
+        app.route_key(egui::Key::Enter, ctrl_only());
+        assert!(app.voider.pending_new);
+        assert_eq!(app.voider.view, app::View::F3);
+    }
+
+    #[test]
+    fn plain_enter_at_the_start_still_opens() {
+        let (_d, mut app) = f3_app();
+        app.route_key(egui::Key::Enter, none());
+        assert_eq!(app.voider.view, app::View::F2);
+        assert!(app.voider.current_file.ends_with("Uno.txt"));
+    }
+
+    #[test]
+    fn enter_with_the_caret_at_the_end_of_the_title_adds_a_row_below() {
+        let (_d, mut app) = f3_app();
+        app.voider.entry.end();
+        app.route_key(egui::Key::Enter, none());
+        assert_eq!(app.voider.view, app::View::F3);
+        assert!(app.voider.pending_new);
+        assert_eq!(app.voider.library.entries, vec!["Uno.txt", "", "Dos.txt"]);
     }
 
     // ── the carousel preview in F4, without a window ─────────────────────────

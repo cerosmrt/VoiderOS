@@ -95,7 +95,10 @@ impl Library {
                 "refusing to save an empty library index",
             ));
         }
-        void::atomic_write(&library_path(void_dir), &self.entries, false)
+        // A blank row is a new entry still being named: it is not part of the
+        // book until it has a name.
+        let entries: Vec<String> = self.entries.iter().filter(|e| !e.is_empty()).cloned().collect();
+        void::atomic_write(&library_path(void_dir), &entries, false)
     }
 
     pub fn current(&self) -> &str {

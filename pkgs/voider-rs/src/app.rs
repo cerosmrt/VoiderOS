@@ -2431,27 +2431,97 @@ impl Voider {
     }
 
     /// Start naming a new chapter, to be created below the current entry.
+    ///
+    /// The new entry is a real (blank) row of the list right away, below the
+    /// current one — the Python's `_book_spawn_new_below` — so the rows around it
+    /// make room while you type. The blank row is never written to I.txt.
     pub fn begin_new_chapter(&mut self) {
+        if self.pending_new || self.pending_merge {
+            return;
+        }
+        let _ = self.book_try_rename();
+        let at = self.library.index;
+        self.library.insert_below(at, String::new());
+        self.library.index = (at + 1).min(self.library.entries.len() - 1);
         self.pending_new = true;
         self.entry.clear();
     }
 
+    /// Where the blank row of a new entry is, if there is one.
+    fn pending_row(&self) -> Option<usize> {
+        self.library.entries.iter().position(|e| e.is_empty())
+    }
+
+    /// Take the blank row out, the cursor on the row above it.
+    fn drop_pending_row(&mut self, at: usize) {
+        if at < self.library.entries.len() && self.library.entries[at].is_empty() {
+            self.library.entries.remove(at);
+        }
+        if self.library.entries.is_empty() {
+            self.library.entries.push(library::SEPARATOR.to_string());
+        }
+        let n = self.library.entries.len();
+        self.library.index = at.saturating_sub(1) % n;
+    }
+
     /// Leaving a half-named entry settles it: a name is created (no Enter
     /// needed), an empty one is dropped. You can never end up with a blank title.
+    ///
+    /// The Python's safety net is kept: if the cursor is no longer on the blank
+    /// row, the row is DISCARDED rather than named — what the line says by then
+    /// belongs to another entry, and naming with it would invent a chapter.
     pub fn settle_pending(&mut self) -> io::Result<()> {
         if !self.pending_new {
             return Ok(());
         }
         self.pending_new = false;
-        let name = self.entry.text();
+        let name = self.entry.text().trim().to_string();
         self.entry.clear();
-        self.new_chapter(&name).map(|_| ())
+        let Some(row) = self.pending_row() else {
+            return Ok(());
+        };
+        let moved = row != self.library.index;
+        self.drop_pending_row(row);
+        if moved || name.is_empty() {
+            self.f3_sync_entry();
+            return Ok(());
+        }
+        // new_chapter lists it below the cursor — exactly where the blank row was.
+        self.new_chapter(&name)?;
+        self.f3_sync_entry();
+        Ok(())
     }
 
-    /// Escape: throw the half-named entry away outright.
+    /// Escape: throw the half-named entry away outright, the cursor on the row
+    /// above it.
     pub fn cancel_pending(&mut self) {
         self.pending_new = false;
         self.entry.clear();
+        if let Some(row) = self.pending_row() {
+            self.drop_pending_row(row);
+        }
+        self.f3_sync_entry();
+    }
+
+    /// Enter in F3 with the caret NOT at the start (at the end of a name, as a
+    /// new line in F2 would be): settle the entry — create the new one, or
+    /// rename the title — and open a fresh blank row below to keep adding. The
+    /// Python's `_book_enter_at_end`. An empty new name just goes away.
+    pub fn f3_enter_at_end(&mut self) -> io::Result<()> {
+        if self.pending_merge {
+            return Ok(());
+        }
+        if self.pending_new {
+            let named = !self.entry.text().trim().is_empty();
+            self.settle_pending()?;
+            if !named {
+                return Ok(());
+            }
+        } else if !self.f3_on_structure() {
+            self.book_try_rename()?;
+        }
+        self.begin_new_chapter();
+        Ok(())
     }
 
     /// Create a chapter named `name` directly below the current entry — next to
@@ -4607,6 +4677,83 @@ mod tests {
         assert_eq!(v.view, View::F2);
         assert!(v.current_file.ends_with("Dos bis.txt"));
         assert!(v.ring.lines.contains(&"de dos".to_string()));
+    }
+
+    // ── F3: the new entry is a real row while it is being named ─────────────
+    // (test_f3_pending_entry.py, test_f3_new_entry.py)
+
+    #[test]
+    fn a_new_entry_appears_in_the_list_right_away_below_the_current_one() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.index = v.library.position("Dos.txt").unwrap();
+        v.begin_new_chapter();
+        assert_eq!(v.library.entries, vec!["Dos.txt", "", "Uno.txt"]);
+        assert_eq!(v.library.index, 1);
+        assert!(v.pending_new);
+        // The blank row is never written to I.txt.
+        v.save_library().unwrap();
+        assert!(!Library::load(&v.void_dir).entries.contains(&String::new()));
+    }
+
+    #[test]
+    fn escape_drops_the_new_row_and_lands_on_the_one_above() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.index = v.library.position("Dos.txt").unwrap();
+        v.begin_new_chapter();
+        v.entry.set_text("Descartame");
+        v.cancel_pending();
+        assert_eq!(v.library.entries, vec!["Dos.txt", "Uno.txt"]);
+        assert_eq!(v.library.current(), "Dos.txt");
+        assert_eq!(v.entry.text(), "Dos");
+    }
+
+    #[test]
+    fn a_named_row_settles_in_place() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.index = v.library.position("Dos.txt").unwrap();
+        v.begin_new_chapter();
+        v.entry.set_text("Tres");
+        v.settle_pending().unwrap();
+        assert_eq!(v.library.entries, vec!["Dos.txt", "Tres.txt", "Uno.txt"]);
+        assert_eq!(v.library.current(), "Tres.txt");
+    }
+
+    #[test]
+    fn enter_at_the_end_of_a_new_name_creates_it_and_opens_another() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.index = v.library.position("Dos.txt").unwrap();
+        v.begin_new_chapter();
+        v.entry.set_text("Tres");
+        v.f3_enter_at_end().unwrap();
+        assert_eq!(v.library.entries, vec!["Dos.txt", "Tres.txt", "", "Uno.txt"]);
+        assert!(v.pending_new);
+        assert_eq!(v.view, View::F3);
+    }
+
+    #[test]
+    fn enter_at_the_end_of_an_empty_new_name_just_drops_it() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.begin_new_chapter();
+        v.f3_enter_at_end().unwrap();
+        assert!(!v.pending_new);
+        assert!(!v.library.entries.contains(&String::new()));
+    }
+
+    #[test]
+    fn enter_at_the_end_of_a_title_renames_it_and_opens_a_new_row_below() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.index = v.library.position("Dos.txt").unwrap();
+        v.f3_sync_entry();
+        v.entry.set_text("Dos bis");
+        v.f3_enter_at_end().unwrap();
+        assert_eq!(v.library.entries, vec!["Dos bis.txt", "", "Uno.txt"]);
+        assert!(v.pending_new);
     }
 
     // A new entry named "." or "0" is structure, not a chapter (test_portal.py).
@@ -7098,8 +7245,8 @@ mod tests {
     fn a_library_reload_is_deferred_while_a_name_is_being_typed() {
         let (_d, mut v) = book();
         v.switch_to(View::F3);
+        v.begin_new_chapter(); // mid-naming: unsaved intent (its blank row included)
         let before = v.library.entries.clone();
-        v.begin_new_chapter(); // mid-naming: unsaved intent
         Library { entries: vec!["Otro.txt".into()], index: 0 }
             .save(&v.void_dir)
             .unwrap();
