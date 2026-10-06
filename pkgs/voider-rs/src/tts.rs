@@ -118,9 +118,60 @@ pub struct Tts {
     pub active: bool,
     piper: Option<Child>,
     aplay: Option<Child>,
+    /// El audio de la línea que sigue, sintetizado mientras suena esta (el
+    /// `_tts_prefetch` del Python): así no hay silencio entre línea y línea.
+    prefetched: std::sync::Arc<std::sync::Mutex<Option<(String, Vec<u8>)>>>,
+    prefetch_text: Option<String>,
 }
 
 impl Tts {
+    fn store_prefetched(&self, text: &str, audio: Vec<u8>) {
+        if let Ok(mut slot) = self.prefetched.lock() {
+            *slot = Some((text.to_string(), audio));
+        }
+    }
+
+    /// El audio pre-renderizado de `text`, si lo hay — se usa una sola vez.
+    fn take_prefetched(&self, text: &str) -> Option<Vec<u8>> {
+        let mut slot = self.prefetched.lock().ok()?;
+        match slot.as_ref() {
+            Some((t, audio)) if t == text && !audio.is_empty() => slot.take().map(|(_, a)| a),
+            _ => None,
+        }
+    }
+
+    /// Sintetizar `text` en segundo plano, para cuando le toque.
+    pub fn prefetch(&mut self, void_dir: &Path, text: &str) {
+        if !is_speakable(text) || self.prefetch_text.as_deref() == Some(text) {
+            return;
+        }
+        self.prefetch_text = Some(text.to_string());
+        let Some(model) = model_path(void_dir, detect_lang(text)) else {
+            return;
+        };
+        let slot = self.prefetched.clone();
+        let text = text.to_string();
+        std::thread::spawn(move || {
+            let Ok(mut piper) = Command::new("piper")
+                .args(piper_args(&model))
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+            else {
+                return;
+            };
+            if let Some(mut stdin) = piper.stdin.take() {
+                let _ = stdin.write_all(text.as_bytes());
+            }
+            if let Ok(out) = piper.wait_with_output() {
+                if let Ok(mut s) = slot.lock() {
+                    *s = Some((text, out.stdout));
+                }
+            }
+        });
+    }
+
     /// Ctrl+T. Devuelve si quedó encendida.
     pub fn toggle(&mut self) -> bool {
         self.active = !self.active;
@@ -163,6 +214,25 @@ impl Tts {
             return;
         }
         self.stop();
+        // Already synthesised while the last line was playing: straight to aplay.
+        if let Some(audio) = self.take_prefetched(text) {
+            if let Ok(mut aplay) = Command::new("aplay")
+                .args(aplay_args())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                if let Some(mut stdin) = aplay.stdin.take() {
+                    // Written from a thread: a full pipe would block the window.
+                    std::thread::spawn(move || {
+                        let _ = stdin.write_all(&audio);
+                    });
+                }
+                self.aplay = Some(aplay);
+                return;
+            }
+        }
         let lang = detect_lang(text);
         let Some(model) = model_path(void_dir, lang) else {
             return;
@@ -210,6 +280,24 @@ impl Drop for Tts {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── el pre-render de la línea siguiente (_tts_prefetch) ──────────────────
+
+    #[test]
+    fn lo_pre_renderizado_se_usa_una_vez_y_solo_para_esa_linea() {
+        let t = Tts::default();
+        t.store_prefetched("la que sigue", vec![1, 2, 3]);
+        assert_eq!(t.take_prefetched("otra"), None, "audio de otra línea");
+        assert_eq!(t.take_prefetched("la que sigue"), Some(vec![1, 2, 3]));
+        assert_eq!(t.take_prefetched("la que sigue"), None, "se usó dos veces");
+    }
+
+    #[test]
+    fn un_pre_render_vacio_no_cuenta() {
+        let t = Tts::default();
+        t.store_prefetched("x", Vec::new());
+        assert_eq!(t.take_prefetched("x"), None);
+    }
 
     #[test]
     fn el_castellano_se_reconoce_por_sus_signos() {

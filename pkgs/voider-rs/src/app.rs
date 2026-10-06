@@ -765,6 +765,10 @@ impl Voider {
             // book_open_concat has already filled the ring.
             View::Concat => {}
         }
+        if self.tts.active && from != view {
+            self.tts.stop();
+            self.tts_speak_current();
+        }
         self.save_last_view();
     }
 
@@ -1926,6 +1930,9 @@ impl Voider {
                 f5::Unit::Para { ordinal, text } if ordinal == self.para_idx => Some(text),
                 _ => None,
             }),
+            // F6 reads the book line by line; F8 says the oracle's line.
+            View::F6 => crate::tts::is_speakable(self.o_ring.current()).then(|| self.o_ring.current().to_string()),
+            View::F8 => crate::tts::is_speakable(&self.oracle).then(|| self.oracle.clone()),
             // F4 no habla: es una pagina para mirar. F3/F9/F10 tampoco.
             _ => None,
         }
@@ -1958,22 +1965,38 @@ impl Voider {
         if !self.tts.active || self.tts.is_speaking() {
             return;
         }
-        if self.view != View::F2 {
-            return;
-        }
+        // F2 and F6 read on by themselves; the others say one thing and stop.
+        let ring = match self.view {
+            View::F2 => &mut self.ring,
+            View::F6 => &mut self.o_ring,
+            _ => return,
+        };
         // Avanzar a la próxima línea con texto, sin quedarse en los puntos.
-        let n = self.ring.lines.len();
+        let n = ring.lines.len();
         if n == 0 {
             return;
         }
         for _ in 0..n {
-            self.ring.move_by(1);
-            if crate::tts::is_speakable(self.ring.current()) {
+            ring.move_by(1);
+            if crate::tts::is_speakable(ring.current()) {
                 break;
             }
         }
-        self.sync_entry();
+        // And the one after it, synthesised now so it starts without a gap.
+        let next = (1..n)
+            .map(|k| ring.lines[(ring.index + k) % n].clone())
+            .find(|l| crate::tts::is_speakable(l));
+        if self.view == View::F6 {
+            self.o_sync_entry();
+            self.save_o_position();
+        } else {
+            self.sync_entry();
+        }
         self.tts_speak_current();
+        if let Some(next) = next {
+            let dir = self.void_dir.clone();
+            self.tts.prefetch(&dir, &next);
+        }
     }
 
     // ── Ctrl+F2/F3/F4: apuntar Voider a otro lado ──────────────────────────────
@@ -7099,6 +7122,25 @@ mod tests {
         v.switch_to(View::F5);
         v.para_idx = 1;
         assert_eq!(v.tts_current_text(), Some("dos.".to_string()));
+    }
+
+    #[test]
+    fn in_f6_the_voice_reads_the_book_and_in_f8_the_oracle() {
+        let (_d, mut v) = reader_app(&[".", "uno.", "dos."]);
+        assert_eq!(v.tts_current_text(), Some("uno.".to_string()));
+        v.o_ring.index = 0;
+        assert_eq!(v.tts_current_text(), None, "un punto no se lee");
+        v.switch_to(View::F8);
+        v.oracle = "una del oráculo".into();
+        assert_eq!(v.tts_current_text(), Some("una del oráculo".to_string()));
+    }
+
+    #[test]
+    fn in_f6_the_voice_goes_on_to_the_next_line_by_itself() {
+        let (_d, mut v) = reader_app(&[".", "uno.", ".", "dos."]);
+        v.tts.active = true;
+        v.tts_poll(); // nothing is sounding (no piper here): next line
+        assert_eq!(v.o_ring.current(), "dos.", "se quedó o leyó el punto");
     }
 
     // ── Shift+F12: a 1:1 cover screenshot (TestTakeCircleScreenshot) ─────────
