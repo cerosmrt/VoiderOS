@@ -95,7 +95,7 @@ pub fn detect_drives() -> Vec<PathBuf> {
         PathBuf::from("/media").join(&user),
         PathBuf::from("/run/media"),
         PathBuf::from("/media"),
-        PathBuf::from("/mnt"),
+        // Not /mnt, as in the Python: /mnt/data is where O/ lives, not a pendrive.
     ];
     roots.retain(|r| r.is_dir());
 
@@ -150,6 +150,9 @@ pub fn plan(void_dir: &Path, dest_root: &Path, date: &str) -> Plan {
     }
 }
 
+/// Top-level folders that do not travel (the Python's `_BACKUP_SKIP_DIRS`).
+const SKIP_DIRS: &[&str] = &["tts"];
+
 fn walk(root: &Path, dir: &Path, files: &mut Vec<Entry>, links: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -158,6 +161,12 @@ fn walk(root: &Path, dir: &Path, files: &mut Vec<Entry>, links: &mut Vec<PathBuf
         let path = entry.path();
         let Ok(meta) = entry.metadata() else { continue }; // symlink-aware: does not follow
         let rel = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
+        // The voice models at the void's root (309 MB, downloadable again) stay
+        // home; a `tts/` deeper down would be text about them, and travels.
+        if dir == root && meta.is_dir() && SKIP_DIRS.iter().any(|s| rel == Path::new(s)) {
+            links.push(rel);
+            continue;
+        }
         if meta.is_symlink() {
             links.push(rel);
         } else if meta.is_dir() {
@@ -170,6 +179,35 @@ fn walk(root: &Path, dir: &Path, files: &mut Vec<Entry>, links: &mut Vec<PathBuf
 
 /// Do the copy the plan describes. Returns how many files landed.
 pub fn run(void_dir: &Path, plan: &Plan) -> io::Result<usize> {
+    run_with(void_dir, plan, |src, dst| std::fs::copy(src, dst))
+}
+
+/// Characters FAT32/exFAT refuse in a file name — pendrives usually come
+/// formatted that way, and the void's question titles (`¿…?`) are full of `?`.
+const FAT_FORBIDDEN: &[char] = &['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
+
+/// The same path with its FILE NAME made acceptable to FAT (`_` for each
+/// forbidden character). The folders are left as they are — the Python's
+/// `_fat_sanitize`.
+pub fn fat_sanitize(rel: &Path) -> PathBuf {
+    let name = rel
+        .file_name()
+        .map(|n| n.to_string_lossy().replace(FAT_FORBIDDEN, "_"))
+        .unwrap_or_default();
+    match rel.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.join(name),
+        _ => PathBuf::from(name),
+    }
+}
+
+/// `run`, with the copy itself handed in so a test can play a FAT pendrive.
+/// One file that won't copy never stops the rest (the Python's `_backup_copy`);
+/// an "invalid argument" (errno 22) is retried once under a FAT-safe name.
+pub fn run_with(
+    void_dir: &Path,
+    plan: &Plan,
+    mut copy: impl FnMut(&Path, &Path) -> io::Result<u64>,
+) -> io::Result<usize> {
     let dest = plan.dest();
     std::fs::create_dir_all(&dest)?;
     let mut copied = 0usize;
@@ -177,10 +215,19 @@ pub fn run(void_dir: &Path, plan: &Plan) -> io::Result<usize> {
         let src = void_dir.join(&entry.rel);
         let dst = dest.join(&entry.rel);
         if let Some(parent) = dst.parent() {
-            std::fs::create_dir_all(parent)?;
+            if std::fs::create_dir_all(parent).is_err() {
+                continue;
+            }
         }
-        std::fs::copy(&src, &dst)?;
-        copied += 1;
+        match copy(&src, &dst) {
+            Ok(_) => copied += 1,
+            Err(e) if e.raw_os_error() == Some(22) => {
+                if copy(&src, &dest.join(fat_sanitize(&entry.rel))).is_ok() {
+                    copied += 1;
+                }
+            }
+            Err(_) => {}
+        }
     }
     Ok(copied)
 }
@@ -293,6 +340,65 @@ mod tests {
         assert_eq!(human_bytes(2048), "2.0 KB");
         assert_eq!(human_bytes(5 * 1024 * 1024), "5.0 MB");
         assert_eq!(human_bytes(3 * 1024 * 1024 * 1024), "3.0 GB");
+    }
+
+    // ── lo que el Python ya hacía y faltaba acá (test_backup_vault.py) ─────────
+
+    #[test]
+    fn the_voices_do_not_travel() {
+        // tts/ at the void's root: 309 MB of models that can be downloaded again.
+        let v = void_with(&[("I/a.txt", "hola"), ("tts/es.onnx", "modelo")]);
+        let dest = tempfile::tempdir().unwrap();
+        let p = plan(v.path(), dest.path(), "25-01-01");
+        assert!(!p.files.iter().any(|f| f.rel.starts_with("tts")));
+        assert!(p.skipped_links.contains(&PathBuf::from("tts")));
+    }
+
+    #[test]
+    fn a_tts_folder_deeper_down_is_text_and_travels() {
+        let v = void_with(&[("I/tts/notas.txt", "texto")]);
+        let dest = tempfile::tempdir().unwrap();
+        let p = plan(v.path(), dest.path(), "25-01-01");
+        assert!(p.files.iter().any(|f| f.rel == Path::new("I/tts/notas.txt")));
+    }
+
+    #[test]
+    fn a_name_fat_refuses_is_copied_under_a_safe_name() {
+        let v = void_with(&[("I/¿pregunta?.txt", "hola"), ("I/b.txt", "chau")]);
+        let dest = tempfile::tempdir().unwrap();
+        let p = plan(v.path(), dest.path(), "25-01-01");
+        // Like a FAT32 pendrive: a '?' in the name is EINVAL (errno 22).
+        let copied = run_with(v.path(), &p, |src, dst| {
+            if dst.file_name().unwrap().to_string_lossy().contains('?') {
+                return Err(io::Error::from_raw_os_error(22));
+            }
+            std::fs::copy(src, dst)
+        })
+        .unwrap();
+        assert_eq!(copied, 2);
+        assert_eq!(std::fs::read_to_string(p.dest().join("I/¿pregunta_.txt")).unwrap(), "hola");
+    }
+
+    #[test]
+    fn one_file_that_will_not_copy_does_not_stop_the_rest() {
+        let v = void_with(&[("I/a.txt", "a"), ("I/b.txt", "b")]);
+        let dest = tempfile::tempdir().unwrap();
+        let p = plan(v.path(), dest.path(), "25-01-01");
+        let copied = run_with(v.path(), &p, |src, dst| {
+            if src.ends_with("a.txt") {
+                return Err(io::Error::from_raw_os_error(13));
+            }
+            std::fs::copy(src, dst)
+        })
+        .unwrap();
+        assert_eq!(copied, 1);
+        assert!(p.dest().join("I/b.txt").exists());
+    }
+
+    #[test]
+    fn fat_sanitize_only_touches_the_file_name() {
+        assert_eq!(fat_sanitize(Path::new("I/¿qué?.txt")), PathBuf::from("I/¿qué_.txt"));
+        assert_eq!(fat_sanitize(Path::new("a:b*c.txt")), PathBuf::from("a_b_c.txt"));
     }
 
     #[test]
