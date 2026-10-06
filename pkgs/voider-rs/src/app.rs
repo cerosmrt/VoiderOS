@@ -141,9 +141,7 @@ impl View {
             View::F2 => Some("F2"),
             View::F3 => Some("F3"),
             View::F4 => Some("F4"),
-            View::F6 => Some("F6"),
-            View::F7 => Some("F7"),
-            View::F5 | View::F8 | View::F9 | View::F10 | View::Concat => None,
+            View::F5 | View::F6 | View::F7 | View::F8 | View::F9 | View::F10 | View::Concat => None,
         }
     }
 
@@ -153,8 +151,6 @@ impl View {
             "F2" => Some(View::F2),
             "F3" => Some(View::F3),
             "F4" => Some(View::F4),
-            "F6" => Some(View::F6),
-            "F7" => Some(View::F7),
             _ => None,
         }
     }
@@ -200,6 +196,8 @@ pub struct Voider {
     /// Ctrl+Enter in F1 peeked at the scratch: the file to go back to the next
     /// time F2 is entered.
     pub peek_return: Option<PathBuf>,
+    /// The view F10 was opened from: Escape or F10 go back there.
+    pub prev_view: View,
     /// Where the backtick came from, so it can take you back.
     pub scratch_return: Option<(PathBuf, View)>,
     /// Persisted settings: the writing font, its size, the toggles.
@@ -333,6 +331,7 @@ impl Voider {
             picker_side: PickerSide::Right,
             scratch_return: None,
             peek_return: None,
+            prev_view: View::F1,
             settings_idx: 0,
             font_dirty: false,
             undo: UndoManager::default(),
@@ -579,6 +578,42 @@ impl Voider {
     /// line, caret at the start — Tab's twin from the corpus. With no books
     /// picked, what you were writing is left alone. The Python's
     /// `_f1_recycle_ws_line`.
+    /// Ctrl+Shift+X: the trash in F2 — just another file; created empty if
+    /// nothing was thrown away yet, so the key always does the same thing.
+    pub fn open_trash(&mut self) {
+        let trash = self.trash_path();
+        if !trash.exists() {
+            if let Err(e) = void::atomic_write(&trash, &[".".to_string()], false) {
+                self.status = format!("trash.txt: {e}");
+                return;
+            }
+        }
+        self.set_active_file(trash);
+        self.switch_to(View::F2);
+    }
+
+    /// Ctrl+F12: the screenshots folder, in the system's file manager.
+    pub fn open_screenshots_folder(&mut self) {
+        let dir = self.void_dir.join("screenshots");
+        let _ = std::fs::create_dir_all(&dir);
+        if let Err(e) = std::process::Command::new("xdg-open").arg(&dir).spawn() {
+            self.status = format!("No se pudo abrir {}: {e}", dir.display());
+        }
+    }
+
+    /// Ctrl+Shift+W, saved at once as the Python does.
+    pub fn toggle_typewriter(&mut self) {
+        self.typewriter = !self.typewriter;
+        self.persist_config();
+        self.status = format!("Typewriter {}", if self.typewriter { "ON" } else { "OFF" });
+    }
+
+    /// Ctrl+Shift+T, saved at once.
+    pub fn toggle_title(&mut self) {
+        self.show_title = !self.show_title;
+        self.persist_config();
+    }
+
     pub fn f1_recycle_ws_line(&mut self) {
         self.ensure_corpus_loaded();
         match self.random_line_from_working_set() {
@@ -709,6 +744,9 @@ impl Voider {
         // Leaving the prose editor commits what was typed there.
         if self.view == View::F9 && view != View::F9 {
             let _ = self.prose_save();
+        }
+        if view == View::F10 && from != View::F10 {
+            self.prev_view = from;
         }
         self.view = view;
         match view {
@@ -7810,15 +7848,36 @@ mod tests {
     }
 
     #[test]
-    fn f6_y_f7_son_vistas_a_las_que_se_vuelve_al_reiniciar() {
+    fn solo_f1_a_f4_son_vistas_a_las_que_se_vuelve_al_reiniciar() {
+        // Python: last_view in (0, 1, 2, 3) — test_startup_restore.py.
         let (_d, mut v) = corpus_app(&["a.txt"]);
-        v.switch_to(View::F7);
-        assert_eq!(Config::load(&v.void_dir).last_view.as_deref(), Some("F7"));
-        v.switch_to(View::F6);
-        assert_eq!(Config::load(&v.void_dir).last_view.as_deref(), Some("F6"));
-        // El oráculo no: es una tirada, no un lugar donde se está.
-        v.switch_to(View::F8);
-        assert_eq!(Config::load(&v.void_dir).last_view.as_deref(), Some("F6"));
+        v.switch_to(View::F3);
+        assert_eq!(Config::load(&v.void_dir).last_view.as_deref(), Some("F3"));
+        for view in [View::F5, View::F6, View::F7, View::F8, View::F9] {
+            v.switch_to(view);
+            assert_eq!(Config::load(&v.void_dir).last_view.as_deref(), Some("F3"), "{view:?}");
+        }
+    }
+
+    // ── globals: the trash, the toggles ──────────────────────────────────────
+
+    #[test]
+    fn ctrl_shift_x_opens_the_trash_in_f2_creating_it_if_needed() {
+        let (_d, mut v) = book();
+        assert!(!v.trash_path().exists());
+        v.open_trash();
+        assert_eq!(v.view, View::F2);
+        assert_eq!(v.current_file, v.trash_path());
+        assert!(v.trash_path().exists());
+    }
+
+    #[test]
+    fn the_typewriter_and_title_toggles_are_saved_at_once() {
+        let (_d, mut v) = book();
+        v.toggle_typewriter();
+        assert_eq!(Config::load(&v.void_dir).typewriter, v.typewriter);
+        v.toggle_title();
+        assert_eq!(Config::load(&v.void_dir).show_title, v.show_title);
     }
 
     // ── Alt+→ en F2: mandar desde donde estás parado ────────────────────────────

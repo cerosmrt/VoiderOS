@@ -436,6 +436,8 @@ impl VoiderApp {
             Key::F7 => self.voider.switch_to(View::F7),
             Key::F8 => self.voider.switch_to(View::F8),
             Key::F9 => self.voider.switch_to(View::F9),
+            // F10 from F10 closes it, back where it was opened from.
+            Key::F10 if self.voider.view == View::F10 => self.voider.switch_to(self.voider.prev_view),
             Key::F10 => self.voider.switch_to(View::F10),
             Key::F11 => self.voider.help_open = true,
             // Ctrl+± thins the ground out and fills it back in — the Python's
@@ -444,24 +446,20 @@ impl VoiderApp {
             Key::Minus if m.ctrl => self.voider.step_opacity(-0.1),
             // Shift+F12: the window's centred square into covers/, for carousel art.
             // Before the plain F12, or that one would take it.
+            // Ctrl+F12: the screenshots folder in the file manager.
+            Key::F12 if m.ctrl => self.voider.open_screenshots_folder(),
             Key::F12 if m.shift => {
                 self.voider.take_circle_screenshot();
             }
             Key::F12 => {
                 self.voider.take_screenshot();
             }
-            Key::W if m.ctrl && m.shift => {
-                self.voider.typewriter = !self.voider.typewriter;
-                self.voider.status = format!(
-                    "Typewriter {}",
-                    if self.voider.typewriter { "ON" } else { "OFF" }
-                );
-            }
+            Key::W if m.ctrl && m.shift => self.voider.toggle_typewriter(),
+            // Ctrl+Shift+X: the trash, opened in F2.
+            Key::X if m.ctrl && m.shift => self.voider.open_trash(),
             // Ctrl+T: la voz. (Ctrl+Shift+T es el titulo, abajo.)
             Key::T if m.ctrl && !m.shift => self.voider.tts_toggle(),
-            Key::T if m.ctrl && m.shift => {
-                self.voider.show_title = !self.voider.show_title;
-            }
+            Key::T if m.ctrl && m.shift => self.voider.toggle_title(),
             Key::G if m.ctrl && m.shift => self.voider.commit_void(),
             // Ctrl+B only ASKS: it works out the copy and shows it, and the
             // drive is not touched until that is accepted with Enter.
@@ -910,7 +908,7 @@ impl VoiderApp {
             Key::ArrowDown => self.voider.settings_step_family(1),
             Key::ArrowLeft => self.voider.settings_step_size(-1),
             Key::ArrowRight => self.voider.settings_step_size(1),
-            Key::Escape | Key::Enter => self.voider.switch_to(View::F1),
+            Key::Escape | Key::Enter => self.voider.switch_to(self.voider.prev_view),
             _ => {}
         }
     }
@@ -923,7 +921,7 @@ impl VoiderApp {
             Key::ArrowRight | Key::ArrowDown | Key::PageDown | Key::Space => {
                 self.voider.turn_page(1, pages)
             }
-            Key::ArrowLeft | Key::ArrowUp | Key::PageUp => self.voider.turn_page(-1, pages),
+            Key::ArrowLeft | Key::ArrowUp | Key::PageUp | Key::Backspace => self.voider.turn_page(-1, pages),
             // Ctrl+S guarda el libro como PDF; Ctrl+P además lo manda a imprimir.
             Key::S if m.ctrl => {
                 self.voider.export_pdf();
@@ -2168,7 +2166,8 @@ impl VoiderApp {
     }
 
     fn draw_title(&self, painter: &egui::Painter, rect: egui::Rect) {
-        if !self.voider.show_title {
+        // Only F2 and F5 pin a title (the Python's _apply_view_title).
+        if !self.voider.show_title || !matches!(self.voider.view, View::F2 | View::F5) {
             return;
         }
         // In F5 the title is the chapter the paragraph sits under.
@@ -2617,6 +2616,45 @@ mod tests {
         assert_eq!(app.voider.view, app::View::F3);
         assert!(app.voider.pending_new);
         assert_eq!(app.voider.library.entries, vec!["Uno.txt", "", "Dos.txt"]);
+    }
+
+    // ── small globals: F10's way back, F4 Backspace, the title's views ──────
+
+    #[test]
+    fn f10_goes_back_to_the_view_it_came_from() {
+        let (_d, mut app) = f3_app();
+        app.route_key(egui::Key::F10, none());
+        assert_eq!(app.voider.view, app::View::F10);
+        app.route_key(egui::Key::Escape, none());
+        assert_eq!(app.voider.view, app::View::F3);
+        app.route_key(egui::Key::F10, none());
+        app.route_key(egui::Key::F10, none());
+        assert_eq!(app.voider.view, app::View::F3, "F10 again closes it too");
+    }
+
+    #[test]
+    fn backspace_in_f4_turns_back_a_page() {
+        let lines = long_file(400);
+        let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+        let (_d, mut app) = f5_app(&refs);
+        app.voider.switch_to(app::View::F4);
+        app.reading_pages = 5;
+        app.voider.page = 2;
+        app.route_key(egui::Key::Backspace, none());
+        assert_eq!(app.voider.page, 1);
+    }
+
+    #[test]
+    fn the_pinned_title_shows_only_in_f2_and_f5() {
+        let (_d, mut app) = f3_app();
+        app.voider.show_title = true;
+        let title = app::file_title(&app.voider.current_file).to_uppercase();
+        let shown = painted_text(&mut app, |a, p, _c, r| a.draw_title(p, r));
+        assert!(!shown.iter().any(|(t, _)| *t == title), "title painted in F3");
+        app.voider.switch_to(app::View::F2);
+        let title = app::file_title(&app.voider.current_file).to_uppercase();
+        let shown = painted_text(&mut app, |a, p, _c, r| a.draw_title(p, r));
+        assert!(shown.iter().any(|(t, _)| *t == title));
     }
 
     // ── F6 / F8 keys (key_router, the reader's editor wiring) ───────────────
