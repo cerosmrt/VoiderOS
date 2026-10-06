@@ -198,6 +198,10 @@ pub struct Voider {
     pub peek_return: Option<PathBuf>,
     /// The view F10 was opened from: Escape or F10 go back there.
     pub prev_view: View,
+    /// The two transparency axes, 0–1, for this session: the ground (black)
+    /// and the ink (white). Both start opaque.
+    pub opacity: f32,
+    pub ink: f32,
     /// Where the backtick came from, so it can take you back.
     pub scratch_return: Option<(PathBuf, View)>,
     /// Persisted settings: the writing font, its size, the toggles.
@@ -332,6 +336,8 @@ impl Voider {
             scratch_return: None,
             peek_return: None,
             prev_view: View::F1,
+            opacity: 1.0,
+            ink: 1.0,
             settings_idx: 0,
             font_dirty: false,
             undo: UndoManager::default(),
@@ -1375,11 +1381,20 @@ impl Voider {
         }
     }
 
-    /// Ctrl+± : how solid the ground is, remembered across runs.
+    /// Ctrl+± : the ground (the black), a tenth at a time, all the way to 0 —
+    /// the Python's `_change_opacity`. For the session only: every start is
+    /// opaque. The window stays focused when invisible, so the same keys bring
+    /// it back.
     pub fn step_opacity(&mut self, delta: f32) {
-        self.config.step_opacity(delta);
-        let _ = self.config.save(&self.void_dir);
-        self.status = format!("Opacity {:.0}%", self.config.opacity * 100.0);
+        self.opacity = step_tenth(self.opacity, delta);
+        self.status = format!("Fondo {}%", (self.opacity * 100.0).round() as i32);
+    }
+
+    /// Ctrl+Shift+± : the ink — the circle and the letters — without touching
+    /// the ground (the Python's `_change_ink`). Session only too.
+    pub fn step_ink(&mut self, delta: f32) {
+        self.ink = step_tenth(self.ink, delta);
+        self.status = format!("Tinta {}%", (self.ink * 100.0).round() as i32);
     }
 
     /// Ctrl+0 in F1: copy a random line from a random file in the void into the
@@ -5173,6 +5188,12 @@ fn doc_ring(void_dir: &Path, file: &Path, doc: &void::Doc) -> LineRing {
     ring
 }
 
+/// One opacity step that lands on an exact tenth, clamped to 0–1 (adding 0.1
+/// in floating point drifts: 0.7 + 0.1 is 0.7999…; rounding each step stops it).
+fn step_tenth(value: f32, delta: f32) -> f32 {
+    (((value + delta) * 10.0).round() / 10.0).clamp(0.0, 1.0)
+}
+
 fn restored_index(void_dir: &Path, file: &Path, total: usize) -> usize {
     file.file_name()
         .and_then(|n| n.to_str())
@@ -7857,6 +7878,47 @@ mod tests {
             v.switch_to(view);
             assert_eq!(Config::load(&v.void_dir).last_view.as_deref(), Some("F3"), "{view:?}");
         }
+    }
+
+    // ── the two transparency axes (test_opacity.py) ──────────────────────────
+
+    #[test]
+    fn both_axes_start_opaque_and_are_not_saved() {
+        let (_d, mut v) = book();
+        assert_eq!((v.opacity, v.ink), (1.0, 1.0));
+        v.step_opacity(-0.1);
+        v.step_ink(-0.1);
+        let again = Voider::open(v.void_dir.clone(), v.current_file.clone());
+        assert_eq!((again.opacity, again.ink), (1.0, 1.0));
+        assert!(!std::fs::read_to_string(crate::config::config_path(&v.void_dir))
+            .unwrap_or_default()
+            .contains("opacity"));
+    }
+
+    #[test]
+    fn the_ground_goes_all_the_way_to_zero_in_exact_tenths() {
+        let (_d, mut v) = book();
+        for _ in 0..10 {
+            v.step_opacity(-0.1);
+        }
+        assert_eq!(v.opacity, 0.0);
+        v.step_opacity(-0.1);
+        assert_eq!(v.opacity, 0.0, "never below zero");
+        for _ in 0..3 {
+            v.step_opacity(0.1);
+        }
+        assert_eq!(v.opacity, 0.3);
+        assert_eq!(v.status, "Fondo 30%");
+    }
+
+    #[test]
+    fn the_ink_moves_without_touching_the_ground() {
+        let (_d, mut v) = book();
+        v.step_ink(-0.1);
+        v.step_ink(-0.1);
+        assert_eq!(v.ink, 0.8);
+        assert_eq!(v.opacity, 1.0);
+        assert_eq!(v.status, "Tinta 80%");
     }
 
     // ── globals: the trash, the toggles ──────────────────────────────────────

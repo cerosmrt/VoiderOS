@@ -65,6 +65,7 @@ fn main() -> eframe::Result {
         Box::new(|cc| {
             let app = VoiderApp::new();
             install_font(&cc.egui_ctx, &app.voider.config.font_family);
+            tell_hyprland();
             Ok(Box::new(app))
         }),
     )
@@ -442,6 +443,9 @@ impl VoiderApp {
             Key::F11 => self.voider.help_open = true,
             // Ctrl+± thins the ground out and fills it back in — the Python's
             // opacity_up/opacity_down. (Type size lives in F10, on ←/→.)
+            // Ctrl+Shift+± the ink (the white), separately.
+            Key::Plus | Key::Equals if m.ctrl && m.shift => self.voider.step_ink(0.1),
+            Key::Minus if m.ctrl && m.shift => self.voider.step_ink(-0.1),
             Key::Plus | Key::Equals if m.ctrl => self.voider.step_opacity(0.1),
             Key::Minus if m.ctrl => self.voider.step_opacity(-0.1),
             // Shift+F12: the window's centred square into covers/, for carousel art.
@@ -1165,7 +1169,7 @@ impl VoiderApp {
             );
             p.rect_filled(band, 2.0, white_alpha(70));
         }
-        p.galley(egui::pos2(left_x, top_y), galley, egui::Color32::WHITE);
+        p.galley_with_override_text_color(egui::pos2(left_x, top_y), galley, white_alpha(255));
 
         // The caret blinks only while the line is empty; once there is text it
         // holds still, so the last letter typed is the thing you look at.
@@ -1178,7 +1182,7 @@ impl VoiderApp {
                     egui::pos2(x, top_y + 2.0),
                     egui::pos2(x, top_y + size.y - 2.0),
                 ],
-                egui::Stroke::new(2.0_f32, egui::Color32::WHITE),
+                egui::Stroke::new(2.0_f32, white_alpha(255)),
             );
         }
         if blinking {
@@ -1192,7 +1196,7 @@ impl VoiderApp {
         painter.circle_stroke(
             centre,
             radius,
-            egui::Stroke::new(10.0_f32, egui::Color32::WHITE),
+            egui::Stroke::new(10.0_f32, white_alpha(255)),
         );
         // Nothing may show outside the circle.
         let band = egui::Rect::from_min_max(
@@ -1458,7 +1462,7 @@ impl VoiderApp {
 
         let here = lay(&units[cur]);
         let cur_top = col.center().y - here.size().y / 2.0;
-        painter.galley_with_override_text_color(egui::pos2(x, cur_top + lead), here.clone(), egui::Color32::WHITE);
+        painter.galley_with_override_text_color(egui::pos2(x, cur_top + lead), here.clone(), white_alpha(255));
         // The '>' cue: Right opens the catalogue to send this paragraph.
         painter.text(
             egui::pos2(col.max.x - pad / 2.0, cur_top + here.size().y / 2.0),
@@ -2193,6 +2197,7 @@ impl eframe::App for VoiderApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        set_ink(self.voider.ink);
         self.update_pointer(ctx);
         // Take in what the other instances did before reading this frame's
         // keys, so a keystroke always lands on the newest text.
@@ -2221,7 +2226,7 @@ impl eframe::App for VoiderApp {
             // Python's setWindowOpacity fades the text too, which is exactly
             // what you don't want when the point is to keep reading through it.
             .frame(egui::Frame::none().fill(egui::Color32::from_black_alpha(
-                (self.voider.config.opacity.clamp(config::OPACITY_MIN, 1.0) * 255.0) as u8,
+                (self.voider.opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
             )))
             .show(ctx, |ui| {
                 let rect = ui.max_rect();
@@ -2274,7 +2279,46 @@ impl eframe::App for VoiderApp {
 /// linear light, so alpha 75 comes out as a 148 grey — twice what the Python draws
 /// for the same opacity. This one is plain premultiplied: alpha 75 is a 75 grey.
 fn white_alpha(alpha: u8) -> egui::Color32 {
-    egui::Color32::from_rgba_premultiplied(alpha, alpha, alpha, alpha)
+    // The ink axis (Ctrl+Shift+±) dims every white of the writing on top of
+    // its own alpha, as the Python's pen does: ink_color × setOpacity.
+    let a = (alpha as f32 * INK.with(|i| i.get())).round().clamp(0.0, 255.0) as u8;
+    egui::Color32::from_rgba_premultiplied(a, a, a, a)
+}
+
+/// What Hyprland is told about this window (the Python's `_apply_opacity`): the
+/// transparency is painted pixel by pixel here, so the compositor must not
+/// dim the whole window by its own rule — fullscreen included — nor blur
+/// what shows through it.
+const HYPR_PROPS: [(&str, &str); 5] = [
+    ("alphaoverride", "1"),
+    ("alpha", "1"),
+    ("alphafullscreenoverride", "1"),
+    ("alphafullscreen", "1"),
+    ("noblur", "1"),
+];
+
+/// Tell Hyprland, in the background. Without Hyprland (another desktop, a VM,
+/// Windows) this quietly does nothing.
+fn tell_hyprland() {
+    std::thread::spawn(|| {
+        for (prop, value) in HYPR_PROPS {
+            let _ = std::process::Command::new("hyprctl")
+                .args(["dispatch", "setprop", "title:^(Voider)$", prop, value])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+        }
+    });
+}
+
+thread_local! {
+    /// How solid the ink is this frame, 0–1. Set from `Voider::ink` before
+    /// drawing; per thread so tests running side by side don't share it.
+    static INK: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
+}
+
+fn set_ink(ink: f32) {
+    INK.with(|i| i.set(ink.clamp(0.0, 1.0)));
 }
 
 /// What an `Event::Copy` (Ctrl+C, whatever else is held) means in a view.
@@ -2616,6 +2660,36 @@ mod tests {
         assert_eq!(app.voider.view, app::View::F3);
         assert!(app.voider.pending_new);
         assert_eq!(app.voider.library.entries, vec!["Uno.txt", "", "Dos.txt"]);
+    }
+
+    #[test]
+    fn hyprland_is_asked_exactly_what_the_python_asks() {
+        // new_interface._apply_opacity: the alpha is painted by us, so the
+        // compositor must not multiply it again, nor blur what shows through.
+        let props: Vec<(&str, &str)> = HYPR_PROPS.to_vec();
+        assert_eq!(
+            props,
+            vec![
+                ("alphaoverride", "1"),
+                ("alpha", "1"),
+                ("alphafullscreenoverride", "1"),
+                ("alphafullscreen", "1"),
+                ("noblur", "1"),
+            ]
+        );
+    }
+
+    // ── the ink axis scales every white of the writing (widgets.ink_color) ──
+
+    #[test]
+    fn with_the_ink_at_half_white_is_half_as_bright() {
+        set_ink(0.5);
+        let half = white_alpha(255);
+        let quarter = white_alpha(128);
+        set_ink(1.0);
+        assert_eq!(half, egui::Color32::from_rgba_premultiplied(128, 128, 128, 128));
+        assert_eq!(quarter, egui::Color32::from_rgba_premultiplied(64, 64, 64, 64));
+        assert_eq!(white_alpha(255), egui::Color32::WHITE);
     }
 
     // ── small globals: F10's way back, F4 Backspace, the title's views ──────

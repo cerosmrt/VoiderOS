@@ -16,8 +16,6 @@ pub struct Config {
     pub font_size: f32,
     pub typewriter: bool,
     pub show_title: bool,
-    /// How solid the ground is, 0.3–1.0. Ctrl+± moves it.
-    pub opacity: f32,
     /// The last restorable view (F1/F2/F3), so a restart resumes there rather
     /// than always opening on F1.
     pub last_view: Option<String>,
@@ -52,7 +50,6 @@ impl Default for Config {
             font_size: 22.0,
             typewriter: false,
             show_title: false,
-            opacity: 1.0,
             last_view: None,
             active_file: None,
             sale_bundle_dir_es: String::new(),
@@ -81,10 +78,6 @@ pub const SIZES: [f32; 17] = [
     64.0, 80.0, 100.0, 130.0, 170.0,
 ];
 
-/// How thin the ground may get. Never 0: a window you cannot see is a window
-/// you cannot get back, and the keys to restore it would be invisible too.
-pub const OPACITY_MIN: f32 = 0.3;
-
 impl Config {
     pub fn load(void_dir: &Path) -> Self {
         match std::fs::read_to_string(config_path(void_dir)) {
@@ -107,7 +100,6 @@ impl Config {
             format!("font_size = {}", self.font_size),
             format!("typewriter = {}", self.typewriter),
             format!("show_title = {}", self.show_title),
-            format!("opacity = {}", self.opacity),
         ];
         if let Some(v) = &self.last_view {
             lines.push(format!("last_view = {v}"));
@@ -166,11 +158,6 @@ impl Config {
                 }
                 "typewriter" => c.typewriter = value == "true",
                 "show_title" => c.show_title = value == "true",
-                "opacity" => {
-                    if let Ok(v) = value.parse::<f32>() {
-                        c.opacity = v.clamp(OPACITY_MIN, 1.0);
-                    }
-                }
                 "last_view" if !value.is_empty() => c.last_view = Some(value.to_string()),
                 "active_file" if !value.is_empty() => c.active_file = Some(value.to_string()),
                 "sale_bundle_dir_es" => c.sale_bundle_dir_es = value.to_string(),
@@ -216,10 +203,6 @@ impl Config {
         self.font_size = SIZES[i];
     }
 
-    /// Ctrl+± : thin the ground out or fill it back in, a tenth at a time.
-    pub fn step_opacity(&mut self, delta: f32) {
-        self.opacity = (self.opacity + delta).clamp(OPACITY_MIN, 1.0);
-    }
 }
 
 #[cfg(test)]
@@ -306,7 +289,6 @@ mod tests {
             font_size: 33.0,
             typewriter: true,
             show_title: true,
-            opacity: 0.6,
             last_view: Some("F2".into()),
             active_file: Some("Capitulo.txt".into()),
             sale_bundle_dir_es: "/srv/sitio/libros".into(),
@@ -321,29 +303,6 @@ mod tests {
         };
         c.save(d.path()).unwrap();
         assert_eq!(Config::load(d.path()), c);
-    }
-
-    #[test]
-    fn opacity_steps_but_never_reaches_invisible() {
-        let mut c = Config::default();
-        assert_eq!(c.opacity, 1.0);
-        c.step_opacity(-0.1);
-        assert!((c.opacity - 0.9).abs() < 1e-6);
-        for _ in 0..30 {
-            c.step_opacity(-0.1);
-        }
-        // A window you cannot see is a window you cannot get back.
-        assert_eq!(c.opacity, OPACITY_MIN);
-        for _ in 0..30 {
-            c.step_opacity(0.1);
-        }
-        assert_eq!(c.opacity, 1.0);
-    }
-
-    #[test]
-    fn a_saved_opacity_of_zero_is_refused_on_the_way_back_in() {
-        let c = Config::from_lines(&v(&["opacity = 0"]));
-        assert_eq!(c.opacity, OPACITY_MIN);
     }
 
     #[test]
