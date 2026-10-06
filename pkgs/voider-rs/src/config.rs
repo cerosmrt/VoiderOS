@@ -40,6 +40,9 @@ pub struct Config {
     /// restart and a reorder (the Python's `last_book_index` / `last_book_entry`).
     pub last_book_index: Option<usize>,
     pub last_book_entry: Option<String>,
+    /// What releases a line in F1: `enter` (default; the spacebar too with Caps
+    /// on) or `space` (the spacebar always) — the Python's `void_key`.
+    pub void_key: String,
 }
 
 impl Default for Config {
@@ -60,6 +63,7 @@ impl Default for Config {
             reading_hyphen_lang: "auto".to_string(),
             last_book_index: None,
             last_book_entry: None,
+            void_key: "enter".to_string(),
         }
     }
 }
@@ -124,6 +128,9 @@ impl Config {
             // Written even when empty: an empty value is how hyphenation is turned off.
             lines.push(format!("reading_hyphen_lang = {}", self.reading_hyphen_lang));
         }
+        if self.void_key != "enter" {
+            lines.push(format!("void_key = {}", self.void_key));
+        }
         if let Some(i) = self.last_book_index {
             lines.push(format!("last_book_index = {i}"));
         }
@@ -170,6 +177,7 @@ impl Config {
                 "sale_bundle_dir_en" => c.sale_bundle_dir_en = value.to_string(),
                 "reading_hyphen_lang" => c.reading_hyphen_lang = value.to_string(),
                 "last_book_index" => c.last_book_index = value.parse().ok(),
+                "void_key" if !value.is_empty() => c.void_key = value.to_string(),
                 "last_book_entry" if !value.is_empty() => c.last_book_entry = Some(value.to_string()),
                 "carousel_preset" if !value.is_empty() => c.carousel_preset = value.to_string(),
                 "carousel_w" => {
@@ -309,6 +317,7 @@ mod tests {
             reading_hyphen_lang: "es_ES".into(),
             last_book_index: Some(444),
             last_book_entry: Some("ATTACK BY DRAWING.txt".into()),
+            void_key: "space".into(),
         };
         c.save(d.path()).unwrap();
         assert_eq!(Config::load(d.path()), c);

@@ -483,6 +483,10 @@ impl VoiderApp {
     fn handle_f1_key(&mut self, key: egui::Key, caps: bool, m: egui::Modifiers) {
         use egui::Key;
         match key {
+            // Ctrl+Enter: a look at the scratch in F2, without moving.
+            Key::Enter if m.ctrl => self.voider.f1_peek_scratch(),
+            // In spacebar mode Enter releases nothing — the spacebar does.
+            Key::Enter if self.voider.config.void_key == "space" => {}
             Key::Enter => {
                 let _ = self.voider.commit_line();
             }
@@ -505,7 +509,9 @@ impl VoiderApp {
             Key::ArrowLeft => self.voider.entry.move_caret(-1),
             Key::ArrowRight => self.voider.entry.move_caret(1),
             Key::Home => self.voider.entry.home(),
-            // Tab: recirculate a line from elsewhere in the book (loop writing).
+            // Tab: recirculate a line from elsewhere in the book (loop writing);
+            // Shift+Tab: the same from the working set's books.
+            Key::Tab if m.shift => self.voider.f1_recycle_ws_line(),
             Key::Tab => self.voider.recycle_line(),
             // The same cut-up by another route: Ctrl+0 pulls from anywhere in
             // the void, Ctrl+. from this file. (In F2, Ctrl+0 rebases instead —
@@ -2573,6 +2579,41 @@ mod tests {
         assert_eq!(app.voider.view, app::View::F3);
         assert!(app.voider.pending_new);
         assert_eq!(app.voider.library.entries, vec!["Uno.txt", "", "Dos.txt"]);
+    }
+
+    // ── F1 keys (key_router _handle_f1_keys, widgets.CustomLineEdit) ────────
+
+    #[test]
+    fn ctrl_enter_in_f1_peeks_at_the_scratch_without_writing_the_line() {
+        let (_d, mut app) = f5_app(&[".", "a"]);
+        app.voider.switch_to(app::View::F1);
+        app.voider.entry.set_text("no se escribe");
+        app.route_key(egui::Key::Enter, ctrl_only());
+        assert_eq!(app.voider.view, app::View::F2);
+        assert!(app.voider.current_file.ends_with("0.txt"));
+    }
+
+    #[test]
+    fn shift_tab_in_f1_is_not_plain_tab() {
+        let (_d, mut app) = f5_app(&[".", "a"]);
+        let i = app.voider.void_dir.join("I");
+        void::atomic_write(&i.join("otro.txt"), &[".".into(), "de otro".into()], false).unwrap();
+        app.voider.switch_to(app::View::F1);
+        app.voider.entry.set_text("lo mio");
+        app.route_key(egui::Key::Tab, egui::Modifiers { shift: true, ..Default::default() });
+        // No working set here: Shift+Tab leaves the line alone (plain Tab would
+        // have pulled something from I/ or said there was nothing).
+        assert_eq!(app.voider.entry.text(), "lo mio");
+    }
+
+    #[test]
+    fn in_space_mode_enter_does_not_release_the_line() {
+        let (_d, mut app) = f5_app(&[".", ""]);
+        app.voider.config.void_key = "space".into();
+        app.voider.switch_to(app::View::F1);
+        app.voider.entry.set_text("hola");
+        app.route_key(egui::Key::Enter, none());
+        assert_eq!(app.voider.entry.text(), "hola");
     }
 
     // ── the chapter catalogue's keys (test_doc_send_keys.py) ────────────────

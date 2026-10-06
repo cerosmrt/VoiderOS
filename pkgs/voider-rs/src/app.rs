@@ -197,6 +197,9 @@ pub struct Voider {
     pub picker_filter: String,
     /// Which side the catalogue opens on — the arrow you opened it with.
     pub picker_side: PickerSide,
+    /// Ctrl+Enter in F1 peeked at the scratch: the file to go back to the next
+    /// time F2 is entered.
+    pub peek_return: Option<PathBuf>,
     /// Where the backtick came from, so it can take you back.
     pub scratch_return: Option<(PathBuf, View)>,
     /// Persisted settings: the writing font, its size, the toggles.
@@ -326,6 +329,7 @@ impl Voider {
             picker_filter: String::new(),
             picker_side: PickerSide::Right,
             scratch_return: None,
+            peek_return: None,
             settings_idx: 0,
             font_dirty: false,
             undo: UndoManager::default(),
@@ -522,6 +526,12 @@ impl Voider {
             self.goto_end();
             return Ok(());
         }
+        // `/0` is the one command: to the scratch, its portal above this chapter.
+        if text == "/0" {
+            self.entry.clear();
+            self.f1_scratch_jump();
+            return Ok(());
+        }
         if self.ring.lines.is_empty() {
             self.ring.lines.push(String::new());
         }
@@ -550,6 +560,68 @@ impl Voider {
         }
         self.ring.index = self.ring.lines.len() - 1;
         self.entry.clear();
+    }
+
+    /// Shift+Tab in F1: a random line from the working-set books (F7) into the
+    /// line, caret at the start — Tab's twin from the corpus. With no books
+    /// picked, what you were writing is left alone. The Python's
+    /// `_f1_recycle_ws_line`.
+    pub fn f1_recycle_ws_line(&mut self) {
+        self.ensure_corpus_loaded();
+        match self.random_line_from_working_set() {
+            Some(line) => {
+                self.entry.set_text(&line);
+                self.entry.home();
+            }
+            None => self.status = "No hay libros en el working set (F7) para reciclar".into(),
+        }
+    }
+
+    /// Ctrl+Enter in F1: a look at the scratch in F2 that doesn't move you — the
+    /// next time F2 is entered it is back on the file you were in. The Python's
+    /// `_f2_peek_0`.
+    pub fn f1_peek_scratch(&mut self) {
+        let back = self.current_file.clone();
+        let scratch = self.scratch_path();
+        if !scratch.exists() {
+            let _ = void::atomic_write(&scratch, &[".".to_string()], false);
+        }
+        self.set_active_file(scratch);
+        self.switch_to(View::F2);
+        if back != self.current_file {
+            self.peek_return = Some(back);
+        }
+    }
+
+    /// `/0` in F1: one `0` portal, right above the chapter you are in, and the
+    /// scratch opened at its line — the Python's `_f1_scratch_jump`. Nothing
+    /// when you are already on the scratch.
+    pub fn f1_scratch_jump(&mut self) {
+        let scratch = self.scratch_path();
+        if same_file(&self.current_file, &scratch) {
+            return;
+        }
+        if self.library.entries.is_empty() {
+            self.library = Library::load(&self.void_dir);
+        }
+        let here = self
+            .current_file
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        self.library.entries.retain(|e| !library::is_portal(e));
+        let at = self
+            .library
+            .position(&here)
+            .unwrap_or_else(|| self.library.index.min(self.library.entries.len()));
+        self.library.entries.insert(at, library::PORTAL.to_string());
+        self.library.index = at;
+        let _ = self.save_library();
+        if !scratch.exists() {
+            let _ = void::atomic_write(&scratch, &[".".to_string()], false);
+        }
+        self.set_active_file(scratch);
+        self.show_current();
     }
 
     /// Before F1 leaves a line, what you typed goes into it — the Python's
@@ -629,6 +701,14 @@ impl Voider {
         match view {
             View::F1 => self.show_current(),
             View::F2 => {
+                // Coming back to F2 after a Ctrl+Enter peek: the file you were in.
+                if from != View::F2 {
+                    if let Some(back) = self.peek_return.take() {
+                        if same_file(&self.current_file, &self.scratch_path()) && back.exists() {
+                            self.set_active_file(back);
+                        }
+                    }
+                }
                 let cur = self.ring.current().to_string();
                 self.entry.set_text(&cur);
                 self.entry.home(); // F2 lands at the start of the line
@@ -3400,10 +3480,13 @@ impl Voider {
     /// discard. This is loop writing — a line recirculated without its context.
     /// It only ever COPIES: the file it came from is never touched.
     pub fn recycle_line(&mut self) {
-        match self.random_line_from_book() {
+        // From any .txt under I/ but the file you are in (controls.py,
+        // recycle_line_to_zero_txt), caret at the start.
+        let i_dir = self.void_dir.join("I");
+        match self.random_line_from_dir(&i_dir, Some(&self.current_file.clone())) {
             Some(line) => {
                 self.entry.set_text(&line);
-                self.entry.end();
+                self.entry.home();
             }
             None => self.status = "Nothing to recycle yet".into(),
         }
@@ -4609,19 +4692,27 @@ impl Voider {
     /// Backtick: a round trip to the scratch. From anywhere else it remembers
     /// where you were and drops you into 0.txt ready to write; from the scratch
     /// it takes you back to that file and view.
+    ///
+    /// As the Python's `_goto_scratch_toggle`: on the way in the line you were
+    /// on is remembered, the one `0` portal moves above your chapter, and the
+    /// scratch opens on ITS saved line. On the way back: F1 → F1, F2 or F5 →
+    /// that view, anything else → F2.
     pub fn scratch_toggle(&mut self) {
         let scratch = self.scratch_path();
-        if self.current_file != scratch {
+        if !same_file(&self.current_file, &scratch) {
+            self.save_last_line();
             self.scratch_return = Some((self.current_file.clone(), self.view));
-            if !scratch.exists() {
-                let _ = void::atomic_write(&scratch, &[".".to_string()], false);
+            if self.view != View::F1 {
+                self.switch_to(View::F1);
             }
-            self.set_active_file(scratch);
-            self.switch_to(View::F1);
-            self.goto_end(); // land ready to write, at the end
+            self.f1_scratch_jump();
         } else if let Some((path, view)) = self.scratch_return.take() {
             self.set_active_file(path);
-            self.switch_to(view);
+            let back = match view {
+                View::F1 | View::F2 | View::F5 => view,
+                _ => View::F2,
+            };
+            self.switch_to(back);
         }
     }
 
@@ -4641,7 +4732,7 @@ impl Voider {
     /// Feed one typed string, honouring Caps (never uppercases) and scriptio
     /// continua (with Caps on, the spacebar releases the line to the void).
     pub fn type_text(&mut self, text: &str, caps_on: bool) -> io::Result<()> {
-        if caps_on && text == " " {
+        if text == " " && (caps_on || self.config.void_key == "space") {
             return self.commit_line();
         }
         self.entry.insert(&text_line::neutralize_caps(text, caps_on));
@@ -4726,7 +4817,13 @@ fn collect_txt_files(dir: &Path, out: &mut Vec<PathBuf>) {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_dir() {
+        // file_type() does not follow links: O/ points at the corpus, and a
+        // walk of the void must never wander into it (os.walk doesn't either).
+        let Ok(kind) = entry.file_type() else { continue };
+        if kind.is_symlink() {
+            continue;
+        }
+        if kind.is_dir() {
             collect_txt_files(&path, out);
         } else if path
             .file_name()
@@ -5895,7 +5992,7 @@ mod tests {
         v.library = Library::load(&v.void_dir);
         v.recycle_line();
         assert_eq!(v.entry.text(), "de dos"); // came from elsewhere
-        assert_eq!(v.entry.caret(), 6); // ready to keep writing from its end
+        assert_eq!(v.entry.caret(), 0); // at the start, as the Python leaves it
     }
 
     #[test]
@@ -9843,6 +9940,141 @@ mod tests {
         v.set_active_file(v.scratch_path());
         v.scratch_toggle(); // arrived by other means → nothing to return to
         assert!(v.current_file.ends_with("0.txt"));
+    }
+
+    // ── The scratch round trip, as in Python (test_scratch_backtick.py,
+    //    test_scratch_jump.py) ─────────────────────────────────────────────────
+
+    fn portal_app() -> (tempfile::TempDir, Voider) {
+        let (d, mut v) = book(); // active: Uno
+        let i = v.void_dir.join("I");
+        void::atomic_write(&i.join("0.txt"), &[".".into(), "s1".into(), "s2".into()], false).unwrap();
+        Library { entries: vec!["0.txt".into(), "Dos.txt".into(), "0.txt".into(), "Uno.txt".into()], index: 0 }
+            .save(&v.void_dir)
+            .unwrap();
+        v.library = Library::load(&v.void_dir);
+        (d, v)
+    }
+
+    #[test]
+    fn slash_zero_moves_the_one_portal_above_the_chapter_and_goes_to_the_scratch() {
+        let (_d, mut v) = portal_app();
+        v.switch_to(View::F1);
+        v.entry.set_text("/0");
+        v.commit_line().unwrap();
+        assert!(v.current_file.ends_with("0.txt"));
+        assert_eq!(Library::load(&v.void_dir).entries, vec!["Dos.txt", "0.txt", "Uno.txt"]);
+        assert!(!void::load_doc(&v.scratch_path()).lines.contains(&"/0".to_string()));
+        assert!(!v.ring.lines.contains(&"/0".to_string()));
+    }
+
+    #[test]
+    fn slash_zero_on_the_scratch_does_nothing() {
+        let (_d, mut v) = portal_app();
+        v.set_active_file(v.scratch_path());
+        v.switch_to(View::F1);
+        v.entry.set_text("/0");
+        v.commit_line().unwrap();
+        assert!(v.current_file.ends_with("0.txt"));
+        assert!(!void::load_doc(&v.scratch_path()).lines.contains(&"/0".to_string()));
+    }
+
+    #[test]
+    fn the_backtick_lands_on_the_scratchs_saved_line_and_moves_its_portal() {
+        let (_d, mut v) = portal_app();
+        position::save_last_line(&v.void_dir, "0.txt", 2);
+        v.switch_to(View::F2);
+        v.scratch_toggle();
+        assert_eq!(v.view, View::F1);
+        assert_eq!(v.ring.index, 2);
+        assert_eq!(v.entry.text(), "s2");
+        assert_eq!(Library::load(&v.void_dir).entries, vec!["Dos.txt", "0.txt", "Uno.txt"]);
+    }
+
+    #[test]
+    fn the_backtick_from_f4_comes_back_to_f2_not_f4() {
+        let (_d, mut v) = portal_app();
+        v.switch_to(View::F4);
+        v.scratch_toggle();
+        v.scratch_toggle();
+        assert_eq!(v.view, View::F2);
+        assert!(v.current_file.ends_with("Uno.txt"));
+    }
+
+    #[test]
+    fn the_backtick_from_f5_comes_back_to_f5() {
+        let (_d, mut v) = portal_app();
+        v.switch_to(View::F5);
+        v.scratch_toggle();
+        v.scratch_toggle();
+        assert_eq!(v.view, View::F5);
+    }
+
+    // ── F1: Tab, Shift+Tab, Ctrl+Enter, Ctrl+0 ───────────────────────────────
+
+    #[test]
+    fn tab_in_f1_leaves_the_caret_at_the_start() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F1);
+        v.recycle_line();
+        assert_eq!(v.entry.text(), "de dos");
+        assert_eq!(v.entry.caret(), 0);
+    }
+
+    #[test]
+    fn shift_tab_in_f1_brings_a_line_from_the_working_set() {
+        let (_d, mut v) = corpus_app(&["a.txt"]);
+        v.switch_to(View::F7);
+        v.ws_tab();
+        v.switch_to(View::F1);
+        v.entry.set_text("a medio escribir");
+        v.f1_recycle_ws_line();
+        assert!(v.entry.text() == "Primera linea." || v.entry.text() == "Segunda linea.");
+        assert_eq!(v.entry.caret(), 0);
+    }
+
+    #[test]
+    fn shift_tab_in_f1_without_a_working_set_leaves_the_line_alone() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F1);
+        v.entry.set_text("a medio escribir");
+        v.f1_recycle_ws_line();
+        assert_eq!(v.entry.text(), "a medio escribir");
+    }
+
+    #[test]
+    fn ctrl_enter_in_f1_peeks_at_the_scratch_in_f2_and_f2_later_goes_back() {
+        let (_d, mut v) = portal_app();
+        v.switch_to(View::F1);
+        v.f1_peek_scratch();
+        assert_eq!(v.view, View::F2);
+        assert!(v.current_file.ends_with("0.txt"));
+        v.switch_to(View::F1);
+        v.switch_to(View::F2);
+        assert!(v.current_file.ends_with("Uno.txt"), "the peek stuck: {:?}", v.current_file);
+    }
+
+    #[test]
+    fn ctrl_zero_never_walks_into_a_symlinked_corpus() {
+        let (_d, v) = book();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("libro.txt"), "del corpus\n").unwrap();
+        std::os::unix::fs::symlink(outside.path(), v.void_dir.join("O")).unwrap();
+        let mut files = Vec::new();
+        collect_txt_files(&v.void_dir, &mut files);
+        assert!(!files.iter().any(|f| f.ends_with("libro.txt")), "{files:?}");
+    }
+
+    #[test]
+    fn in_space_mode_the_spacebar_voids_without_caps() {
+        let (_d, mut v) = app(&[".", ""]);
+        v.ring.index = 1;
+        v.config.void_key = "space".into();
+        v.switch_to(View::F1);
+        v.type_text("hola", false).unwrap();
+        v.type_text(" ", false).unwrap();
+        assert!(v.ring.lines.contains(&"hola".to_string()));
+        assert_eq!(v.entry.text(), "");
     }
 
     #[test]
