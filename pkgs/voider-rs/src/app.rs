@@ -61,6 +61,22 @@ pub fn caps_lock_on() -> bool {
     false
 }
 
+/// The side the chapter catalogue opens on: the arrow that opened it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PickerSide {
+    Left,
+    Right,
+}
+
+/// Where the catalogue would send: a chapter that exists, or one to create
+/// from the typed name (`is_new`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PickerTarget {
+    pub fname: String,
+    pub display: String,
+    pub is_new: bool,
+}
+
 /// Where Ctrl+Shift+A has got to: asking for the book's name (a whole book has no
 /// single title), then for its language.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -176,6 +192,11 @@ pub struct Voider {
     /// F5: the side catalogue for sending a paragraph to a chapter.
     pub picker_open: bool,
     pub picker_idx: usize,
+    /// What has been typed to narrow the catalogue (and, if nothing matches,
+    /// the name of a chapter to create).
+    pub picker_filter: String,
+    /// Which side the catalogue opens on — the arrow you opened it with.
+    pub picker_side: PickerSide,
     /// Where the backtick came from, so it can take you back.
     pub scratch_return: Option<(PathBuf, View)>,
     /// Persisted settings: the writing font, its size, the toggles.
@@ -302,6 +323,8 @@ impl Voider {
             para_idx: 0,
             picker_open: false,
             picker_idx: 0,
+            picker_filter: String::new(),
+            picker_side: PickerSide::Right,
             scratch_return: None,
             settings_idx: 0,
             font_dirty: false,
@@ -2042,14 +2065,24 @@ impl Voider {
             .unwrap_or_else(|| file_title(&self.current_file))
     }
 
-    /// Chapters a paragraph can be sent to: never a separator or the portal. The
-    /// ACTIVE chapter is listed too, as in F2's catalogue, so a stray Enter lands
-    /// on the file you are in (a no-op) rather than on its neighbour.
+    /// The chapters the catalogue can send to, in library order — the Python's
+    /// `_f5_pick_matches`: never a separator; the scratch only when it is the
+    /// file you are in (so the panel can park on it, and sending there is a
+    /// no-op); the active chapter is listed too, for the same reason; and only
+    /// names that contain what has been typed.
     pub fn picker_entries(&self) -> Vec<String> {
+        let active = self
+            .current_file
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let filter = self.picker_filter.trim().to_lowercase();
         self.library
             .entries
             .iter()
-            .filter(|e| !library::is_separator(e) && !library::is_portal(e))
+            .filter(|e| !e.is_empty() && !library::is_separator(e))
+            .filter(|e| !library::is_portal(e) || **e == active)
+            .filter(|e| library::display_name(e).to_lowercase().contains(&filter))
             .cloned()
             .collect()
     }
@@ -2058,22 +2091,30 @@ impl Voider {
     /// books, as the dots do in F3; it is shown but never chosen, so the lit row
     /// is the row of the chosen DESTINATION, not its number. A dot with nothing
     /// before it, or nothing after it, or right after another, separates nothing
-    /// and is dropped.
+    /// and is dropped. While filtering there are no dots: a separator between
+    /// nothing separates nothing.
     pub fn picker_rows(&self) -> (Vec<String>, usize) {
+        let dests = self.picker_entries();
+        if dests.is_empty() {
+            return (Vec::new(), 0);
+        }
+        let chosen = &dests[self.picker_idx % dests.len()];
+        if !self.picker_filter.trim().is_empty() {
+            let rows = dests.iter().map(|e| library::display_name(e)).collect();
+            return (rows, self.picker_idx % dests.len());
+        }
         let mut rows: Vec<String> = Vec::new();
         let mut lit = 0;
-        let mut dest = 0;
         for e in &self.library.entries {
             if library::is_separator(e) {
                 if rows.last().is_some_and(|r| r != "·") {
                     rows.push("·".to_string());
                 }
-            } else if !library::is_portal(e) {
-                if dest == self.picker_idx {
+            } else if dests.contains(e) {
+                if e == chosen {
                     lit = rows.len();
                 }
                 rows.push(library::display_name(e));
-                dest += 1;
             }
         }
         if rows.last().is_some_and(|r| r == "·") {
@@ -2085,8 +2126,15 @@ impl Voider {
     /// Open the catalogue parked on the active chapter, so confirming without
     /// moving sends nothing anywhere.
     pub fn open_picker(&mut self) {
+        self.picker_filter.clear();
+        self.picker_side = PickerSide::Right;
         self.picker_open = true;
         self.picker_idx = self.picker_start_idx();
+    }
+
+    pub fn picker_close(&mut self) {
+        self.picker_open = false;
+        self.picker_filter.clear();
     }
 
     pub fn picker_start_idx(&self) -> usize {
@@ -2121,6 +2169,89 @@ impl Voider {
             return;
         }
         self.picker_idx = (self.picker_idx as isize + delta).rem_euclid(n as isize) as usize;
+    }
+
+    /// Typing while the catalogue is open narrows it; the highlight goes back
+    /// to the first match.
+    pub fn picker_type(&mut self, text: &str) {
+        self.picker_filter.push_str(text);
+        self.picker_idx = 0;
+    }
+
+    pub fn picker_backspace(&mut self) {
+        if self.picker_filter.pop().is_some() {
+            self.picker_idx = 0;
+        }
+    }
+
+    /// What Enter would send to: the highlighted match, or — when nothing
+    /// matches a typed name — a new chapter by that name.
+    pub fn picker_target(&self) -> Option<PickerTarget> {
+        let matches = self.picker_entries();
+        if !matches.is_empty() {
+            let fname = matches[self.picker_idx % matches.len()].clone();
+            return Some(PickerTarget { display: library::display_name(&fname), fname, is_new: false });
+        }
+        let name = self.picker_filter.trim();
+        (!name.is_empty()).then(|| PickerTarget {
+            fname: format!("{name}.txt"),
+            display: name.to_string(),
+            is_new: true,
+        })
+    }
+
+    /// Enter / → in the catalogue: create the chapter first if the name is new
+    /// (listed right below the active file), then send — the line or paragraph
+    /// in F2, the paragraph in F5 — and close.
+    pub fn picker_confirm(&mut self) -> io::Result<bool> {
+        let Some(target) = self.picker_target() else {
+            return Ok(false);
+        };
+        if target.is_new {
+            let path = library::chapter_path(&self.void_dir, &target.fname);
+            if !path.exists() {
+                std::fs::write(&path, "")?;
+            }
+            if self.library.position(&target.fname).is_none() {
+                let at = self.new_chapter_insert_idx();
+                self.library.entries.insert(at, target.fname.clone());
+                self.save_library()?;
+            }
+        }
+        let sent = if self.view == View::F5 {
+            self.send_para_to(&target.fname)?
+        } else {
+            self.doc_send_to(&target.fname)?
+        };
+        self.picker_close();
+        Ok(sent)
+    }
+
+    /// Where a chapter created from the catalogue is listed: right below the
+    /// active file — the Python's `_f5_new_chapter_insert_idx`.
+    fn new_chapter_insert_idx(&self) -> usize {
+        let active = self
+            .current_file
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        match self.library.position(&active) {
+            Some(i) => i + 1,
+            None => self.library.index.min(self.library.entries.len()),
+        }
+    }
+
+    /// Alt+←/→ in F2 — the Python's `_doc_alt_arrow`: standing on a dot it opens
+    /// the catalogue on that side (to send the paragraph); on a line it moves
+    /// the word, as always.
+    pub fn doc_alt_arrow(&mut self, direction: isize) -> io::Result<()> {
+        if self.ring.current() == "." {
+            self.doc_open_picker();
+            self.picker_side = if direction < 0 { PickerSide::Left } else { PickerSide::Right };
+            Ok(())
+        } else {
+            self.doc_swap_words(direction)
+        }
     }
 
     /// Move the current paragraph out of this file and append it to `entry`.
@@ -2172,8 +2303,7 @@ impl Voider {
         if self.library.entries.is_empty() {
             self.library = Library::load(&self.void_dir);
         }
-        self.picker_idx = self.picker_start_idx();
-        self.picker_open = true;
+        self.open_picker();
     }
 
     /// Mandar lo que el cursor señala al capítulo elegido.
@@ -7095,6 +7225,105 @@ mod tests {
         v.doc_open_picker();
         assert!(!v.picker_open, "se abrió para después no hacer nada");
         assert!(v.status.contains("Nada para enviar"));
+    }
+
+    // ── El panel filtra y crea (test_f5_send.py, test_picker_*.py) ───────────
+
+    fn panel_app() -> (tempfile::TempDir, Voider) {
+        let (d, mut v) = book(); // activo: Uno
+        let i = v.void_dir.join("I");
+        void::atomic_write(&i.join("Tres.txt"), &[".".into(), "de tres".into()], false).unwrap();
+        void::atomic_write(&i.join("0.txt"), &[".".into(), "scratch".into()], false).unwrap();
+        v.library.entries = vec!["0.txt".into(), "Uno.txt".into(), ".".into(), "Dos.txt".into(), "Tres.txt".into()];
+        v.library.save(&v.void_dir).unwrap();
+        v.ring.lines = vec![".".into(), "se va".into(), "se queda".into()];
+        v.ring.index = 1;
+        (d, v)
+    }
+
+    fn rows(v: &Voider) -> Vec<String> {
+        v.picker_rows().0
+    }
+
+    #[test]
+    fn escribir_filtra_y_saca_los_separadores() {
+        let (_d, mut v) = panel_app();
+        v.doc_open_picker();
+        v.picker_type("re");
+        assert_eq!(rows(&v), vec!["Tres"]);
+        v.picker_backspace();
+        v.picker_backspace();
+        assert_eq!(rows(&v), vec!["Uno", "·", "Dos", "Tres"]);
+    }
+
+    #[test]
+    fn un_nombre_que_no_existe_crea_el_capitulo_y_manda_ahi() {
+        let (_d, mut v) = panel_app();
+        v.doc_open_picker();
+        v.picker_type("Nuevo");
+        assert_eq!(v.picker_target().map(|t| t.is_new), Some(true));
+        v.picker_confirm().unwrap();
+        let nuevo = v.void_dir.join("I/Nuevo.txt");
+        assert!(void::load_doc(&nuevo).lines.contains(&"se va".to_string()));
+        // Listado justo debajo del archivo activo (Uno).
+        let lib = Library::load(&v.void_dir);
+        let uno = lib.position("Uno.txt").unwrap();
+        assert_eq!(lib.entries[uno + 1], "Nuevo.txt");
+        assert!(!v.picker_open);
+    }
+
+    #[test]
+    fn shift_tab_cicla_hacia_atras_y_nunca_cae_en_un_separador() {
+        let (_d, mut v) = panel_app();
+        v.doc_open_picker(); // parado en Uno
+        v.picker_cycle(-1);
+        assert_eq!(v.picker_target().unwrap().fname, "Tres.txt");
+        v.picker_cycle(1);
+        v.picker_cycle(1);
+        assert_eq!(v.picker_target().unwrap().fname, "Dos.txt");
+    }
+
+    #[test]
+    fn desde_el_scratch_el_panel_abre_parado_en_el_scratch() {
+        let (_d, mut v) = panel_app();
+        let scratch = v.scratch_path();
+        v.set_active_file(scratch);
+        v.ring.lines = vec![".".into(), "algo".into()];
+        v.ring.index = 1;
+        v.doc_open_picker();
+        assert_eq!(v.picker_target().unwrap().fname, "0.txt");
+        assert_eq!(rows(&v)[0], "0");
+    }
+
+    #[test]
+    fn desde_otro_lado_el_scratch_no_es_destino() {
+        let (_d, mut v) = panel_app();
+        v.doc_open_picker();
+        assert!(!rows(&v).contains(&"0".to_string()));
+    }
+
+    #[test]
+    fn alt_flecha_sobre_un_punto_abre_el_panel_de_ese_lado() {
+        let (_d, mut v) = panel_app();
+        v.ring.lines = vec![".".into(), "a".into(), ".".into(), "b".into()];
+        v.ring.index = 2;
+        v.doc_alt_arrow(-1).unwrap();
+        assert!(v.picker_open);
+        assert_eq!(v.picker_side, PickerSide::Left);
+        v.picker_close();
+        v.doc_alt_arrow(1).unwrap();
+        assert_eq!(v.picker_side, PickerSide::Right);
+    }
+
+    #[test]
+    fn alt_flecha_sobre_una_linea_mueve_la_palabra() {
+        let (_d, mut v) = panel_app();
+        v.ring.lines = vec![".".into(), "uno dos".into()];
+        v.ring.index = 1;
+        v.sync_entry();
+        v.doc_alt_arrow(1).unwrap();
+        assert!(!v.picker_open);
+        assert_eq!(v.ring.lines[1], "dos uno");
     }
 
     #[test]

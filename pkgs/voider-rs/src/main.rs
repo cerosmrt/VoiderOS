@@ -333,6 +333,12 @@ impl VoiderApp {
 
     /// Typed text that no prompt or overlay took, for the view you are in.
     fn route_text(&mut self, t: &str, caps: bool) {
+        // With the catalogue open, what is typed filters it — it never reaches
+        // the line underneath.
+        if self.voider.picker_open && matches!(self.voider.view, View::F2 | View::F5) {
+            self.voider.picker_type(t);
+            return;
+        }
         match self.voider.view {
             // '*' is Tab's twin in the line editors (widgets/circular_view):
             // the cut-up, never a character.
@@ -524,18 +530,7 @@ impl VoiderApp {
         // Con el panel desplegado, las teclas son suyas: estás eligiendo a qué
         // capítulo se va el texto, no editando.
         if self.voider.picker_open {
-            match key {
-                Key::Escape | Key::ArrowLeft => self.voider.picker_open = false,
-                Key::ArrowDown | Key::Tab => self.voider.picker_cycle(1),
-                Key::ArrowUp => self.voider.picker_cycle(-1),
-                Key::Enter | Key::ArrowRight => {
-                    let entries = self.voider.picker_entries();
-                    if let Some(e) = entries.get(self.voider.picker_idx).cloned() {
-                        let _ = self.voider.doc_send_to(&e);
-                    }
-                }
-                _ => {}
-            }
+            self.picker_key(key, m);
             return;
         }
         // A search bar takes exclusive focus: only its own keys mean anything.
@@ -626,12 +621,19 @@ impl VoiderApp {
             // Alt mover cosas, pero más lejos — en vez de correr la palabra de
             // al lado, el texto se va a otro capítulo. Va ANTES del Alt+→ suelto,
             // o ese lo taparía.
-            Key::ArrowRight if m.alt && m.shift => self.voider.doc_open_picker(),
+            // Alt+Shift+←/→: the catalogue, on the side the arrow points, from
+            // anywhere (a line, or a paragraph on a dot).
+            Key::ArrowLeft | Key::ArrowRight if m.alt && m.shift => {
+                self.voider.doc_open_picker();
+                self.voider.picker_side =
+                    if key == Key::ArrowLeft { app::PickerSide::Left } else { app::PickerSide::Right };
+            }
+            // Alt+←/→: on a dot, the catalogue on that side; on a line, the word.
             Key::ArrowLeft if m.alt => {
-                let _ = self.voider.doc_swap_words(-1);
+                let _ = self.voider.doc_alt_arrow(-1);
             }
             Key::ArrowRight if m.alt => {
-                let _ = self.voider.doc_swap_words(1);
+                let _ = self.voider.doc_alt_arrow(1);
             }
             Key::ArrowUp => {
                 let _ = self.voider.doc_navigate(-1);
@@ -810,6 +812,25 @@ impl VoiderApp {
         }
     }
 
+    /// The chapter catalogue owns the keyboard while it is open (F2 and F5):
+    /// Escape or ← fold it back, Enter or → send (creating the chapter if the
+    /// typed name is new), ↓/Tab and ↑/Shift+Tab cycle, Backspace unfilters.
+    /// What is typed filters (see `route_text`).
+    fn picker_key(&mut self, key: egui::Key, m: egui::Modifiers) {
+        use egui::Key;
+        match key {
+            Key::Escape | Key::ArrowLeft => self.voider.picker_close(),
+            Key::Enter | Key::ArrowRight => {
+                let _ = self.voider.picker_confirm();
+            }
+            Key::Tab if m.shift => self.voider.picker_cycle(-1),
+            Key::ArrowDown | Key::Tab => self.voider.picker_cycle(1),
+            Key::ArrowUp => self.voider.picker_cycle(-1),
+            Key::Backspace => self.voider.picker_backspace(),
+            _ => {}
+        }
+    }
+
     /// ←/→ in a ring's line (F2, F3): one character — except that ← at the very
     /// start goes round to the end and → at the end back to the start, as the
     /// Python's line editor does.
@@ -845,18 +866,7 @@ impl VoiderApp {
         use egui::Key;
         // With the catalogue open, the keys belong to it.
         if self.voider.picker_open {
-            match key {
-                Key::Escape | Key::ArrowLeft => self.voider.picker_open = false,
-                Key::Enter | Key::ArrowRight => {
-                    let entries = self.voider.picker_entries();
-                    if let Some(e) = entries.get(self.voider.picker_idx).cloned() {
-                        let _ = self.voider.send_para_to(&e);
-                    }
-                }
-                Key::ArrowDown | Key::Tab => self.voider.picker_cycle(1),
-                Key::ArrowUp => self.voider.picker_cycle(-1),
-                _ => {}
-            }
+            self.picker_key(key, m);
             return;
         }
         match key {
@@ -1142,14 +1152,16 @@ impl VoiderApp {
     }
 
     fn draw_f2(&self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
-        // Con el panel desplegado, el texto se corre a la izquierda y la
-        // biblioteca ocupa el tercio derecho — igual que en F5.
+        // Con el panel desplegado (38%, como en Python) el texto se corre al
+        // otro lado: la flecha con que lo abriste decide de qué lado sale.
         let full = rect;
-        let panel_w = if self.voider.picker_open { rect.width() * 0.32 } else { 0.0 };
-        let rect = egui::Rect::from_min_max(
-            rect.min,
-            egui::pos2(rect.max.x - panel_w, rect.max.y),
-        );
+        let panel_w = if self.voider.picker_open { (rect.width() * 0.38).floor() } else { 0.0 };
+        let left = self.voider.picker_side == app::PickerSide::Left;
+        let rect = if left {
+            egui::Rect::from_min_max(egui::pos2(rect.min.x + panel_w, rect.min.y), rect.max)
+        } else {
+            egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x - panel_w, rect.max.y))
+        };
         let centre = rect.center();
         let font = egui::FontId::proportional(self.font_size());
         let line_h = self.ring_line_h(ctx, &font);
@@ -1234,7 +1246,8 @@ impl VoiderApp {
         }
         self.draw_entry_line(painter, ctx, centre, rect, self.voider.typewriter);
         if self.voider.picker_open {
-            self.draw_picker(painter, rect.max.x, panel_w, full);
+            let x = if left { full.min.x } else { rect.max.x };
+            self.draw_picker(painter, ctx, x, panel_w, full, false);
         }
     }
 
@@ -1413,53 +1426,73 @@ impl VoiderApp {
         }
 
         if self.voider.picker_open {
-            self.draw_picker(painter, col.max.x, panel_w, rect);
+            self.draw_picker(painter, ctx, col.max.x, panel_w, rect, true);
         }
     }
 
-    /// The side catalogue: chapters this paragraph can be sent to.
-    fn draw_picker(&self, painter: &egui::Painter, x: f32, w: f32, rect: egui::Rect) {
-        painter.line_segment(
-            [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-            egui::Stroke::new(1.0_f32, egui::Color32::from_gray(40)),
-        );
-        // Rows, not chapters: the dots between books are drawn too, but only a
-        // chapter row is ever the lit one.
-        let (rows, cur) = self.voider.picker_rows();
-        if rows.is_empty() {
-            return;
-        }
-        let font = egui::FontId::proportional(self.font_size() - 4.0);
-        let line_h = self.font_size() * 1.9;
-        let cy = rect.center().y;
-        let cur = cur.min(rows.len() - 1);
-        let reach = (rect.height() / 2.0 / line_h).ceil() as isize;
-
-        for d in -reach..=reach {
-            let i = cur as isize + d;
-            if i < 0 || i as usize >= rows.len() {
-                continue;
-            }
-            let colour = if d == 0 {
-                egui::Color32::from_gray(235)
-            } else {
-                let a = (110 - d.unsigned_abs().min(3) as i32 * 22).max(45) as u8;
-                egui::Color32::from_gray(a)
-            };
-            painter.text(
-                egui::pos2(x + w / 2.0, cy + d as f32 * line_h),
-                egui::Align2::CENTER_CENTER,
-                &rows[i as usize],
-                font.clone(),
-                colour,
+    /// The chapter catalogue — the Python's `widgets.draw_chapter_picker`, shared
+    /// by F2 and F5: the same font and line spacing as the ring, the same curve
+    /// dimmed by 0.3 off the lit row, the filter typed so far at the top (or a
+    /// hint to type), the keys at the bottom, `⏎ crear <name>` when nothing
+    /// matches what was typed, and `ø` when there is nothing to show.
+    fn draw_picker(&self, painter: &egui::Painter, ctx: &egui::Context, x: f32, w: f32, rect: egui::Rect, divider: bool) {
+        if divider {
+            painter.line_segment(
+                [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+                egui::Stroke::new(1.0_f32, egui::Color32::from_gray(40)),
             );
         }
+        let font = egui::FontId::proportional(self.font_size());
+        let lh = self.ring_line_h(ctx, &font);
+        let pad = 16.0;
+        let text_w = (w - 2.0 * pad).max(1.0);
+        let cx = x + w / 2.0;
+        let cy = rect.center().y;
+        let half = rect.height() / 2.0;
+        let row = |text: &str, dy: f32, alpha: f32| {
+            let shown = elide(ctx, text, &font, text_w);
+            painter.text(
+                egui::pos2(cx, cy + dy),
+                egui::Align2::CENTER_CENTER,
+                shown,
+                font.clone(),
+                white_alpha(ring::to_u8(alpha)),
+            );
+        };
+        let target = self.voider.picker_target();
+        let (rows, lit) = self.voider.picker_rows();
+        if target.as_ref().is_some_and(|t| t.is_new) && !self.voider.picker_filter.trim().is_empty() {
+            row(&format!("⏎ crear  {}", target.unwrap().display), 0.0, 1.0);
+        } else if !rows.is_empty() {
+            let visible = ((rect.height() / lh) as usize).max(1);
+            let first = lit.saturating_sub(visible / 2);
+            for j in first..rows.len().min(first + visible) {
+                let dy = (j as f32 - lit as f32) * lh;
+                let a = if j == lit { 1.0 } else { ring::ring_alpha(dy.abs(), half) * ring::DIM_FACTOR };
+                row(&rows[j], dy, a);
+            }
+        } else {
+            row("ø", 0.0, 0.35);
+        }
+        let prompt = if self.voider.picker_filter.is_empty() {
+            "escribí para filtrar…".to_string()
+        } else {
+            format!("{}▏", self.voider.picker_filter)
+        };
+        let top = rect.top() + pad + lh / 2.0;
         painter.text(
-            egui::pos2(x + w / 2.0, rect.bottom() - 24.0),
+            egui::pos2(cx, top),
             egui::Align2::CENTER_CENTER,
-            "→ enviar   ← volver",
-            egui::FontId::proportional(12.0),
-            egui::Color32::from_gray(70),
+            elide(ctx, &prompt, &font, text_w),
+            font.clone(),
+            white_alpha(ring::to_u8(0.45)),
+        );
+        painter.text(
+            egui::pos2(cx, rect.bottom() - 34.0 + 11.0),
+            egui::Align2::CENTER_CENTER,
+            elide(ctx, "→ enviar   ⏎ nuevo   ⇥ ciclar", &font, text_w),
+            font.clone(),
+            white_alpha(ring::to_u8(0.30)),
         );
     }
 
@@ -2227,6 +2260,29 @@ fn copy_action(view: View, shift: bool, searching: bool) -> CopyAction {
 /// A paragraph laid out for F5: wrapped at `wrap_w` and CENTRED, the way F2
 /// centres its lines. egui centres each row on the galley's ORIGIN (x = 0), not
 /// on its left edge, so the galley has to be drawn at the MIDDLE of the column.
+/// `text` cut to fit `max_w` with a trailing `…` — Qt's `elidedText(ElideRight)`.
+fn elide(ctx: &egui::Context, text: &str, font: &egui::FontId, max_w: f32) -> String {
+    let width = |s: &str| {
+        ctx.fonts(|f| f.layout_no_wrap(s.to_string(), font.clone(), egui::Color32::WHITE).size().x)
+    };
+    if width(text) <= max_w {
+        return text.to_string();
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let (mut lo, mut hi) = (0usize, chars.len());
+    // The longest prefix that still fits with the ellipsis after it.
+    while lo < hi {
+        let mid = (lo + hi + 1) / 2;
+        let candidate: String = chars[..mid].iter().collect::<String>() + "…";
+        if width(&candidate) <= max_w {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    chars[..lo].iter().collect::<String>() + "…"
+}
+
 fn centered_galley(
     ctx: &egui::Context,
     text: String,
@@ -2517,6 +2573,30 @@ mod tests {
         assert_eq!(app.voider.view, app::View::F3);
         assert!(app.voider.pending_new);
         assert_eq!(app.voider.library.entries, vec!["Uno.txt", "", "Dos.txt"]);
+    }
+
+    // ── the chapter catalogue's keys (test_doc_send_keys.py) ────────────────
+
+    #[test]
+    fn typing_with_the_catalogue_open_filters_and_never_reaches_the_line() {
+        let (_d, mut app) = f2_app(&[".", "linea"], 1);
+        app.voider.doc_open_picker();
+        app.route_text("x", false);
+        assert_eq!(app.voider.picker_filter, "x");
+        assert_eq!(app.voider.ring.lines[1], "linea");
+        app.route_key(egui::Key::Backspace, none());
+        assert_eq!(app.voider.picker_filter, "");
+    }
+
+    #[test]
+    fn alt_shift_left_opens_the_catalogue_on_the_left() {
+        let (_d, mut app) = f2_app(&[".", "linea"], 1);
+        let alt_shift = egui::Modifiers { alt: true, shift: true, ..Default::default() };
+        app.route_key(egui::Key::ArrowLeft, alt_shift);
+        assert!(app.voider.picker_open);
+        assert_eq!(app.voider.picker_side, app::PickerSide::Left);
+        app.route_key(egui::Key::Escape, none());
+        assert!(!app.voider.picker_open);
     }
 
     // ── F2 line editing (circular_view.CustomLineEdit) ──────────────────────
