@@ -857,7 +857,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._reposition_entry()
 
         # FxPanel: in-app tuner for Hyprland visual effects (CRT/grain/B&W).
-        # Self-contained — writes /tmp/voider-fx and runs `voider-fx-update`.
+        # Self-contained — writes <tmp>/voider-fx and runs `voider-fx-update`.
         # Opened by a Hyprland keybind that drops a request file we poll for.
         self._fx_panel = FxPanel(self)
         self._fx_panel.setGeometry(self.rect())
@@ -866,7 +866,8 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._panel_poll.start(100)
 
     def _poll_fx_panel(self):
-        path = '/tmp/voider-fx-panel'
+        from platform_paths import tmp_file
+        path = tmp_file('voider-fx-panel')
         if not os.path.exists(path):
             return
         try:
