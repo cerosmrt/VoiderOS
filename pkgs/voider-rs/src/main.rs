@@ -1572,9 +1572,8 @@ impl VoiderApp {
         let h = (w as f32 / ratio).round() as u32;
         let key: BookKey = (w, h, self.voider.reading_serial);
 
-        let family = self.voider.config.font_family.clone();
         if self.carousel_font.is_none() {
-            self.carousel_font = Some(typeset::TypeFont::load(&family));
+            self.carousel_font = Some(self.voider.type_font());
         }
         if self.book_plan.as_ref().map(|c| c.key) != Some(key) {
             let sections: Vec<(String, Vec<String>)> = self
@@ -1650,10 +1649,9 @@ impl VoiderApp {
             None => true,
         };
         if stale {
-            let family = self.voider.config.font_family.clone();
             let font = self
                 .carousel_font
-                .get_or_insert_with(|| typeset::TypeFont::load(&family));
+                .get_or_insert_with(|| self.voider.type_font());
             let canvas = slides::render_slide(&slide, font, w, h);
             let image = egui::ColorImage::from_rgb([w as usize, h as usize], canvas.rgb());
             let tex = ctx.load_texture("carousel-slide", image, egui::TextureOptions::LINEAR);

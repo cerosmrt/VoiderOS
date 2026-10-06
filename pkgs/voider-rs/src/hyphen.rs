@@ -134,6 +134,51 @@ impl Lang {
     }
 }
 
+/// How a book is hyphenated (the config's `reading_hyphen_lang`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Mode {
+    /// Never.
+    Off,
+    /// Guess each paragraph's language — the book is in two.
+    #[default]
+    Auto,
+    /// Always this language.
+    Fixed(Lang),
+}
+
+impl Mode {
+    /// Read the config value: `auto`, `es` / `es_ES`, `en` / `en_US`; anything empty
+    /// or unknown (including `off`) means no hyphenation, as a falsy value does in
+    /// the Python.
+    pub fn from_config(value: &str) -> Mode {
+        match value.trim().to_lowercase().as_str() {
+            "auto" => Mode::Auto,
+            "es" | "es_es" => Mode::Fixed(Lang::Es),
+            "en" | "en_us" => Mode::Fixed(Lang::En),
+            _ => Mode::Off,
+        }
+    }
+
+    /// What goes in the config file.
+    pub fn to_config(self) -> &'static str {
+        match self {
+            Mode::Off => "",
+            Mode::Auto => "auto",
+            Mode::Fixed(Lang::Es) => "es_ES",
+            Mode::Fixed(Lang::En) => "en_US",
+        }
+    }
+
+    /// The language to hyphenate `paragraph` in, if any.
+    pub fn lang_for(self, paragraph: &str) -> Option<Lang> {
+        match self {
+            Mode::Off => None,
+            Mode::Auto => guess_lang(paragraph),
+            Mode::Fixed(l) => Some(l),
+        }
+    }
+}
+
 /// Best-effort language of a paragraph, by function words and Spanish diacritics.
 /// `None` when there is no signal — then it is not hyphenated.
 pub fn guess_lang(text: &str) -> Option<Lang> {
@@ -365,6 +410,42 @@ mod tests {
     #[test]
     fn punctuation_around_a_function_word_does_not_hide_it() {
         assert_eq!(guess_lang("\"The\" (of) and, to."), Some(Lang::En));
+    }
+
+    // ── the mode: off, auto, or one language ─────────────────────────────────
+
+    #[test]
+    fn the_config_values_mean_what_the_python_means() {
+        assert_eq!(Mode::from_config("auto"), Mode::Auto);
+        assert_eq!(Mode::from_config("es"), Mode::Fixed(Lang::Es));
+        assert_eq!(Mode::from_config("es_ES"), Mode::Fixed(Lang::Es));
+        assert_eq!(Mode::from_config("en_US"), Mode::Fixed(Lang::En));
+        assert_eq!(Mode::from_config("EN"), Mode::Fixed(Lang::En));
+        assert_eq!(Mode::from_config(""), Mode::Off);
+        assert_eq!(Mode::from_config("off"), Mode::Off);
+        assert_eq!(Mode::from_config("klingon"), Mode::Off);
+    }
+
+    #[test]
+    fn a_mode_round_trips_through_the_config() {
+        for m in [Mode::Off, Mode::Auto, Mode::Fixed(Lang::Es), Mode::Fixed(Lang::En)] {
+            assert_eq!(Mode::from_config(m.to_config()), m, "{m:?}");
+        }
+    }
+
+    #[test]
+    fn auto_guesses_per_paragraph_off_never_and_fixed_always() {
+        assert_eq!(Mode::Auto.lang_for("El principio de todo lo que sigue"), Some(Lang::Es));
+        assert_eq!(Mode::Auto.lang_for("The beginning of everything"), Some(Lang::En));
+        assert_eq!(Mode::Auto.lang_for("xyz qrs"), None); // no signal: not hyphenated
+        assert_eq!(Mode::Off.lang_for("El principio de todo"), None);
+        assert_eq!(Mode::Fixed(Lang::En).lang_for("El principio de todo"), Some(Lang::En));
+        assert_eq!(Mode::Fixed(Lang::Es).lang_for("xyz qrs"), Some(Lang::Es));
+    }
+
+    #[test]
+    fn auto_is_the_default_as_in_the_pythons_config() {
+        assert_eq!(Mode::default(), Mode::Auto);
     }
 
     // ── what the typesetter asks for (hyphenate_text) ────────────────────────

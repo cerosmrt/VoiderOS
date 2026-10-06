@@ -17,6 +17,7 @@ use crate::config::Config;
 use crate::corpus;
 use crate::f5;
 use crate::fonts;
+use crate::hyphen;
 use crate::ipc;
 use crate::library::{self, Library};
 use crate::paragraphs;
@@ -611,7 +612,7 @@ impl Voider {
             return;
         }
         let (w, h) = self.carousel_size();
-        let font = typeset::TypeFont::load(&self.config.font_family);
+        let font = self.type_font();
         self.carousel_slides = slides::plan(&self.carousel_sections(), &font, w, h);
     }
 
@@ -623,6 +624,12 @@ impl Voider {
         } else {
             measured
         }
+    }
+
+    /// The font the book and the slides are set in, with the configured hyphenation.
+    pub fn type_font(&self) -> typeset::TypeFont {
+        typeset::TypeFont::load(&self.config.font_family)
+            .with_hyphenation(hyphen::Mode::from_config(&self.config.reading_hyphen_lang))
     }
 
     /// The slide size the configuration asks for.
@@ -686,7 +693,7 @@ impl Voider {
             return Ok(None);
         };
         std::fs::create_dir_all(&dir)?;
-        let font = typeset::TypeFont::load(&self.config.font_family);
+        let font = self.type_font();
         let (_, body) = self.write_carousel_chapters(&dir, &font, 1)?;
         self.status = format!(
             "Carrusel: {} capítulo(s), {body} slides + títulos → {}",
@@ -706,7 +713,7 @@ impl Voider {
         };
         std::fs::create_dir_all(&dir)?;
         let (w, h) = self.carousel_size();
-        let font = typeset::TypeFont::load(&self.config.font_family);
+        let font = self.type_font();
         let font_px = carousel::geometry(w, h).font_px;
         let back_title = match self.reading.as_slice() {
             [only] => only.name.clone(),
@@ -6196,6 +6203,18 @@ mod tests {
         v.switch_to(View::F4);
         assert_eq!(v.carousel_size(), (1080, 1080));
         assert!(!v.carousel_slides.is_empty());
+    }
+
+    // ── the font the book is set in carries the hyphenation setting ──────────
+
+    #[test]
+    fn the_type_font_follows_the_configured_hyphenation() {
+        let (_d, mut v) = app(&["."]);
+        assert_eq!(v.type_font().hyphenation(), hyphen::Mode::Auto);
+        v.config.reading_hyphen_lang = "es".into();
+        assert_eq!(v.type_font().hyphenation(), hyphen::Mode::Fixed(hyphen::Lang::Es));
+        v.config.reading_hyphen_lang = String::new();
+        assert_eq!(v.type_font().hyphenation(), hyphen::Mode::Off);
     }
 
     // ── Ctrl+Shift+V: the carousel preview in F4 (test_f4_carousel_view.py) ──

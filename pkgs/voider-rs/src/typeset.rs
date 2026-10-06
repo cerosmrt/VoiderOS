@@ -14,6 +14,8 @@ use ab_glyph::{Font, FontArc, PxScale, ScaleFont};
 #[derive(Clone)]
 pub struct TypeFont {
     font: FontArc,
+    /// Whether and how words may be broken across lines. Off until asked.
+    hyph: crate::hyphen::Mode,
 }
 
 impl TypeFont {
@@ -35,7 +37,17 @@ impl TypeFont {
     }
 
     pub fn from_bytes(bytes: Vec<u8>) -> Option<TypeFont> {
-        FontArc::try_from_vec(bytes).ok().map(|font| TypeFont { font })
+        FontArc::try_from_vec(bytes).ok().map(|font| TypeFont { font, hyph: crate::hyphen::Mode::Off })
+    }
+
+    /// The same font, set with the given hyphenation.
+    pub fn with_hyphenation(mut self, mode: crate::hyphen::Mode) -> TypeFont {
+        self.hyph = mode;
+        self
+    }
+
+    pub fn hyphenation(&self) -> crate::hyphen::Mode {
+        self.hyph
     }
 
     pub(crate) fn font(&self) -> &FontArc {
@@ -119,49 +131,73 @@ pub fn typeset_marked(
     let mut starts: Vec<usize> = Vec::new();
 
     for para in paragraphs {
-        let words: Vec<String> = para
+        // Each word with the places it may be broken, in the paragraph's language.
+        let lang = font.hyph.lang_for(para);
+        let mut queue: std::collections::VecDeque<(String, Vec<usize>)> = para
             .split_whitespace()
-            .flat_map(|w| split_to_fit(font, px, width, w))
+            .flat_map(|w| {
+                let pieces = split_to_fit(font, px, width, w);
+                if pieces.len() == 1 {
+                    vec![(w.to_string(), crate::hyphen::break_points(w, lang))]
+                } else {
+                    // wider than the column: cut by letters, nothing left to hyphenate
+                    pieces.into_iter().map(|p| (p, Vec::new())).collect()
+                }
+            })
             .collect();
-        if words.is_empty() {
+        if queue.is_empty() {
             continue;
         }
         starts.push(lines.len());
-        let widths: Vec<f32> = words.iter().map(|w| font.advance(w, px)).collect();
 
-        // Greedy: put words on the line while they still fit.
-        let mut start = 0;
         let mut first = true;
-        while start < words.len() {
+        while !queue.is_empty() {
             let lead = if first { indent } else { 0.0 };
             let avail = width - lead;
-            let mut end = start;
+            // Greedy: put words on the line while they still fit...
+            let mut placed: Vec<(String, f32)> = Vec::new();
             let mut used = 0.0;
-            while end < words.len() {
-                let next = used + if end > start { space } else { 0.0 } + widths[end];
-                if end > start && next > avail + 0.001 {
-                    break;
+            while let Some((text, breaks)) = queue.front().cloned() {
+                let w = font.advance(&text, px);
+                let gap = if placed.is_empty() { 0.0 } else { space };
+                if placed.is_empty() || used + gap + w <= avail + 0.001 {
+                    used += gap + w;
+                    placed.push((text, w));
+                    queue.pop_front();
+                    continue;
                 }
-                used = next;
-                end += 1;
+                // ...and when one does not, break it at the last place that still fits,
+                // with a hyphen, and carry the rest to the next line.
+                for &k in breaks.iter().rev() {
+                    let head: String = text.chars().take(k).chain(std::iter::once('-')).collect();
+                    let hw = font.advance(&head, px);
+                    if used + gap + hw <= avail + 0.001 {
+                        placed.push((head, hw));
+                        let rest: String = text.chars().skip(k).collect();
+                        let rest_breaks = breaks.iter().filter(|&&b| b > k).map(|&b| b - k).collect();
+                        queue.pop_front();
+                        queue.push_front((rest, rest_breaks));
+                        break;
+                    }
+                }
+                break;
             }
-            let n = end - start;
-            let last = end == words.len();
+            let n = placed.len();
+            let last = queue.is_empty();
             // Justify every line but the paragraph's last: spread the slack
             // evenly between the words so the line ends flush with the column.
             let gap = if !last && n > 1 {
-                (avail - widths[start..end].iter().sum::<f32>()) / (n - 1) as f32
+                (avail - placed.iter().map(|(_, w)| w).sum::<f32>()) / (n - 1) as f32
             } else {
                 space
             };
             let mut x = lead;
-            let mut placed = Vec::with_capacity(n);
-            for k in start..end {
-                placed.push(Placed { text: words[k].clone(), x });
-                x += widths[k] + gap;
+            let mut words = Vec::with_capacity(n);
+            for (text, w) in placed {
+                words.push(Placed { text, x });
+                x += w + gap;
             }
-            lines.push(Line { words: placed, y: lines.len() as f32 * line_h });
-            start = end;
+            lines.push(Line { words, y: lines.len() as f32 * line_h });
             first = false;
         }
     }
@@ -358,6 +394,122 @@ mod tests {
         for l in &lines {
             let w = l.words.last().map(|w| w.x + f.advance(&w.text, PX)).unwrap_or(0.0);
             assert!(w <= 200.5, "{w}");
+        }
+    }
+
+    // ── hyphenating (reading_hyphen_lang) ────────────────────────────────────
+
+    use crate::hyphen::{Lang, Mode};
+
+    fn hfont() -> TypeFont {
+        font().with_hyphenation(Mode::Fixed(Lang::Es))
+    }
+
+    fn es_text(n: usize) -> String {
+        "El pensamiento humano transforma extraordinariamente la comprensión universal de cada civilización antigua. "
+            .repeat(n)
+            .trim()
+            .to_string()
+    }
+
+    fn right_edge(f: &TypeFont, l: &Line) -> f32 {
+        l.words.last().map(|w| w.x + f.advance(&w.text, PX)).unwrap_or(0.0)
+    }
+
+    fn letters(lines: &[Line]) -> String {
+        lines.iter().flat_map(|l| l.words.iter().map(|w| w.text.clone())).collect::<String>().replace('-', "")
+    }
+
+    #[test]
+    fn a_font_is_not_hyphenating_until_asked_to() {
+        assert_eq!(font().hyphenation(), Mode::Off);
+        assert_eq!(hfont().hyphenation(), Mode::Fixed(Lang::Es));
+        let plain = typeset(&font(), PX, 300.0, 0.0, 40.0, &paras(&[&es_text(3)]));
+        assert!(!plain.iter().any(|l| l.words.iter().any(|w| w.text.ends_with('-'))), "no hyphens unless asked");
+    }
+
+    #[test]
+    fn hyphenating_breaks_words_across_lines_and_loses_no_letter() {
+        let f = hfont();
+        let text = es_text(4);
+        let lines = typeset(&f, PX, 260.0, 0.0, 40.0, &paras(&[&text]));
+        assert!(lines.iter().any(|l| l.words.last().is_some_and(|w| w.text.ends_with('-'))), "a narrow column should break some word");
+        assert_eq!(letters(&lines), text.replace(' ', ""));
+    }
+
+    #[test]
+    fn a_hyphenated_line_still_fits_and_still_ends_flush() {
+        let f = hfont();
+        let lines = typeset(&f, PX, 300.0, 0.0, 40.0, &paras(&[&es_text(4)]));
+        for l in &lines[..lines.len() - 1] {
+            if l.words.len() > 1 {
+                assert!((right_edge(&f, l) - 300.0).abs() < 0.6, "line ends at {}: {}", right_edge(&f, l), l.text());
+            }
+        }
+        for l in &lines {
+            assert!(right_edge(&f, l) <= 300.6);
+        }
+    }
+
+    #[test]
+    fn it_never_needs_more_lines_than_without_hyphenation() {
+        for width in [220.0, 260.0, 300.0, 380.0] {
+            let plain = typeset(&font(), PX, width, 0.0, 40.0, &paras(&[&es_text(5)])).len();
+            let hyph = typeset(&hfont(), PX, width, 0.0, 40.0, &paras(&[&es_text(5)])).len();
+            assert!(hyph <= plain, "width {width}: {hyph} lines hyphenated vs {plain}");
+        }
+    }
+
+    #[test]
+    fn a_break_never_leaves_fewer_than_two_letters_on_either_side() {
+        let f = hfont();
+        let lines = typeset(&f, PX, 240.0, 0.0, 40.0, &paras(&[&es_text(6)]));
+        for pair in lines.windows(2) {
+            let Some(last) = pair[0].words.last().filter(|w| w.text.ends_with('-')) else { continue };
+            let head: String = last.text.trim_end_matches('-').chars().rev().take_while(|c| c.is_alphabetic()).collect();
+            assert!(head.chars().count() >= 2, "head of {:?}", last.text);
+            let tail: String = pair[1].words[0].text.chars().take_while(|c| c.is_alphabetic()).collect();
+            assert!(tail.chars().count() >= 2, "tail {:?}", pair[1].words[0].text);
+        }
+    }
+
+    #[test]
+    fn a_wide_column_breaks_no_word_at_all() {
+        let lines = typeset(&hfont(), PX, 4000.0, 0.0, 40.0, &paras(&[&es_text(2)]));
+        assert_eq!(lines.len(), 1);
+        assert!(!lines[0].words.iter().any(|w| w.text.contains('-')));
+    }
+
+    #[test]
+    fn auto_hyphenates_each_paragraph_in_its_own_language_and_leaves_the_unknown_alone() {
+        let f = font().with_hyphenation(Mode::Auto);
+        let es = es_text(3);
+        let nonsense = "xyzabcdefgh qrstuvwxyzabc ".repeat(8);
+        let en = "The extraordinary philosophy of understanding is a wonderful thing and the beginning of knowledge, ".repeat(3);
+        let lines_es = typeset(&f, PX, 250.0, 0.0, 40.0, &paras(&[&es]));
+        let lines_none = typeset(&f, PX, 250.0, 0.0, 40.0, &paras(&[nonsense.trim()]));
+        let lines_en = typeset(&f, PX, 250.0, 0.0, 40.0, &paras(&[en.trim()]));
+        let hyphenated = |ls: &[Line]| ls.iter().any(|l| l.words.last().is_some_and(|w| w.text.ends_with('-')));
+        assert!(hyphenated(&lines_es), "Spanish");
+        assert!(hyphenated(&lines_en), "English");
+        assert!(!hyphenated(&lines_none), "no language signal: not hyphenated");
+    }
+
+    #[test]
+    fn hyphenation_does_not_disturb_where_paragraphs_start() {
+        let f = hfont();
+        let (lines, starts) = typeset_marked(&f, PX, 260.0, 0.0, 40.0, &paras(&[&es_text(3), "una linea.", &es_text(2)]));
+        assert_eq!(starts.len(), 3);
+        assert_eq!(lines[starts[1]].text(), "una linea.");
+    }
+
+    #[test]
+    fn the_indent_and_a_hyphen_together_still_fit() {
+        let f = hfont();
+        let lines = typeset(&f, PX, 280.0, 30.0, 40.0, &paras(&[&es_text(3)]));
+        assert!((lines[0].words[0].x - 30.0).abs() < 0.01);
+        for l in &lines {
+            assert!(right_edge(&f, l) <= 280.6);
         }
     }
 

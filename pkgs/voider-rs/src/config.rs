@@ -32,6 +32,10 @@ pub struct Config {
     pub carousel_preset: String,
     pub carousel_w: u32,
     pub carousel_h: u32,
+    /// How the book and the slides are hyphenated: `auto` (each paragraph's language
+    /// is guessed), a language (`es`, `en`), or empty for none. The Python's
+    /// `reading_hyphen_lang`.
+    pub reading_hyphen_lang: String,
 }
 
 impl Default for Config {
@@ -49,6 +53,7 @@ impl Default for Config {
             carousel_preset: crate::carousel::DEFAULT_PRESET.to_string(),
             carousel_w: 1080,
             carousel_h: 1350,
+            reading_hyphen_lang: "auto".to_string(),
         }
     }
 }
@@ -109,6 +114,10 @@ impl Config {
         if self.carousel_preset != crate::carousel::DEFAULT_PRESET {
             lines.push(format!("carousel_preset = {}", self.carousel_preset));
         }
+        if self.reading_hyphen_lang != "auto" {
+            // Written even when empty: an empty value is how hyphenation is turned off.
+            lines.push(format!("reading_hyphen_lang = {}", self.reading_hyphen_lang));
+        }
         if self.carousel_w != 1080 {
             lines.push(format!("carousel_w = {}", self.carousel_w));
         }
@@ -147,6 +156,7 @@ impl Config {
                 "active_file" if !value.is_empty() => c.active_file = Some(value.to_string()),
                 "sale_bundle_dir_es" => c.sale_bundle_dir_es = value.to_string(),
                 "sale_bundle_dir_en" => c.sale_bundle_dir_en = value.to_string(),
+                "reading_hyphen_lang" => c.reading_hyphen_lang = value.to_string(),
                 "carousel_preset" if !value.is_empty() => c.carousel_preset = value.to_string(),
                 "carousel_w" => {
                     if let Ok(v) = value.parse::<u32>() {
@@ -201,6 +211,24 @@ mod tests {
     // Where the sale bundle lands, per language. Empty by default: they are
     // absolute paths to one machine's site checkout, meaningless on anyone else's
     // (test_sale_bundle.py), so unset means "use the local fallback".
+
+    // Hyphenation of the book and the slides: `auto` (the language of each
+    // paragraph is guessed), a language, or empty for none.
+
+    #[test]
+    fn the_book_hyphenates_automatically_by_default() {
+        assert_eq!(Config::default().reading_hyphen_lang, "auto");
+    }
+
+    #[test]
+    fn the_hyphenation_setting_is_read_back_and_an_empty_one_means_none() {
+        let mut c = Config::default();
+        assert!(!c.to_lines().iter().any(|l| l.starts_with("reading_hyphen_lang")), "the default is not written");
+        c.reading_hyphen_lang = "en_US".into();
+        assert_eq!(Config::from_lines(&c.to_lines()).reading_hyphen_lang, "en_US");
+        c.reading_hyphen_lang = String::new();
+        assert_eq!(Config::from_lines(&c.to_lines()).reading_hyphen_lang, "", "off survives a round trip");
+    }
 
     // The carousel's frame: a named preset, or "custom" with its own size.
 
@@ -264,6 +292,7 @@ mod tests {
             carousel_preset: "custom".into(),
             carousel_w: 800,
             carousel_h: 600,
+            reading_hyphen_lang: "es_ES".into(),
         };
         c.save(d.path()).unwrap();
         assert_eq!(Config::load(d.path()), c);
