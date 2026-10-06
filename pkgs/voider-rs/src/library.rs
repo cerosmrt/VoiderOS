@@ -87,6 +87,14 @@ impl Library {
     }
 
     pub fn save(&self, void_dir: &Path) -> std::io::Result<()> {
+        // An empty index can only be a bug, and writing it would wipe a good
+        // I.txt — the Python's `_save_library` refuses it too.
+        if self.entries.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "refusing to save an empty library index",
+            ));
+        }
         void::atomic_write(&library_path(void_dir), &self.entries, false)
     }
 
@@ -271,6 +279,16 @@ mod tests {
             entries: entries.iter().map(|s| s.to_string()).collect(),
             index: 0,
         }
+    }
+
+    #[test]
+    fn an_empty_index_is_never_written_over_a_good_one() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join("I")).unwrap();
+        lib(&["Uno.txt", ".", "Dos.txt"]).save(d.path()).unwrap();
+        assert!(lib(&[]).save(d.path()).is_err());
+        let back = std::fs::read_to_string(library_path(d.path())).unwrap();
+        assert!(back.contains("Uno.txt") && back.contains("Dos.txt"));
     }
 
     #[test]
