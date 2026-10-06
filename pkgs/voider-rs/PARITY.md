@@ -4,7 +4,7 @@ Where the Rust mirror stands against the Python, measured by the Python's own
 test suite: **63 files, 592 tests**. This is the honest map — what is ported,
 what is partial, and what does not exist here yet.
 
-Rust tests today: **831**. (The Python suite has since grown to ~1079; the
+Rust tests today: **913**. (The Python suite has since grown to ~1079; the
 "63 files, 592 tests" above is the baseline this file was first measured
 against, and the table below is still in terms of it.)
 
@@ -43,6 +43,31 @@ committed on its own. The Python commit is in parentheses.
 - The EPUB exporter (`epub.rs`, no new dependency) and the PDF + EPUB + TXT sale
   bundle on Ctrl+Shift+A in F4, with its name/language prompt (`f9fb6a7`,
   `fe95779`, `3bc7846`).
+- **Compared side by side with the Python app** (run under Xvfb on a copy of the same
+  void; see "How to compare" below). What made the Rust look different, all corrected
+  from the Python's own formulas and measured in pixels:
+  - the configured size is in **points**, not pixels (22 pt ≈ 29 px);
+  - ring spacing is the font's height × 1.31, the fade is a cosine over half the window's
+    height, and everything but the chosen line is at 30 % (`ring.rs`) — F2, F3, F5, F6, F7;
+  - egui's `Color32::from_white_alpha` blends in linear light (alpha 75 came out as grey
+    148), twice what Qt draws; `white_alpha` blends straight — neighbour lines now measure
+    76 / 73 / 62 / 35 against the Python's 75 / 73 / 62 / 36;
+  - F5 rows are 1.5 × the font's height, text centred in the row;
+  - **F4 is a white A5 page** with dark ink, the chapter title sunk 24 mm, indented
+    justified paragraphs, opened on the paragraph you were editing — drawn as a texture
+    with the carousel's typesetter;
+  - and the book's type is 13 pt = 17.3 page units (Qt turns points into pixels at 96 dpi
+    while the page is measured in points), which also made the **carousel slides' type a
+    third too small** until now.
+- Hyphenation (`hyphen.rs`): Liang's patterns with pyphen's own Spanish and English
+  dictionaries (copied to `src/hyph/` with their licences), the same algorithm, the same
+  per-paragraph language guess; 100+ words checked against pyphen's output. Governs F4 and
+  the slides through `reading_hyphen_lang` (`auto` by default, `es`, `en`, or empty for none).
+- Covers can be `.jpg` / `.jpeg` as well as `.png` (`jpeg-decoder`, the one new crate; the
+  format is told by the file's content, not its name).
+- EB Garamond travels inside the program (`assets/`, SIL OFL) and Windows' font folders are
+  searched, so a machine without the font draws the same letters. The `⏎` glyph, which
+  EB Garamond lacks, is written "Enter" everywhere.
 - The Instagram carousel (`carousel.rs`, `typeset.rs`, `slides.rs`): Ctrl+Shift+C
   exports a chapter or the whole book as PNG slides (a title slide per chapter, then
   its body, justified, in the writing font), Ctrl+Shift+B wraps them in a cover
@@ -50,8 +75,7 @@ committed on its own. The Python commit is in parentheses.
   exactly as they would be written, and F10 (Tab) picks the frame — 1:1, 4:5,
   1.91:1 or a custom size (`63913c5`, `c9f9607`, `57165f1`, `5889aa2`). The text is
   set by hand with `ab_glyph` and written with `png`; both were already in the
-  dependency graph through egui. **No hyphenation** (the Python's `auto`), so right
-  edges are a little looser than the book's.
+  dependency graph through egui. Hyphenated like the book (see below).
 - Shift+F12: a 1:1 crop of the window into `covers/`, located through `hyprctl`
   (`a8bda0e`). The command runner is injected, so it is tested without either tool.
 - A byte-order mark at the start of a file is no longer part of the first line.
@@ -144,9 +168,8 @@ working-set fragment) have since been built; see "Landed since" above.
 |---|---|---|
 | Lock screen | `test_lock_screen` (7) | PAM — see PENDING.md |
 | Justified, *hyphenated* setting in F4 | `test_reading_page` | justified is done; no Spanish hyphenation |
-| Hyphenation in the carousel slides | `hyphenate_text` | the slides are justified but never hyphenated |
 | Ctrl+Shift+V for the carousel preview | `test_f4_carousel_view` | it is the bare key `V` instead: egui-winit turns Ctrl+Shift+V into a Paste event, and sends nothing when the clipboard is empty |
-| A cover from a `.jpg` | `render_cover_slide` | covers are `.png` only (what `grim` writes); there is no JPEG decoder here |
+| F10 as a form: text colour and background colour | `settings_panel.py` | F10 here is a ring of fonts (choosing is seeing) with the size and the carousel frame; there are no text/background colour settings, and every view is white on black |
 | The F1 gradient and the effects panel | — | visual; the panel does not exist here |
 | Be the desktop (wlr-layer-shell) | — | the last milestone |
 
@@ -182,3 +205,11 @@ real void, a while spent working in it, and a diff, not a switch thrown.
 
 Until then `VOIDER_RS_VOID` points at `~/.local/share/voider-rs/void`, and the
 real `/void` is untouched.
+
+## How to compare with the Python app
+
+Both run headless: Xvfb, a throwaway void (never `~/void`), `xdotool` for the keys and ImageMagick
+`import` for the frames. For the Rust see the headless recipe in the project memory; the Python
+needs `QT_QPA_PLATFORM=xcb`, a copy of `proto-voider` whose `config.json` points `void_dir` at
+the throwaway void, and its window resized to the screen with `xdotool` (there is no window
+manager). Measure rather than eyeball: crop a row and take the maximum brightness.

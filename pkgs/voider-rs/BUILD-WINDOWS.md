@@ -47,9 +47,14 @@ Lo que costó fue todo lo de alrededor.
 
 ## Lo que la versión Windows no tiene
 
-- Exportar PDF (Ctrl+S en F4) — sacado para poder cruzar
+- Exportar PDF (Ctrl+S en F4) — sacado para poder cruzar (el bundle de venta sí sale: escribe
+  EPUB y TXT, y avisa "sin PDF")
 - La voz (Ctrl+T) — necesita `piper` instalado en Windows
 - Sincronización entre instancias — ver el punto 3
+
+Las fuentes no son un problema: EB Garamond viaja dentro del `.exe` (`assets/`, licencia OFL) y
+solo se usa si la máquina no la tiene, y también se buscan `%windir%\Fonts` y la carpeta de
+fuentes del usuario. Está probado en los tests, pero **el `.exe` no se corrió en Windows**.
 
 Y el void es otro: crea su propio `~/void` en la carpeta de usuario de Windows.
 No ve el de esta máquina. Llevar el texto y reconciliarlo sigue siendo manual —
