@@ -394,7 +394,53 @@ impl Voider {
         self.apply_undo_entry(&entry, false)
     }
 
+    /// How many steps Ctrl+Z can take back.
+    pub fn undo_depth(&self) -> usize {
+        self.undo.undo_depth()
+    }
+
+    /// Whether the F3 line is being typed into — a new name, a merge name, or a
+    /// title edited but not yet renamed. Ctrl+Z then leaves the library alone
+    /// (the Python's `_f3_mid_edit`).
+    pub fn f3_mid_edit(&self) -> bool {
+        if self.pending_new || self.pending_merge {
+            return true;
+        }
+        let cur = self.library.current();
+        !(library::is_separator(cur) || library::is_portal(cur) || cur.is_empty())
+            && self.entry.text().trim() != library::display_name(cur)
+    }
+
+    /// The library as an undo step records it. A blank row (a name still being
+    /// typed) is not part of the book, so it is left out.
+    fn lib_state(&self) -> undo::LibraryState {
+        let entries: Vec<String> =
+            self.library.entries.iter().filter(|e| !e.is_empty()).cloned().collect();
+        let index = self.library.index.min(entries.len().saturating_sub(1));
+        undo::LibraryState { entries, index }
+    }
+
     fn apply_undo_entry(&mut self, entry: &undo::Entry, backwards: bool) -> io::Result<()> {
+        // A file that only exists on one side of the step (a rename's old and
+        // new name): if the active file is the one going away, Voider follows
+        // to the one coming back, as the Python's F3 restore keeps you on it.
+        fn side(c: &undo::FileChange, before: bool) -> &Vec<String> {
+            if before { &c.before } else { &c.after }
+        }
+        let target = |c: &undo::FileChange| side(c, backwards).is_empty();
+        let source = |c: &undo::FileChange| side(c, !backwards).is_empty();
+        let follow = entry
+            .files
+            .iter()
+            .any(|c| c.path == self.current_file && target(c) && !source(c))
+            .then(|| {
+                entry
+                    .files
+                    .iter()
+                    .find(|c| c.path != self.current_file && !target(c) && source(c))
+                    .map(|c| c.path.clone())
+            })
+            .flatten();
         self.undo_applying = true;
         for change in &entry.files {
             let lines = if backwards { &change.before } else { &change.after };
@@ -418,7 +464,19 @@ impl Voider {
                 self.entry.home();
             }
         }
+        if let Some(lib) = &entry.library {
+            let state = if backwards { &lib.before } else { &lib.after };
+            self.library.entries = state.entries.clone();
+            self.library.index = state.index.min(self.library.entries.len().saturating_sub(1));
+            self.save_library()?;
+        }
+        if let Some(path) = follow {
+            self.set_active_file(path);
+        }
         self.undo_applying = false;
+        if self.view == View::F3 {
+            self.f3_sync_entry();
+        }
         self.status = if backwards { "Undone".into() } else { "Redone".into() };
         Ok(())
     }
@@ -2395,6 +2453,8 @@ impl Voider {
             self.f3_sync_entry();
             return Ok(true);
         }
+        let lib_before = self.lib_state();
+        let content = void::load_doc(&old_path).lines;
         if let Err(e) = std::fs::rename(&old_path, &new_path) {
             self.status = format!("No se pudo renombrar: {e}");
             return Ok(false);
@@ -2406,6 +2466,16 @@ impl Voider {
         let idx = self.library.index;
         self.library.entries[idx] = new_fname.clone();
         self.save_library()?;
+        let lib_after = self.lib_state();
+        self.undo.record_library(
+            vec![
+                undo::FileChange { path: old_path, before: content.clone(), after: Vec::new() },
+                undo::FileChange { path: new_path, before: Vec::new(), after: content },
+            ],
+            lib_before,
+            lib_after,
+            Some("rename".into()),
+        );
         self.status = format!("{fname} → {new_fname}");
         Ok(true)
     }
@@ -2570,8 +2640,11 @@ impl Voider {
     pub fn book_tab(&mut self) -> io::Result<()> {
         self.settle_pending()?;
         if library::is_separator(self.library.current()) {
+            let before = self.lib_state();
             if library::shuffle_group(&mut self.library.entries, self.library.index) {
                 self.save_library()?;
+                let after = self.lib_state();
+                self.undo.record_library(vec![], before, after, Some("shuffle".into()));
                 self.status = "Shuffled".into();
             }
         } else {
@@ -2647,6 +2720,7 @@ impl Voider {
     /// Stays in F3. An empty name or an empty book cancels instead of merging.
     /// Returns how many chapters were merged (0 = cancelled).
     pub fn book_do_merge(&mut self) -> io::Result<usize> {
+        let lib_before = self.lib_state();
         let name = self.entry.text().trim().to_string();
         let dot_idx = self.merge_dot_idx.unwrap_or(self.library.index.saturating_sub(1));
         let ph = dot_idx + 1;
@@ -2717,7 +2791,8 @@ impl Voider {
         self.merge_dot_idx = None;
         self.library.index = ph;
         self.save_library()?;
-        self.undo.record_transaction(changes, Some("merge".into()));
+        let lib_after = self.lib_state();
+        self.undo.record_library(changes, lib_before, lib_after, Some("merge".into()));
         self.entry.clear();
         let n_chapters = chapters.len();
         self.status = format!("Merged {n_chapters} chapter(s) → {cname}");
@@ -3377,6 +3452,7 @@ impl Voider {
         };
         void::git_commit(&self.void_dir, "I/", &format!("split {}", void::timestamp()));
         self.library = Library::load(&self.void_dir);
+        let lib_before = self.lib_state();
 
         let source_name = self
             .current_file
@@ -3470,7 +3546,8 @@ impl Voider {
             self.ring = LineRing::new(void::load_doc(&self.current_file).lines);
         }
         self.sync_entry();
-        self.undo.record_transaction(changes, Some("split".into()));
+        let lib_after = self.lib_state();
+        self.undo.record_library(changes, lib_before, lib_after, Some("split".into()));
         let n = plan.sealed.len();
         self.status = format!("Split into {n} chapter(s)");
         Ok(n)
@@ -3923,16 +4000,20 @@ impl Voider {
         }
 
         let after: Vec<String> = content.lines().map(|l| l.trim_end().to_string()).collect();
+        let lib_before = self.lib_state();
         void::atomic_write(&new_path, &after, false)?;
         let insert_at = if direction < 0 { idx } else { idx + 1 };
         self.library.entries.insert(insert_at, new_name.clone());
         self.library.index = insert_at;
         self.save_library()?;
-        self.undo.record_transaction(
+        let lib_after = self.lib_state();
+        self.undo.record_library(
             vec![undo::FileChange { path: new_path, before: Vec::new(), after }],
+            lib_before,
+            lib_after,
             Some("duplicate".into()),
         );
-        self.entry.clear();
+        self.f3_sync_entry();
         self.status = format!(
             "⧉ {} → {}",
             library::display_name(&fname),
@@ -4754,6 +4835,98 @@ mod tests {
         v.f3_enter_at_end().unwrap();
         assert_eq!(v.library.entries, vec!["Dos bis.txt", "", "Uno.txt"]);
         assert!(v.pending_new);
+    }
+
+    // ── F3 undo: one Ctrl+Z puts the library back too (test_f3_undo.py) ─────
+
+    #[test]
+    fn undoing_a_rename_brings_back_the_old_name_and_its_row() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.index = v.library.position("Dos.txt").unwrap();
+        v.f3_sync_entry();
+        v.entry.set_text("Dos bis");
+        v.book_try_rename().unwrap();
+        v.undo().unwrap();
+        let i = v.void_dir.join("I");
+        assert!(i.join("Dos.txt").exists());
+        assert!(!i.join("Dos bis.txt").exists());
+        assert_eq!(v.library.entries, vec!["Dos.txt", "Uno.txt"]);
+        assert_eq!(Library::load(&v.void_dir).entries, vec!["Dos.txt", "Uno.txt"]);
+        v.redo().unwrap();
+        assert!(i.join("Dos bis.txt").exists());
+        assert_eq!(v.library.entries, vec!["Dos bis.txt", "Uno.txt"]);
+    }
+
+    #[test]
+    fn undoing_a_rename_of_the_active_file_follows_it_back() {
+        let (_d, mut v) = book(); // active is Uno
+        v.switch_to(View::F3);
+        v.entry.set_text("Uno bis");
+        v.book_try_rename().unwrap();
+        v.undo().unwrap();
+        assert!(v.current_file.ends_with("Uno.txt"), "{:?}", v.current_file);
+    }
+
+    #[test]
+    fn undoing_a_book_shuffle_restores_the_order() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        let order: Vec<String> = vec![".".into(), "A.txt".into(), "B.txt".into(), "C.txt".into(), "D.txt".into(), "E.txt".into()];
+        v.library.entries = order.clone();
+        v.library.index = 0;
+        // Shuffle until the order actually changes (a shuffle can land on itself).
+        for _ in 0..50 {
+            v.book_tab().unwrap();
+            if v.library.entries != order {
+                break;
+            }
+        }
+        assert_ne!(v.library.entries, order);
+        v.undo().unwrap();
+        assert_eq!(v.library.entries, order);
+    }
+
+    #[test]
+    fn undoing_a_duplicate_takes_the_copy_off_the_list_and_the_disk() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.index = v.library.position("Dos.txt").unwrap();
+        v.book_duplicate(1).unwrap();
+        assert!(v.library.entries.contains(&"Dos-2.txt".to_string()));
+        v.undo().unwrap();
+        assert!(!v.library.entries.contains(&"Dos-2.txt".to_string()));
+        assert!(!v.void_dir.join("I/Dos-2.txt").exists());
+    }
+
+    #[test]
+    fn undoing_a_merge_puts_the_chapters_back_in_the_list() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.entries = vec![".".into(), "Dos.txt".into(), "Uno.txt".into()];
+        v.library.save(&v.void_dir).unwrap();
+        v.library.index = 0;
+        v.book_merge_prompt();
+        v.entry.set_text("Junto");
+        v.book_do_merge().unwrap();
+        v.undo().unwrap();
+        assert_eq!(v.library.entries, vec![".", "Dos.txt", "Uno.txt"]);
+        assert!(v.void_dir.join("I/Dos.txt").exists());
+        assert!(!v.void_dir.join("I/Junto.txt").exists());
+    }
+
+    #[test]
+    fn undoing_a_split_puts_the_container_back_in_the_list() {
+        let (_d, mut v) = book(); // active is Uno.txt
+        v.library = Library::load(&v.void_dir);
+        let before = v.library.entries.clone();
+        v.ring.lines = vec![".".into(), "/Sellado".into(), "todo".into()];
+        v.save().unwrap();
+        v.split_at_markers().unwrap();
+        v.undo().unwrap();
+        assert_eq!(v.library.entries, before);
+        assert!(v.void_dir.join("I/Uno.txt").exists());
+        assert!(!v.void_dir.join("I/Sellado.txt").exists());
     }
 
     // A new entry named "." or "0" is structure, not a chapter (test_portal.py).

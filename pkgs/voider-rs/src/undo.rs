@@ -27,6 +27,23 @@ pub struct Entry {
     pub files: Vec<FileChange>,
     /// What lets consecutive writes merge: same key + same single file.
     pub key: Option<String>,
+    /// For an F3 operation (reorder, rename, delete, merge, split…): the
+    /// library's order and cursor before and after — the Python's
+    /// `record_library`. Undo puts I.txt back as well as the files.
+    pub library: Option<LibraryChange>,
+}
+
+/// The library as an undo step sees it: its rows and where the cursor was.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibraryState {
+    pub entries: Vec<String>,
+    pub index: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibraryChange {
+    pub before: LibraryState,
+    pub after: LibraryState,
 }
 
 #[derive(Debug)]
@@ -89,6 +106,7 @@ impl UndoManager {
         self.push(Entry {
             files: vec![FileChange { path, before, after }],
             key,
+            library: None,
         });
     }
 
@@ -98,7 +116,23 @@ impl UndoManager {
         if files.is_empty() {
             return;
         }
-        self.push(Entry { files, key });
+        self.push(Entry { files, key, library: None });
+    }
+
+    /// Record an F3 operation as ONE step: the files it touched and the library
+    /// before and after it.
+    pub fn record_library(
+        &mut self,
+        changes: Vec<FileChange>,
+        before: LibraryState,
+        after: LibraryState,
+        key: Option<String>,
+    ) {
+        let files: Vec<FileChange> = changes.into_iter().filter(|c| c.before != c.after).collect();
+        if files.is_empty() && before == after {
+            return;
+        }
+        self.push(Entry { files, key, library: Some(LibraryChange { before, after }) });
     }
 
     fn push(&mut self, entry: Entry) {
@@ -158,6 +192,46 @@ mod tests {
         let e = m.redo().unwrap();
         assert_eq!(e.files[0].after, v(&["dos"]));
         assert!(m.can_undo());
+    }
+
+    // ── F3: the library's order is part of the step (record_library) ─────────
+
+    fn lib(entries: &[&str], index: usize) -> LibraryState {
+        LibraryState { entries: v(entries), index }
+    }
+
+    #[test]
+    fn a_library_change_restores_the_order_and_the_cursor() {
+        let mut m = mgr();
+        m.record_library(vec![], lib(&["A.txt", "B.txt"], 0), lib(&["B.txt", "A.txt"], 1), None);
+        let e = m.undo().unwrap();
+        let l = e.library.unwrap();
+        assert_eq!(l.before, lib(&["A.txt", "B.txt"], 0));
+        assert_eq!(l.after, lib(&["B.txt", "A.txt"], 1));
+    }
+
+    #[test]
+    fn a_library_change_carries_the_files_it_touched() {
+        let mut m = mgr();
+        let gone = FileChange { path: "I/x.txt".into(), before: v(&[".", "x"]), after: vec![] };
+        m.record_library(vec![gone.clone()], lib(&["x.txt"], 0), lib(&["."], 0), Some("delete".into()));
+        let e = m.undo().unwrap();
+        assert_eq!(e.files, vec![gone]);
+        assert!(e.library.is_some());
+    }
+
+    #[test]
+    fn a_library_change_that_changes_nothing_is_not_recorded() {
+        let mut m = mgr();
+        m.record_library(vec![], lib(&["A.txt"], 0), lib(&["A.txt"], 0), None);
+        assert!(!m.can_undo());
+    }
+
+    #[test]
+    fn plain_file_changes_carry_no_library() {
+        let mut m = mgr();
+        m.record("a.txt", v(&["uno"]), v(&["dos"]), None);
+        assert!(m.undo().unwrap().library.is_none());
     }
 
     #[test]

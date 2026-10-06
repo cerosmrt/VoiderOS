@@ -444,12 +444,11 @@ impl VoiderApp {
             // drive is not touched until that is accepted with Enter.
             // Ctrl+Shift+B is the carousel with a cover (F4), so only the plain one is the backup.
             Key::B if m.ctrl && !m.shift => self.voider.begin_backup(),
-            // Undo / redo of text content, from any view.
-            Key::Z if m.ctrl && m.shift => {
-                let _ = self.voider.redo();
-            }
-            Key::Z if m.ctrl => {
-                let _ = self.voider.undo();
+            // Undo / redo, only in the views that edit text (F1, F2, F5) and in F3
+            // (library operations) unless a name is being typed there — as the
+            // Python's eventFilter. Elsewhere Ctrl+Z is the view's own (F9's box).
+            Key::Z if m.ctrl && self.undo_here() => {
+                let _ = if m.shift { self.voider.redo() } else { self.voider.undo() };
             }
             // Backtick: round trip to the scratch, from wherever you are.
             Key::Backtick => self.voider.scratch_toggle(),
@@ -760,6 +759,15 @@ impl VoiderApp {
         let after = (self.voider.library.index, self.voider.library.current().to_string());
         if after != before {
             self.voider.f3_sync_entry();
+        }
+    }
+
+    /// Whether Ctrl+Z means undo in the view you are in.
+    fn undo_here(&self) -> bool {
+        match self.voider.view {
+            View::F1 | View::F2 | View::F5 => true,
+            View::F3 => !self.voider.f3_mid_edit(),
+            _ => false,
         }
     }
 
@@ -2388,6 +2396,45 @@ mod tests {
         assert_eq!(app.voider.view, app::View::F3);
         assert!(app.voider.pending_new);
         assert_eq!(app.voider.library.entries, vec!["Uno.txt", "", "Dos.txt"]);
+    }
+
+    // ── Ctrl+Z: only where Python has it (new_interface.eventFilter) ────────
+
+    fn undoable_change(app: &mut VoiderApp) {
+        app.voider.ring.lines = vec![".".into(), "a".into(), "cambio".into()];
+        app.voider.save().unwrap();
+    }
+
+    #[test]
+    fn ctrl_z_does_nothing_in_f4_or_f9() {
+        for view in [app::View::F4, app::View::F9, app::View::F7] {
+            let (_d, mut app) = f5_app(&[".", "a"]);
+            undoable_change(&mut app);
+            let depth = app.voider.undo_depth();
+            app.voider.switch_to(view);
+            app.route_key(egui::Key::Z, ctrl_only());
+            assert_eq!(app.voider.undo_depth(), depth, "Ctrl+Z undid something in {view:?}");
+        }
+    }
+
+    #[test]
+    fn ctrl_z_undoes_in_f2() {
+        let (_d, mut app) = f5_app(&[".", "a"]);
+        undoable_change(&mut app);
+        app.voider.switch_to(app::View::F2);
+        let depth = app.voider.undo_depth();
+        app.route_key(egui::Key::Z, ctrl_only());
+        assert_eq!(app.voider.undo_depth(), depth - 1);
+    }
+
+    #[test]
+    fn ctrl_z_in_f3_while_a_name_is_being_typed_leaves_the_library_alone() {
+        let (_d, mut app) = f3_app();
+        undoable_change(&mut app);
+        app.voider.entry.set_text("Uno edit");
+        let depth = app.voider.undo_depth();
+        app.route_key(egui::Key::Z, ctrl_only());
+        assert_eq!(app.voider.undo_depth(), depth);
     }
 
     // ── the carousel preview in F4, without a window ─────────────────────────
