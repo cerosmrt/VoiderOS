@@ -1162,6 +1162,11 @@ impl VoiderApp {
         let pad = (col.width() * 0.14).max(48.0);
         let text_w = col.width() - 2.0 * pad;
         let font = egui::FontId::proportional(self.font_size());
+        // F5 packs its rows 1.5 × the font's height apart (`reorder_view.py`).
+        let row_h = ctx.fonts(|f| f.row_height(&font));
+        let lh = (row_h * 1.5).floor();
+        // Qt centres the text in its 1.5-high row; egui sets it at the top of it.
+        let lead = (lh - row_h) / 2.0;
 
         let cur = units
             .iter()
@@ -1178,7 +1183,7 @@ impl VoiderApp {
                 f5::Unit::Mark { name } => format!("/{name}"),
                 f5::Unit::Sep => ".".to_string(),
             };
-            centered_galley(ctx, text, font.clone(), text_w)
+            centered_galley(ctx, text, font.clone(), text_w, Some(lh))
         };
         let alpha_at = |unit_centre_y: f32| -> u8 {
             let dist = (unit_centre_y - col.center().y).abs();
@@ -1188,7 +1193,7 @@ impl VoiderApp {
 
         let here = lay(&units[cur]);
         let cur_top = col.center().y - here.size().y / 2.0;
-        painter.galley_with_override_text_color(egui::pos2(x, cur_top), here.clone(), egui::Color32::WHITE);
+        painter.galley_with_override_text_color(egui::pos2(x, cur_top + lead), here.clone(), egui::Color32::WHITE);
         // The '>' cue: Right opens the catalogue to send this paragraph.
         painter.text(
             egui::pos2(col.max.x - pad / 2.0, cur_top + here.size().y / 2.0),
@@ -1207,7 +1212,7 @@ impl VoiderApp {
             let h = g.size().y;
             let a = alpha_at(y + h / 2.0);
             if a > 0 {
-                painter.galley_with_override_text_color(egui::pos2(x, y), g, white_alpha(a));
+                painter.galley_with_override_text_color(egui::pos2(x, y + lead), g, white_alpha(a));
             }
             y += h;
         }
@@ -1221,7 +1226,7 @@ impl VoiderApp {
             }
             let a = alpha_at(top + h / 2.0);
             if a > 0 {
-                painter.galley_with_override_text_color(egui::pos2(x, top), g, white_alpha(a));
+                painter.galley_with_override_text_color(egui::pos2(x, top + lead), g, white_alpha(a));
             }
         }
 
@@ -2060,9 +2065,14 @@ fn centered_galley(
     text: String,
     font: egui::FontId,
     wrap_w: f32,
+    line_h: Option<f32>,
 ) -> std::sync::Arc<egui::Galley> {
     let mut job = egui::text::LayoutJob::simple(text, font, egui::Color32::WHITE, wrap_w);
     job.halign = egui::Align::Center;
+    // Every row (and so every one-row unit, a dot included) gets the same height.
+    for section in &mut job.sections {
+        section.format.line_height = line_h;
+    }
     ctx.fonts(|f| f.layout_job(job))
 }
 
@@ -2080,6 +2090,7 @@ mod tests {
                 text.to_string(),
                 egui::FontId::proportional(20.0),
                 wrap_w,
+                None,
             ));
         });
         out.unwrap()
@@ -2324,7 +2335,8 @@ mod tests {
         assert!((first.y - 350.0).abs() < 25.0, "not vertically centred: {first:?}");
         assert!(second.y > first.y, "the next paragraph should be below");
         let gap = second.y - first.y;
-        assert!(gap < 100.0, "units are not packed tight: {gap}");
+        // a one-row paragraph, then a one-row dot, each 1.5 x the font's height tall
+        assert!(gap < 130.0, "units are not packed tight: {gap}");
     }
 
     #[test]
