@@ -21,6 +21,7 @@ png = "0.18"
 # cross-compilar a Windows. Con --no-default-features sale el .exe sin exportar
 # PDF; en Linux va incluido, que es donde se usa para imprimir el libro.
 printpdf = { version = "0.12.6", optional = true }
+jpeg-decoder = { version = "0.3.2", default-features = false }
 
 [dev-dependencies]
 tempfile = "3"

@@ -66,8 +66,8 @@ pub fn list(dir: &Path, looking: Looking) -> Vec<Entry> {
                 dirs.push(Entry { name, path, is_dir });
             } else if looking == Looking::File && name.to_lowercase().ends_with(".txt") {
                 files.push(Entry { name, path, is_dir });
-            } else if looking == Looking::Image && name.to_lowercase().ends_with(".png") {
-                // Sólo PNG: es lo que se sabe leer, y lo que saca `grim`.
+            } else if looking == Looking::Image && is_image_name(&name) {
+                // PNG (lo que saca `grim`) y JPEG: los dos que se saben leer.
                 files.push(Entry { name, path, is_dir });
             }
         }
@@ -86,6 +86,12 @@ pub fn list(dir: &Path, looking: Looking) -> Vec<Entry> {
     out.extend(dirs);
     out.extend(files);
     out
+}
+
+/// Si un nombre parece una imagen que se sabe leer: `.png`, `.jpg` o `.jpeg`.
+pub fn is_image_name(name: &str) -> bool {
+    let n = name.to_lowercase();
+    n.ends_with(".png") || n.ends_with(".jpg") || n.ends_with(".jpeg")
 }
 
 /// El navegador abierto: dónde está parado y qué está mirando.
@@ -298,11 +304,13 @@ mod tests {
     }
 
     #[test]
-    fn buscando_una_imagen_se_listan_los_png_y_las_carpetas() {
+    fn buscando_una_imagen_se_listan_png_y_jpeg_y_las_carpetas() {
         let d = con_imagenes();
+        std::fs::write(d.path().join("otra.JPEG"), "x").unwrap();
+        std::fs::write(d.path().join("anim.gif"), "x").unwrap();
         let got = names(&list(d.path(), Looking::Image));
-        // El decodificador de portadas lee PNG; un .jpg listado no se podría usar.
-        assert_eq!(got, vec!["..", "alfa", "Beta", "Otra.PNG", "portada.png"]);
+        // Los dos formatos comunes. Un .gif o un .md no se sabrían leer: no se listan.
+        assert_eq!(got, vec!["..", "alfa", "Beta", "foto.jpg", "otra.JPEG", "Otra.PNG", "portada.png"]);
     }
 
     #[test]

@@ -94,7 +94,7 @@ pub const ROWS: &[Row] = &[
     ("Ctrl+P  (F4)", Some("Print it (needs CUPS enabled)")),
     ("Ctrl+Shift+A  (F4)", Some("Bundle for sale: PDF + EPUB + TXT, asks the language")),
     ("Ctrl+Shift+C  (F4)", Some("The book as Instagram slides: a title slide per chapter, then its pages")),
-    ("Ctrl+Shift+B  (F4)", Some("The same with a cover (pick a .png) and a countercover")),
+    ("Ctrl+Shift+B  (F4)", Some("The same with a cover (pick a .png or .jpg) and a countercover")),
     ("V  (F4)", Some("Preview the carousel: the slides exactly as they would be written; V again for the book")),
     ("", None),
     ("THE CORPUS  (F6 / F7 / F8)", None),
