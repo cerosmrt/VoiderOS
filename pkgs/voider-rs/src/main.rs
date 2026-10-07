@@ -134,7 +134,10 @@ struct CarouselTex {
 
 impl VoiderApp {
     fn new() -> Self {
-        Self::with(app::open_sandbox())
+        let mut voider = app::open_sandbox();
+        // The real window renders exports on their own thread (a long one froze it).
+        voider.background = true;
+        Self::with(voider)
     }
 
     fn with(voider: Voider) -> Self {
@@ -2258,6 +2261,10 @@ impl eframe::App for VoiderApp {
         // Take in what the other instances did before reading this frame's
         // keys, so a keystroke always lands on the newest text.
         self.voider.poll_ipc();
+        self.voider.poll_job();
+        if self.voider.job_running() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
         // Cuando la linea termino de sonar, la voz sigue sola con la siguiente.
         self.voider.tts_poll();
         self.handle_input(ctx);

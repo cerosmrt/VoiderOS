@@ -61,6 +61,42 @@ pub fn caps_lock_on() -> bool {
     false
 }
 
+/// What a background export tells the window.
+pub enum JobMsg {
+    Progress(String),
+    Done(String),
+}
+
+/// Every slide of a carousel into `out_dir`, numbered from `start_n` — the plan the
+/// preview shows (`slides::plan`), so what is written is what was previewed.
+/// Returns the next free number and how many body slides there were.
+fn write_slides(
+    sections: &[(String, Vec<String>)],
+    font: &typeset::TypeFont,
+    size: (u32, u32),
+    out_dir: &Path,
+    start_n: usize,
+    progress: &mut dyn FnMut(String),
+) -> io::Result<(usize, usize)> {
+    let (w, h) = size;
+    let plan = slides::plan(sections, font, w, h);
+    let total = plan.len();
+    let (mut n, mut body_slides) = (start_n, 0);
+    for (i, slide) in plan.into_iter().enumerate() {
+        let kind = match slide {
+            slides::Slide::Title(_) => carousel::SlideKind::Title,
+            slides::Slide::Body(_) => {
+                body_slides += 1;
+                carousel::SlideKind::Body
+            }
+        };
+        slides::render_slide(&slide, font, w, h).save_png(&out_dir.join(carousel::file_name(n, &kind)))?;
+        n += 1;
+        progress(format!("Carrusel: slide {}/{total}…", i + 1));
+    }
+    Ok((n, body_slides))
+}
+
 /// The side the chapter catalogue opens on: the arrow that opened it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PickerSide {
@@ -241,6 +277,9 @@ pub struct Voider {
     /// Whether `ws` has been read from O/.working_set.json this session. Its
     /// default holds one empty slot, so "is it empty?" can't tell.
     pub ws_loaded: bool,
+    /// Whether exports run on their own thread (the window: yes; tests: no).
+    pub background: bool,
+    job: Option<std::sync::mpsc::Receiver<JobMsg>>,
     /// F7: la posición del cursor en el anillo del working set.
     pub ws_index: usize,
     /// Los nombres de O/, desde el cache — nunca se recorre en vivo.
@@ -350,6 +389,8 @@ impl Voider {
             o_file: String::new(),
             ws: corpus::WorkingSet::default(),
             ws_loaded: false,
+            background: false,
+            job: None,
             ws_index: 1,
             o_books: Vec::new(),
             oracle: String::new(),
@@ -921,33 +962,6 @@ impl Voider {
         self.reading.iter().map(|s| (s.name.clone(), s.lines.clone())).collect()
     }
 
-    /// Write every slide of the carousel into `out_dir`, numbered continuously
-    /// from `start_n`. The slides are the plan the preview shows (`slides::plan`),
-    /// so what is written is exactly what was previewed. Returns the next free
-    /// number and how many body slides there were.
-    fn write_carousel_chapters(
-        &self,
-        out_dir: &Path,
-        font: &typeset::TypeFont,
-        start_n: usize,
-    ) -> io::Result<(usize, usize)> {
-        let (w, h) = self.carousel_size();
-        let (mut n, mut body_slides) = (start_n, 0);
-        for slide in slides::plan(&self.carousel_sections(), font, w, h) {
-            let kind = match slide {
-                slides::Slide::Title(_) => carousel::SlideKind::Title,
-                slides::Slide::Body(_) => {
-                    body_slides += 1;
-                    carousel::SlideKind::Body
-                }
-            };
-            slides::render_slide(&slide, font, w, h)
-                .save_png(&out_dir.join(carousel::file_name(n, &kind)))?;
-            n += 1;
-        }
-        Ok((n, body_slides))
-    }
-
     /// Where a carousel goes, or `None` when there is nothing to export or no
     /// usable name. A typed name stays one folder inside `void/carousel/`.
     fn carousel_dir(&mut self, out_name: &str) -> Option<PathBuf> {
@@ -963,52 +977,95 @@ impl Voider {
         Some(self.void_dir.join("carousel").join(name))
     }
 
-    /// Ctrl+Shift+C en F4: lo que se está leyendo, como slides de Instagram. El
-    /// alcance es el de F4 (el capítulo o el libro entero); cada capítulo tiene un
-    /// slide de título propio y después su cuerpo, paginado a la proporción
-    /// configurada. Va a `void/carousel/<nombre>/`.
+    /// Run `work` — directly, or on its own thread when `background` is on (the
+    /// window), reporting progress through the status line. Rendering dozens of
+    /// PNGs on the window's thread froze it: Hyprland offered to kill it.
+    fn run_job(
+        &mut self,
+        work: impl FnOnce(&mut dyn FnMut(String)) -> io::Result<String> + Send + 'static,
+    ) -> io::Result<()> {
+        if !self.background {
+            self.status = work(&mut |_| {})?;
+            return Ok(());
+        }
+        if self.job.is_some() {
+            self.status = "Ya hay una exportación en curso".into();
+            return Ok(());
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.job = Some(rx);
+        self.status = "Exportando…".into();
+        std::thread::spawn(move || {
+            let progress_tx = tx.clone();
+            let result = work(&mut |m| {
+                let _ = progress_tx.send(JobMsg::Progress(m));
+            });
+            let _ = tx.send(JobMsg::Done(match result {
+                Ok(m) => m,
+                Err(e) => format!("Error al exportar: {e}"),
+            }));
+        });
+        Ok(())
+    }
+
+    /// Take in what the background job has said so far. Called every frame.
+    pub fn poll_job(&mut self) {
+        let Some(rx) = &self.job else { return };
+        let mut finished = false;
+        while let Ok(msg) = rx.try_recv() {
+            match msg {
+                JobMsg::Progress(m) => self.status = m,
+                JobMsg::Done(m) => {
+                    self.status = m;
+                    finished = true;
+                }
+            }
+        }
+        if finished {
+            self.job = None;
+        }
+    }
+
+    /// Whether an export is still running (the window keeps repainting).
+    pub fn job_running(&self) -> bool {
+        self.job.is_some()
+    }
+
     pub fn export_carousel(&mut self, out_name: &str) -> io::Result<Option<PathBuf>> {
         let Some(dir) = self.carousel_dir(out_name) else {
             return Ok(None);
         };
         std::fs::create_dir_all(&dir)?;
-        let font = self.type_font();
-        let (_, body) = self.write_carousel_chapters(&dir, &font, 1)?;
-        self.status = format!(
-            "Carrusel: {} capítulo(s), {body} slides + títulos → {}",
-            self.reading.len(),
-            dir.display()
-        );
+        let (font, size, sections) = (self.type_font(), self.carousel_size(), self.carousel_sections());
+        let (chapters, out) = (self.reading.len(), dir.clone());
+        self.run_job(move |progress| {
+            let (_, body) = write_slides(&sections, &font, size, &out, 1, progress)?;
+            Ok(format!("Carrusel: {chapters} capítulo(s), {body} slides + títulos → {}", out.display()))
+        })?;
         Ok(Some(dir))
     }
 
-    /// Ctrl+Shift+B en F4: lo mismo, envuelto en una portada (la imagen elegida,
-    /// con la marca «I» encima) y una contratapa con el título. Un comando aparte
-    /// para que un Ctrl+Shift+C nunca necesite una portada. Una imagen que no se
-    /// pueda leer deja la portada sobre papel liso, como el Python.
     pub fn export_carousel_with_cover(&mut self, out_name: &str, cover: &Path) -> io::Result<Option<PathBuf>> {
         let Some(dir) = self.carousel_dir(out_name) else {
             return Ok(None);
         };
         std::fs::create_dir_all(&dir)?;
         let (w, h) = self.carousel_size();
-        let font = self.type_font();
+        let (font, sections) = (self.type_font(), self.carousel_sections());
         let font_px = carousel::geometry_for(&font, w, h).font_px;
         let back_title = match self.reading.as_slice() {
             [only] => only.name.clone(),
             _ => out_name.trim().to_string(),
         };
-
-        slides::render_cover_slide(cover, w, h, &font, font_px, "I", slides::PAPER, slides::INK)
-            .save_png(&dir.join(carousel::file_name(1, &carousel::SlideKind::Cover)))?;
-        let (n, body) = self.write_carousel_chapters(&dir, &font, 2)?;
-        slides::render_title_slide(&back_title, &font, w, h, font_px, slides::PAPER, slides::INK)
-            .save_png(&dir.join(carousel::file_name(n, &carousel::SlideKind::Back)))?;
-        self.status = format!(
-            "Carrusel con tapa: {} capítulo(s), {body} slides + portada + contratapa → {}",
-            self.reading.len(),
-            dir.display()
-        );
+        let (chapters, out, cover) = (self.reading.len(), dir.clone(), cover.to_path_buf());
+        self.run_job(move |progress| {
+            slides::render_cover_slide(&cover, w, h, &font, font_px, "I", slides::PAPER, slides::INK)
+                .save_png(&out.join(carousel::file_name(1, &carousel::SlideKind::Cover)))?;
+            let (n, body) = write_slides(&sections, &font, (w, h), &out, 2, progress)?;
+            slides::render_title_slide(&back_title, &font, w, h, font_px, slides::PAPER, slides::INK)
+                .save_png(&out.join(carousel::file_name(n, &carousel::SlideKind::Back)))?;
+            Ok(format!("Carrusel con tapa: {chapters} capítulo(s), {body} slides + portada + contratapa → {}", out.display()))
+        })?;
         Ok(Some(dir))
     }
 
@@ -8500,6 +8557,25 @@ mod tests {
         v.config.font_family = "__no_such_family__".into();
         v.config.reading_font = "EB Garamond".into();
         assert!(v.type_font().is_named("EB Garamond"));
+    }
+
+    #[test]
+    fn the_carousel_exports_on_its_own_thread_without_blocking_the_window() {
+        let (_d, mut v) = book();
+        v.switch_to(View::F4);
+        v.background = true;
+        let dir = v.export_carousel("Dos").unwrap().unwrap();
+        assert!(v.job_running() || dir.join("1_titulo.png").exists(), "neither running nor done");
+        for _ in 0..400 {
+            v.poll_job();
+            if !v.job_running() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        assert!(!v.job_running(), "never finished");
+        assert!(dir.join("1_titulo.png").is_file());
+        assert!(v.status.starts_with("Carrusel:"), "{}", v.status);
     }
 
     // ── Ctrl+Shift+A: the sale bundle — PDF + EPUB + TXT (test_sale_bundle.py) ──
