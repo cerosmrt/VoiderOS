@@ -107,6 +107,51 @@ impl TextLine {
         self.anchor = Some(anchor);
     }
 
+    /// Where Ctrl+→ / Ctrl+← would put the caret, as QLineEdit does on Linux:
+    /// forward to the START of the next word, back to the start of the previous.
+    pub fn word_target(&self, forward: bool) -> usize {
+        let n = self.chars.len();
+        let mut i = self.caret;
+        if forward {
+            if i < n {
+                let class = char_class(self.chars[i]);
+                if class != CharClass::Space {
+                    while i < n && char_class(self.chars[i]) == class {
+                        i += 1;
+                    }
+                }
+            }
+            while i < n && char_class(self.chars[i]) == CharClass::Space {
+                i += 1;
+            }
+        } else {
+            while i > 0 && char_class(self.chars[i - 1]) == CharClass::Space {
+                i -= 1;
+            }
+            if i > 0 {
+                let class = char_class(self.chars[i - 1]);
+                while i > 0 && char_class(self.chars[i - 1]) == class {
+                    i -= 1;
+                }
+            }
+        }
+        i
+    }
+
+    /// Ctrl+←/→: the caret a word at a time; with a selection it collapses to
+    /// where it would have gone.
+    pub fn move_word(&mut self, forward: bool) {
+        self.anchor = None;
+        self.caret = self.word_target(forward);
+    }
+
+    /// Ctrl+Shift+←/→: the same, growing the selection.
+    pub fn extend_word(&mut self, forward: bool) {
+        let anchor = self.anchor.unwrap_or(self.caret);
+        self.caret = self.word_target(forward);
+        self.anchor = Some(anchor);
+    }
+
     /// Shift+Home / Shift+End.
     pub fn extend_home(&mut self) {
         let anchor = self.anchor.unwrap_or(self.caret);
@@ -429,6 +474,42 @@ mod tests {
 
     // ── Ctrl+Delete / Ctrl+Backspace: one word, as QLineEdit does ───────────
     // Mirrors test_ctrl_delete_word.py and test_ctrl_backspace_word.py.
+
+    #[test]
+    fn ctrl_right_goes_to_the_start_of_the_next_word_and_ctrl_left_to_the_start_of_the_previous() {
+        let mut l = TextLine::new("hola mundo, bonito");
+        l.set_caret(0);
+        l.move_word(true);
+        assert_eq!(l.caret(), 5, "start of 'mundo'");
+        l.move_word(true);
+        assert_eq!(l.caret(), 10, "the comma is its own stop");
+        l.move_word(true);
+        assert_eq!(l.caret(), 12);
+        l.move_word(true);
+        assert_eq!(l.caret(), 18, "the end, and it stays there");
+        l.move_word(true);
+        assert_eq!(l.caret(), 18);
+        l.move_word(false);
+        assert_eq!(l.caret(), 12);
+        l.set_caret(7); // inside 'mundo'
+        l.move_word(false);
+        assert_eq!(l.caret(), 5, "back to the start of the word it is in");
+        l.set_caret(0);
+        l.move_word(false);
+        assert_eq!(l.caret(), 0);
+    }
+
+    #[test]
+    fn ctrl_shift_arrows_select_by_word() {
+        let mut l = TextLine::new("hola mundo");
+        l.set_caret(0);
+        l.extend_word(true);
+        assert_eq!(l.selection(), Some((0, 5)));
+        l.extend_word(true);
+        assert_eq!(l.selection(), Some((0, 10)));
+        l.extend_word(false);
+        assert_eq!(l.selection(), Some((0, 5)));
+    }
 
     #[test]
     fn delete_word_forward_takes_the_next_word_and_its_trailing_space() {

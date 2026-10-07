@@ -525,6 +525,14 @@ impl VoiderApp {
             Key::Delete => {
                 self.voider.entry.delete();
             }
+            // Ctrl+←/→: a word at a time (with Shift, selecting), as the Python's
+            // line editor does.
+            Key::ArrowLeft | Key::ArrowRight if m.ctrl && m.shift && !m.alt => {
+                self.voider.entry.extend_word(key == Key::ArrowRight)
+            }
+            Key::ArrowLeft | Key::ArrowRight if m.ctrl && !m.alt => {
+                self.voider.entry.move_word(key == Key::ArrowRight)
+            }
             Key::ArrowLeft if m.shift => self.voider.entry.extend_caret(-1),
             Key::ArrowRight if m.shift => self.voider.entry.extend_caret(1),
             Key::Home if m.shift => self.voider.entry.extend_home(),
@@ -670,6 +678,14 @@ impl VoiderApp {
             Key::ArrowDown => {
                 let _ = self.voider.doc_navigate(1);
             }
+            // Ctrl+←/→: a word at a time (with Shift, selecting), as the Python's
+            // line editor does.
+            Key::ArrowLeft | Key::ArrowRight if m.ctrl && m.shift && !m.alt => {
+                self.voider.entry.extend_word(key == Key::ArrowRight)
+            }
+            Key::ArrowLeft | Key::ArrowRight if m.ctrl && !m.alt => {
+                self.voider.entry.move_word(key == Key::ArrowRight)
+            }
             Key::ArrowLeft if m.shift => self.voider.entry.extend_caret(-1),
             Key::ArrowRight if m.shift => self.voider.entry.extend_caret(1),
             Key::Home if m.shift => self.voider.entry.extend_home(),
@@ -779,6 +795,14 @@ impl VoiderApp {
             }
             Key::Delete if self.f3_editable() && !m.ctrl => {
                 self.voider.entry.delete();
+            }
+            // Ctrl+←/→: a word at a time (with Shift, selecting), as the Python's
+            // line editor does.
+            Key::ArrowLeft | Key::ArrowRight if m.ctrl && m.shift && !m.alt => {
+                self.voider.entry.extend_word(key == Key::ArrowRight)
+            }
+            Key::ArrowLeft | Key::ArrowRight if m.ctrl && !m.alt => {
+                self.voider.entry.move_word(key == Key::ArrowRight)
             }
             Key::ArrowLeft if m.shift => self.voider.entry.extend_caret(-1),
             Key::ArrowRight if m.shift => self.voider.entry.extend_caret(1),
@@ -1071,6 +1095,8 @@ impl VoiderApp {
                 }
                 let _ = v.o_live_save();
             }
+            Key::ArrowLeft | Key::ArrowRight if m.ctrl && m.shift && !m.alt => v.entry.extend_word(key == Key::ArrowRight),
+            Key::ArrowLeft | Key::ArrowRight if m.ctrl && !m.alt => v.entry.move_word(key == Key::ArrowRight),
             Key::ArrowLeft if m.shift => v.entry.extend_caret(-1),
             Key::ArrowRight if m.shift => v.entry.extend_caret(1),
             Key::Home if m.shift => v.entry.extend_home(),
@@ -2836,6 +2862,27 @@ mod tests {
             app.route_key(egui::Key::ArrowUp, none());
             assert_eq!(app.voider.library.index, want);
         }
+    }
+
+    #[test]
+    fn ctrl_arrows_walk_by_word_in_f1_f2_and_f3() {
+        let (_d, mut app) = f5_app(&[".", "uno dos tres"]);
+        app.voider.ring.index = 1;
+        for view in [app::View::F1, app::View::F2] {
+            app.voider.switch_to(view);
+            app.voider.entry.home();
+            app.route_key(egui::Key::ArrowRight, ctrl_only());
+            assert_eq!(app.voider.entry.caret(), 4, "{view:?}");
+            app.route_key(egui::Key::ArrowRight, ctrl_only());
+            assert_eq!(app.voider.entry.caret(), 8, "{view:?}");
+            app.route_key(egui::Key::ArrowLeft, ctrl_only());
+            assert_eq!(app.voider.entry.caret(), 4, "{view:?}");
+        }
+        let (_d, mut app) = f3_app();
+        app.voider.entry.set_text("uno dos");
+        app.voider.entry.home();
+        app.route_key(egui::Key::ArrowRight, ctrl_only());
+        assert_eq!(app.voider.entry.caret(), 4);
     }
 
     // ── F1's typewriter fade (views.EdgeFade) ───────────────────────────────
