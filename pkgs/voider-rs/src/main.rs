@@ -1387,9 +1387,12 @@ impl VoiderApp {
                 continue;
             }
             let y = centre.y + offset as f32 * line_h;
+            // Typewriter: the whole document starts at the middle and runs to the
+            // right, so it lines up with the caret fixed there.
+            let align = if self.voider.typewriter { egui::Align2::LEFT_CENTER } else { egui::Align2::CENTER_CENTER };
             painter.text(
                 egui::pos2(centre.x, y),
-                egui::Align2::CENTER_CENTER,
+                align,
                 text,
                 font.clone(),
                 white_alpha(alpha),
@@ -2883,6 +2886,28 @@ mod tests {
         app.voider.entry.home();
         app.route_key(egui::Key::ArrowRight, ctrl_only());
         assert_eq!(app.voider.entry.caret(), 4);
+    }
+
+    #[test]
+    fn in_typewriter_f2_every_line_starts_at_the_centre_and_runs_right() {
+        let (_d, mut app) = f2_app(&[".", "uno", "dos", "tres"], 2);
+        app.voider.typewriter = true;
+        let shown = painted_text(&mut app, |a, p, c, r| a.draw_f2(p, c, r));
+        let line = |t: &str| shown.iter().find(|(s, _)| s == t).unwrap_or_else(|| panic!("{t} not drawn: {shown:?}")).1.x;
+        // The window is 1000 wide: the centre is x = 500, and each line's LEFT edge
+        // sits there (the centred layout would put a short line well left of it).
+        for t in ["uno", "tres"] {
+            assert!((line(t) - 500.0).abs() < 1.5, "{t} at x={}", line(t));
+        }
+    }
+
+    #[test]
+    fn without_typewriter_f2_lines_stay_centred() {
+        let (_d, mut app) = f2_app(&[".", "uno", "dos", "tres"], 2);
+        app.voider.typewriter = false;
+        let shown = painted_text(&mut app, |a, p, c, r| a.draw_f2(p, c, r));
+        let x = shown.iter().find(|(s, _)| s == "uno").unwrap().1.x;
+        assert!(x < 480.0, "centred, so its left edge is left of the middle: x={x}");
     }
 
     // ── F1's typewriter fade (views.EdgeFade) ───────────────────────────────
