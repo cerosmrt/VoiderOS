@@ -46,6 +46,10 @@ use eframe::egui;
 use app::{caps_lock_on, View, Voider};
 
 
+/// Where the typewriter fade turns clear, as a fraction of the way from the
+/// circle's left edge to the centre (views.EdgeFade.FADE_START).
+const EDGE_FADE_START: f32 = 0.55;
+
 /// Matches the Python view: the circle inset from the shorter side.
 const CIRCLE_INSET: f32 = 35.0;
 
@@ -1186,7 +1190,7 @@ impl VoiderApp {
         // The caret blinks only while the line is empty; once there is text it
         // holds still, so the last letter typed is the thing you look at.
         let blinking = self.voider.entry.is_empty();
-        let visible = !blinking || (ctx.input(|i| i.time) * 1.6).sin() > 0.0;
+        let visible = self.voider.caret_visible() && (!blinking || (ctx.input(|i| i.time) * 1.6).sin() > 0.0);
         if visible {
             let x = left_x + before_w;
             p.line_segment(
@@ -1205,17 +1209,35 @@ impl VoiderApp {
     fn draw_f1(&self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect) {
         let centre = rect.center();
         let radius = rect.width().min(rect.height()) / 2.0 - CIRCLE_INSET;
-        painter.circle_stroke(
-            centre,
-            radius,
-            egui::Stroke::new(10.0_f32, white_alpha(255)),
-        );
         // Nothing may show outside the circle.
         let band = egui::Rect::from_min_max(
             egui::pos2(centre.x - radius, rect.top()),
             egui::pos2(centre.x + radius, rect.bottom()),
         );
         self.draw_entry_line(painter, ctx, centre, band, self.voider.typewriter);
+        // Typewriter: the line runs left towards the circle's edge, so it fades
+        // into the ground there — black against the edge, clear from 55% of the
+        // way to the centre (views.EdgeFade, FADE_START). Over the text, under
+        // the circle, which is drawn again on top so the gradient can't eat it.
+        if self.voider.typewriter {
+            let ground = (self.voider.opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
+            let (x0, x1) = (centre.x - radius, centre.x);
+            let xs = x0 + (x1 - x0) * EDGE_FADE_START;
+            let (black, clear) = (egui::Color32::from_black_alpha(ground), egui::Color32::TRANSPARENT);
+            let mut mesh = egui::Mesh::default();
+            for (x, c) in [(x0, black), (xs, clear)] {
+                for y in [rect.top(), rect.bottom()] {
+                    mesh.vertices.push(egui::epaint::Vertex { pos: egui::pos2(x, y), uv: egui::epaint::WHITE_UV, color: c });
+                }
+            }
+            mesh.indices.extend([0, 1, 2, 1, 2, 3]);
+            painter.add(egui::Shape::mesh(mesh));
+        }
+        painter.circle_stroke(
+            centre,
+            radius,
+            egui::Stroke::new(10.0_f32, white_alpha(255)),
+        );
     }
 
     /// The document as a ring: the current line centred and lit, the rest fading
@@ -2789,6 +2811,77 @@ mod tests {
         }
         // an odd number of presses leaves the help open, as a toggle would
         assert!(app.voider.help_open);
+    }
+
+    #[test]
+    fn arrows_walk_through_separators_between_titles_in_both_directions() {
+        let (_d, mut app) = f3_app();
+        app.voider.library.entries = vec!["Uno.txt".into(), ".".into(), "Dos.txt".into(), ".".into(), ".".into(), "Tres.txt".into()];
+        app.voider.library.index = 0;
+        app.voider.f3_sync_entry();
+        let mut seen = Vec::new();
+        for _ in 0..5 {
+            app.route_key(egui::Key::ArrowDown, none());
+            seen.push(app.voider.library.index);
+        }
+        assert_eq!(seen, vec![1, 2, 3, 4, 5], "stuck: {seen:?}");
+        for want in [4, 3, 2, 1, 0] {
+            app.route_key(egui::Key::ArrowUp, none());
+            assert_eq!(app.voider.library.index, want);
+        }
+    }
+
+    // ── F1's typewriter fade (views.EdgeFade) ───────────────────────────────
+
+    /// The gradient quads the F1 draw painted: (min alpha, max alpha) of each mesh
+    /// whose vertices are all black and that is not the font atlas's glyphs.
+    fn fade_meshes(app: &mut VoiderApp) -> Vec<(u8, u8, egui::Rect)> {
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 700.0))),
+            ..Default::default()
+        };
+        let mut found = Vec::new();
+        let out = ctx.run(raw, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let p = ui.painter().clone();
+                app.draw_f1(&p, ctx, ui.max_rect());
+            });
+        });
+        fn walk(s: &egui::epaint::Shape, out: &mut Vec<(u8, u8, egui::Rect)>) {
+            match s {
+                egui::epaint::Shape::Mesh(m) if !m.vertices.is_empty() && m.vertices.iter().all(|v| v.color.r() == 0 && v.color.g() == 0 && v.color.b() == 0) => {
+                    let a: Vec<u8> = m.vertices.iter().map(|v| v.color.a()).collect();
+                    out.push((*a.iter().min().unwrap(), *a.iter().max().unwrap(), m.calc_bounds()));
+                }
+                egui::epaint::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                _ => {}
+            }
+        }
+        for c in &out.shapes {
+            walk(&c.shape, &mut found);
+        }
+        found
+    }
+
+    #[test]
+    fn in_typewriter_the_text_fades_to_black_towards_the_circles_left_edge() {
+        let (_d, mut app) = f5_app(&[".", "a"]);
+        app.voider.switch_to(app::View::F1);
+        app.voider.typewriter = true;
+        let fades = fade_meshes(&mut app);
+        let fade = fades.iter().find(|(lo, hi, _)| *lo == 0 && *hi == 255).expect("no gradient painted");
+        // From the circle's left edge (centre - radius) to the centre.
+        let centre = 500.0;
+        assert!(fade.2.max.x <= centre + 1.0 && fade.2.min.x < centre - 200.0, "{:?}", fade.2);
+    }
+
+    #[test]
+    fn the_classic_centred_line_has_no_gradient() {
+        let (_d, mut app) = f5_app(&[".", "a"]);
+        app.voider.switch_to(app::View::F1);
+        app.voider.typewriter = false;
+        assert!(fade_meshes(&mut app).iter().all(|(lo, hi, _)| !(*lo == 0 && *hi == 255)));
     }
 
     // ── F6 / F8 keys (key_router, the reader's editor wiring) ───────────────

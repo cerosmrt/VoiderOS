@@ -3083,6 +3083,17 @@ impl Voider {
         }
     }
 
+    /// Whether the text caret shows: not on a row that can't be written — a dot,
+    /// the portal (F3, F2, F6): a read-only line has no cursor, as in Qt.
+    pub fn caret_visible(&self) -> bool {
+        match self.view {
+            View::F3 => self.pending_new || self.pending_merge || !self.f3_on_structure(),
+            View::F2 => self.ring.current() != ".",
+            View::F6 => self.o_ring.current() != ".",
+            _ => true,
+        }
+    }
+
     /// Whether the F3 cursor sits on a separator or the portal — rows that are
     /// structure, not a file, so they can't be renamed or typed into.
     fn f3_on_structure(&self) -> bool {
@@ -7993,6 +8004,26 @@ mod tests {
         assert_eq!(v.ink, 0.8);
         assert_eq!(v.opacity, 1.0);
         assert_eq!(v.status, "Tinta 80%");
+    }
+
+    #[test]
+    fn the_caret_hides_on_rows_that_cannot_be_written() {
+        let (_d, mut v) = lib_app(&[".", "0.txt", "Uno.txt"]);
+        v.library.index = 0;
+        assert!(!v.caret_visible(), "on a separator");
+        v.library.index = 1;
+        assert!(!v.caret_visible(), "on the portal");
+        v.library.index = 2;
+        assert!(v.caret_visible(), "on a title");
+        v.begin_new_chapter();
+        assert!(v.caret_visible(), "naming a new entry");
+        v.cancel_pending();
+        v.switch_to(View::F2);
+        v.ring.lines = vec![".".into(), "a".into()];
+        v.ring.index = 0;
+        assert!(!v.caret_visible(), "on a dot in F2");
+        v.ring.index = 1;
+        assert!(v.caret_visible());
     }
 
     // ── globals: the trash, the toggles ──────────────────────────────────────
