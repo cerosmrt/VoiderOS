@@ -20,6 +20,26 @@ lugares donde Rust hace otra cosa a propósito).
 
 ---
 
+## Estado (2026-10-07)
+
+**Hecho** (cada ítem en su commit, con test): todos los P0 (1–8); P1-1…8,
+P1-10…13, P1-15…49, P1-51…56; P2-3, P2-4, P2-5, P2-7, P2-9, P2-10; P3-2.
+
+**Pendiente:**
+- P1-9 pantalla de bloqueo (necesita PAM) y P1-14 teclas configurables.
+- P1-57 / P3-1 / P3-3 / P3-4: `I_preview`, subcarpetas de `I/`, panel FX de
+  Hyprland, IPC compartido con Python, `_last_lines.json` y `config.json` únicos.
+- P2-1 (círculo y degradé de F1), P2-2, P2-6, P2-8, P2-11 (F10 como formulario),
+  P2-12 (ayuda), P2-13 (línea de estado y ayudas al pie), P2-14 (ventana sin marco).
+- P1-46 y el undo de Rust en F3 para reordenar con Alt (hecho) — revisar en uso.
+- Decisiones D-1, D-4…D-9 sin resolver. D-2, D-3 y D-8 se arreglaron en Python
+  (commits 0f0d55e, 89a69e3, 9161ec5).
+
+**Verificado contra Python:** 17 libros reales de O/ cortan en las mismas
+líneas en F6. **Sin ver nunca en pantalla real:** todo lo de dibujo de hoy.
+
+---
+
 ## 0. Antes que nada (no es de Rust)
 
 **`pkgs/voider-py/config.json` está pisado.** Anoche, más temprano en esta misma sesión, corrí los tests
