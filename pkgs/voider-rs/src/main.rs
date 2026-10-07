@@ -1221,19 +1221,20 @@ impl VoiderApp {
     /// The document as a ring: the current line centred and lit, the rest fading
     /// away above and below.
     /// A small bar near the top: the query typed so far, or a placeholder.
-    fn draw_search_bar(&self, painter: &egui::Painter, rect: egui::Rect, query: &str, placeholder: &str) {
+    fn draw_search_bar(&self, painter: &egui::Painter, ctx: &egui::Context, rect: egui::Rect, query: &str, placeholder: &str) {
+        // At the bottom (h - line - 24), centred, min(w - 100, 800) wide, in the
+        // ring's font, underlined — the Python's search QLineEdit.
+        let font = egui::FontId::proportional(self.font_size());
+        let line_h = self.ring_line_h(ctx, &font);
+        let width = (rect.width() - 100.0).min(800.0);
+        let y = rect.bottom() - line_h - 24.0 + line_h / 2.0;
         let shown = if query.is_empty() { placeholder } else { query };
-        let color = if query.is_empty() {
-            egui::Color32::from_gray(120)
-        } else {
-            egui::Color32::WHITE
-        };
-        painter.text(
-            egui::pos2(rect.center().x, rect.top() + self.font_size() * 2.0),
-            egui::Align2::CENTER_CENTER,
-            shown,
-            egui::FontId::proportional(self.font_size() * 0.55),
-            color,
+        let colour = if query.is_empty() { egui::Color32::from_gray(120) } else { white_alpha(255) };
+        painter.text(egui::pos2(rect.center().x, y), egui::Align2::CENTER_CENTER, shown, font, colour);
+        let base = y + line_h / 2.0;
+        painter.line_segment(
+            [egui::pos2(rect.center().x - width / 2.0, base), egui::pos2(rect.center().x + width / 2.0, base)],
+            egui::Stroke::new(1.0_f32, white_alpha(255)),
         );
     }
 
@@ -1292,7 +1293,7 @@ impl VoiderApp {
                     egui::Color32::from_gray(90),
                 );
             }
-            self.draw_search_bar(painter, rect, &search.query.text(), "search lines…");
+            self.draw_search_bar(painter, ctx, rect, &search.query.text(), "search lines…");
             return;
         }
 
@@ -1311,13 +1312,26 @@ impl VoiderApp {
             if text.is_empty() {
                 continue;
             }
-            let alpha = ring::to_u8(ring::edit_line_alpha(
+            let n = self.voider.ring.lines.len();
+            let abs = (self.voider.ring.index as isize + offset).rem_euclid(n as isize) as usize;
+            // The ring's first dot is the ø, the file's mark (circular_view zero_marker).
+            let text = if abs == 0 && text == "." { "ø" } else { text };
+            let mut a = ring::edit_line_alpha(
                 offset,
                 offset.unsigned_abs() as f32 * line_h,
                 rect.height() / 2.0,
                 on_dot,
                 para_size,
-            ));
+            );
+            // Focused on a paragraph: only it (and its dot) stay lit, the rest a tenth.
+            if self.voider.para_focus {
+                let dot = self.voider.para_focus_dot();
+                a = ring::focus_alpha(
+                    ring::ring_alpha(offset.unsigned_abs() as f32 * line_h, rect.height() / 2.0),
+                    self.voider.para_focus_content.contains(&abs) || Some(abs) == dot,
+                );
+            }
+            let alpha = ring::to_u8(a);
             if alpha == 0 {
                 continue;
             }
@@ -1383,11 +1397,18 @@ impl VoiderApp {
                     egui::Color32::from_gray(90),
                 );
             }
-            self.draw_search_bar(painter, rect, &search.query.text(), "search files…");
+            self.draw_search_bar(painter, ctx, rect, &search.query.text(), "search files…");
             return;
         }
 
         if n > 0 {
+            // On a dot the book it opens stays lit (the rows below it up to the next dot).
+            let on_dot = library::is_separator(lib.current());
+            let book = if on_dot {
+                (1..n).take_while(|k| !library::is_separator(&lib.entries[(lib.index as isize + k).rem_euclid(n) as usize])).count()
+            } else {
+                0
+            };
             for offset in -reach..=reach {
                 if offset == 0 {
                     continue; // the centre is the editable line, drawn below
@@ -1399,8 +1420,8 @@ impl VoiderApp {
                     offset,
                     offset.unsigned_abs() as f32 * line_h,
                     rect.height() / 2.0,
-                    false,
-                    0,
+                    on_dot,
+                    book,
                 ));
                 if alpha == 0 {
                     continue;
@@ -1639,10 +1660,11 @@ impl VoiderApp {
     /// F9: the active file as one column of editable prose. Generous margins,
     /// the same writing font, no visible scrollbar — a page, not a text box.
     fn draw_f9(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
-        let margin = (rect.width() * 0.22).max(60.0);
+        // The Python's margins: 12% of the width (at least 60) at the sides, 44 above and below.
+        let margin = (rect.width() * 0.12).max(60.0);
         let inner = egui::Rect::from_min_max(
-            egui::pos2(rect.min.x + margin, rect.min.y + 56.0),
-            egui::pos2(rect.max.x - margin, rect.max.y - 56.0),
+            egui::pos2(rect.min.x + margin, rect.min.y + 44.0),
+            egui::pos2(rect.max.x - margin, rect.max.y - 44.0),
         );
         let font = egui::FontId::proportional(self.font_size());
         let edit_id = egui::Id::new("f9_prose");
@@ -3005,6 +3027,70 @@ mod tests {
         app.voider.switch_to(app::View::F4);
         app.voider.toggle_carousel_view();
         (d, app)
+    }
+
+    // ── F2 drawing details (circular_view.paintEvent) ───────────────────────
+
+    #[test]
+    fn the_search_bar_sits_at_the_bottom_of_the_window() {
+        let (_d, mut app) = f2_app(&[".", "uno", "dos"], 1);
+        app.voider.open_f2_search();
+        let shown = painted_text(&mut app, |a, p, c, r| a.draw_f2(p, c, r));
+        let bar = shown.iter().find(|(t, _)| t == "search lines…").expect("no bar");
+        assert!(bar.1.y > 600.0, "bar at y={}", bar.1.y);
+    }
+
+    #[test]
+    fn the_dot_at_index_zero_of_f2_is_drawn_as_the_crossed_o() {
+        let (_d, mut app) = f2_app(&[".", "uno", ".", "dos"], 1);
+        let shown = painted_text(&mut app, |a, p, c, r| a.draw_f2(p, c, r));
+        assert!(shown.iter().any(|(t, _)| t == "ø"), "{shown:?}");
+        // The other dot stays a dot.
+        assert!(shown.iter().any(|(t, _)| t == "."));
+    }
+
+    #[test]
+    fn the_ring_alpha_in_paragraph_focus_dims_everything_else_to_a_tenth() {
+        // Focused: lines of the paragraph keep their alpha, the rest ×0.1.
+        assert_eq!(ring::focus_alpha(0.8, true), 0.8);
+        assert!((ring::focus_alpha(0.8, false) - 0.08).abs() < 1e-6);
+    }
+
+    #[test]
+    fn in_f3_standing_on_a_dot_the_book_it_opens_stays_lit() {
+        let (_d, mut app) = f3_app();
+        // Same distance from the dot: one row above (another book), one below (this one).
+        app.voider.library.entries = vec!["Otro.txt".into(), ".".into(), "Uno.txt".into(), ".".into(), "Fin.txt".into()];
+        app.voider.library.index = 1;
+        app.voider.f3_sync_entry();
+        let lit = |app: &mut VoiderApp, text: &str| -> u8 {
+            let ctx = egui::Context::default();
+            let raw = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 700.0))),
+                ..Default::default()
+            };
+            let mut alpha = 0;
+            let out = ctx.run(raw, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let p = ui.painter().clone();
+                    app.draw_f3(&p, ctx, ui.max_rect());
+                });
+            });
+            fn walk(s: &egui::epaint::Shape, text: &str, alpha: &mut u8) {
+                match s {
+                    egui::epaint::Shape::Text(t) if t.galley.text() == text => *alpha = (*alpha).max(t.galley.job.sections[0].format.color.a()),
+                    egui::epaint::Shape::Vec(v) => v.iter().for_each(|s| walk(s, text, alpha)),
+                    _ => {}
+                }
+            }
+            for c in &out.shapes {
+                walk(&c.shape, text, &mut alpha);
+            }
+            alpha
+        };
+        // Uno (inside the book the dot opens) is lit; Otro (another book) is not.
+        let (uno, otro) = (lit(&mut app, "Uno") as u32, lit(&mut app, "Otro") as u32);
+        assert!(uno > otro * 2, "uno={uno} otro={otro}");
     }
 
     #[test]

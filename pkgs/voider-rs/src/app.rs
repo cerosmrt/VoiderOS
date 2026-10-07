@@ -3840,6 +3840,13 @@ impl Voider {
         self.sync_entry();
     }
 
+    /// The ring index of the dot that opens the focused paragraph.
+    pub fn para_focus_dot(&self) -> Option<usize> {
+        let first = *self.para_focus_content.first()?;
+        let n = self.ring.lines.len();
+        (0..n).map(|k| (first + n - 1 - k) % n).find(|&i| self.ring.lines[i] == ".")
+    }
+
     /// Leave focus and land back on the dot that opens the paragraph.
     pub fn exit_para_focus(&mut self) {
         self.para_focus = false;

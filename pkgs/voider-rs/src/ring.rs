@@ -61,6 +61,12 @@ pub fn edit_line_alpha(offset: isize, dist_px: f32, half_h: f32, on_dot: bool, p
     }
 }
 
+/// Paragraph focus (Enter on a dot): what is in the paragraph keeps its alpha,
+/// everything else goes to a tenth of it.
+pub fn focus_alpha(base: f32, in_paragraph: bool) -> f32 {
+    if in_paragraph { base } else { base * 0.1 }
+}
+
 /// A 0..1 brightness as the 0..255 an alpha channel wants.
 pub fn to_u8(alpha: f32) -> u8 {
     (alpha.clamp(0.0, 1.0) * 255.0).round() as u8
