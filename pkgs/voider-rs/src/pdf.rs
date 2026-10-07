@@ -43,6 +43,34 @@ pub fn escape(s: &str) -> String {
 /// Cada párrafo lleva su ancla `vparaN`, correlativa a través de TODO el
 /// documento — como en el Python, y como espera su `test_open_position`. Es lo
 /// que permitiría abrir el PDF en el párrafo que estabas leyendo.
+/// A file as the Python prints it from F2 (`_build_doc_html`): the title, then
+/// every line centred; a dot is a blank of air. One chapter, or — joined with a
+/// page break between — a whole library.
+pub fn doc_html(lines: &[String], title: &str) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("<h2 style=\"text-align:center;margin:3em 0 2em;\">{}</h2>", escape(title)));
+    for line in lines {
+        if line == "." {
+            out.push_str("<p style=\"margin:0.8em 0;\">&nbsp;</p>");
+        } else {
+            out.push_str(&format!("<p style=\"text-align:center;margin:0.4em 0;\">{}</p>", escape(line)));
+        }
+    }
+    out
+}
+
+/// Chapters (title, lines) as one document, each on its own page.
+pub fn library_html(chapters: &[(String, Vec<String>)]) -> String {
+    let mut body = String::new();
+    for (i, (title, lines)) in chapters.iter().enumerate() {
+        if i > 0 {
+            body.push_str("<div style=\"page-break-before:always;\"></div>");
+        }
+        body.push_str(&doc_html(lines, title));
+    }
+    format!("<html><body style=\"color:black;background:white;\">{body}</body></html>")
+}
+
 pub fn book_html(sections: &[Section], font_family: &str) -> String {
     let mut out = String::new();
     out.push_str("<html><head><style>");

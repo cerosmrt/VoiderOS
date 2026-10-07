@@ -1203,6 +1203,64 @@ impl Voider {
         Ok(Some(dir))
     }
 
+    /// Ctrl+S in F2: the active file as a PDF beside it, named after it (the
+    /// Python asks where; here the name it would propose is used).
+    pub fn export_doc(&mut self) -> Option<PathBuf> {
+        let lines = void::load_doc(&self.current_file).lines;
+        let title = file_title(&self.current_file);
+        let html = pdf::library_html(&[(title.clone(), lines)]);
+        let dest = self.current_file.with_file_name(format!("{title}.pdf"));
+        self.write_html_pdf(&html, &dest)
+    }
+
+    /// Ctrl+S in F3: every chapter of the library, one per page, as
+    /// `<void>.pdf` — the Python's `export_book`.
+    pub fn export_library_pdf(&mut self) -> Option<PathBuf> {
+        let chapters: Vec<(String, Vec<String>)> = self
+            .library
+            .entries
+            .iter()
+            .filter(|e| !e.is_empty() && !library::is_separator(e))
+            .map(|e| {
+                let path = library::chapter_path(&self.void_dir, e);
+                (library::display_name(e), void::load_doc(&path).lines)
+            })
+            .collect();
+        let name = self.void_dir.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "void".into());
+        let dest = self.void_dir.join(format!("{name}.pdf"));
+        self.write_html_pdf(&pdf::library_html(&chapters), &dest)
+    }
+
+    fn write_html_pdf(&mut self, html: &str, dest: &Path) -> Option<PathBuf> {
+        let family = self.config.font_family.clone();
+        match pdf::render(html, &family, fonts::load_family(&family)) {
+            Ok(bytes) => match std::fs::write(dest, bytes) {
+                Ok(()) => {
+                    self.status = format!("PDF → {}", dest.display());
+                    Some(dest.to_path_buf())
+                }
+                Err(e) => {
+                    self.status = format!("No se pudo escribir el PDF: {e}");
+                    None
+                }
+            },
+            Err(e) => {
+                self.status = format!("PDF: {e}");
+                None
+            }
+        }
+    }
+
+    /// Ctrl+P in F2 / F3: the same PDF, then to the printer.
+    pub fn print_doc_or_library(&mut self) {
+        let path = if self.view == View::F3 { self.export_library_pdf() } else { self.export_doc() };
+        let Some(path) = path else { return };
+        match pdf::send_to_printer(&path) {
+            Ok(()) => self.status = format!("A la impresora: {}", path.display()),
+            Err(e) => self.status = format!("PDF guardado, pero no se imprimió: {e}"),
+        }
+    }
+
     /// Ctrl+P en F4: lo mismo, y después a la impresora.
     pub fn print_reading(&mut self) {
         let Some(path) = self.export_pdf() else {
@@ -8308,6 +8366,36 @@ mod tests {
     fn pdf_pages(bytes: &[u8]) -> usize {
         let text = String::from_utf8_lossy(bytes).replace("/Type /Page", "/Type/Page");
         text.match_indices("/Type/Page").filter(|(i, _)| !text[i + 10..].starts_with('s')).count()
+    }
+
+    // ── Ctrl+S / Ctrl+P in F2 and F3 (io_mixin export_doc / export_book) ─────
+
+    #[test]
+    fn ctrl_s_in_f2_saves_the_active_file_as_a_pdf_next_to_it() {
+        let (_d, mut v) = book(); // active is Uno.txt
+        v.switch_to(View::F2);
+        let dest = v.export_doc().expect("no exportó");
+        assert_eq!(dest, v.void_dir.join("I/Uno.pdf"));
+        assert!(std::fs::read(&dest).unwrap().starts_with(b"%PDF"));
+    }
+
+    #[test]
+    fn ctrl_s_in_f3_saves_every_chapter_one_per_page_named_after_the_void() {
+        let (_d, mut v) = book();
+        v.library = Library::load(&v.void_dir);
+        v.switch_to(View::F3);
+        let dest = v.export_library_pdf().expect("no exportó");
+        let name = v.void_dir.file_name().unwrap().to_string_lossy().to_string();
+        assert_eq!(dest, v.void_dir.join(format!("{name}.pdf")));
+        assert_eq!(pdf_pages(&std::fs::read(&dest).unwrap()), 2, "una página por capítulo");
+    }
+
+    #[test]
+    fn the_f2_page_lists_the_lines_centred_with_dots_as_air() {
+        let html = pdf::doc_html(&[".".into(), "uno".into(), ".".into(), "a < b".into()], "Mi título");
+        assert!(html.contains("Mi título"));
+        assert!(html.contains("a &lt; b"), "the text must be escaped");
+        assert_eq!(html.matches("&nbsp;").count(), 2, "each dot is a spacer");
     }
 
     #[test]

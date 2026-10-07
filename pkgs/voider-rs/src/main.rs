@@ -453,6 +453,17 @@ impl VoiderApp {
             // Before the plain F12, or that one would take it.
             // Ctrl+F12: the screenshots folder in the file manager.
             Key::F12 if m.ctrl => self.voider.open_screenshots_folder(),
+            // Ctrl+S / Ctrl+P: F2 the file, F3 the whole library (F4 has its own).
+            Key::S if m.ctrl && !m.shift && matches!(self.voider.view, View::F2 | View::F3) => {
+                if self.voider.view == View::F3 {
+                    self.voider.export_library_pdf();
+                } else {
+                    self.voider.export_doc();
+                }
+            }
+            Key::P if m.ctrl && !m.shift && matches!(self.voider.view, View::F2 | View::F3) => {
+                self.voider.print_doc_or_library()
+            }
             Key::F12 if m.shift => {
                 self.voider.take_circle_screenshot();
             }
@@ -2691,6 +2702,17 @@ mod tests {
         assert_eq!(half, egui::Color32::from_rgba_premultiplied(128, 128, 128, 128));
         assert_eq!(quarter, egui::Color32::from_rgba_premultiplied(64, 64, 64, 64));
         assert_eq!(white_alpha(255), egui::Color32::WHITE);
+    }
+
+    #[test]
+    fn ctrl_s_in_f2_writes_a_pdf_and_in_f3_the_library() {
+        let (_d, mut app) = f3_app();
+        app.route_key(egui::Key::S, ctrl_only());
+        let name = app.voider.void_dir.file_name().unwrap().to_string_lossy().to_string();
+        assert!(app.voider.void_dir.join(format!("{name}.pdf")).is_file());
+        app.voider.switch_to(app::View::F2);
+        app.route_key(egui::Key::S, ctrl_only());
+        assert!(app.voider.current_file.with_extension("pdf").is_file());
     }
 
     // ── small globals: F10's way back, F4 Backspace, the title's views ──────
