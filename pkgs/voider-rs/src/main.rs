@@ -2776,6 +2776,21 @@ mod tests {
         assert!(shown.iter().any(|(t, _)| *t == title));
     }
 
+    #[test]
+    fn pressing_f11_many_times_never_changes_the_view() {
+        let (_d, mut app) = f3_app();
+        let before = app.voider.view;
+        let key = |pressed| egui::Event::Key { key: egui::Key::F11, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::default() };
+        let ctx = egui::Context::default();
+        for _ in 0..7 {
+            let raw = egui::RawInput { events: vec![key(true), key(false)], ..Default::default() };
+            ctx.run(raw, |ctx| app.handle_input(ctx));
+            assert_eq!(app.voider.view, before);
+        }
+        // an odd number of presses leaves the help open, as a toggle would
+        assert!(app.voider.help_open);
+    }
+
     // ── F6 / F8 keys (key_router, the reader's editor wiring) ───────────────
 
     fn reader(lines: &[&str]) -> (tempfile::TempDir, VoiderApp) {
