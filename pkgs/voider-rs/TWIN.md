@@ -22,7 +22,7 @@ lugares donde Rust hace otra cosa a propósito).
 
 ## Estado (2026-10-07)
 
-**Hecho** (cada ítem en su commit, con test): todos los P0 (1–8); P1-1…8,
+**Hecho** (cada ítem en su commit, con test; ver PENDING.md para lo que falta): todos los P0 (1–8); P1-1…8,
 P1-10…13, P1-15…49, P1-51…56; P2-3, P2-4, P2-5, P2-7, P2-9, P2-10; P3-2.
 
 **Pendiente:**

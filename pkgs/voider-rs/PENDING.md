@@ -234,3 +234,81 @@ Legend: **[ ]** to do · **[~]** partial · **[x]** done
 - [x] The backtick round trip to the scratch
 - [x] F10: the fonts installed on this machine, the size, persisted and live
 - [x] Pinned title toggle · commit the void with its stat line
+
+---
+
+## Lo que falta — al 2026-10-08 (cierre del día)
+
+Todo esto está sin implementar. El detalle de cada ítem (archivo:línea de Python,
+test que lo respalda, estado en Rust) está en `TWIN.md`; las siglas P1-n / P2-n son
+las de ese documento.
+
+### Pedido de Federico, a medias
+- [ ] **Exportar por libros** (diseño ya conversado). Una tecla en F3 (propuesta:
+      Ctrl+Shift+L) genera `void/libros/<TÍTULO>/`, una carpeta por libro, con
+      `00 TÍTULO.txt` (la fuente) y `01 …`, `02 …` (los capítulos en orden).
+      Re-exportar actualiza la carpeta generada; `I/` no se toca nunca. Lo que está
+      antes del primer separador va a `_sueltos`; el portal `0` no se exporta.
+      **Frenado a pedido de Federico: se revisa después.** Falta decidir en detalle
+      qué entra y cómo se nombra.
+- [ ] **Migrar a Python** lo que se decidió solo para Rust: el primer capítulo es
+      el título/fuente (F4 y exportaciones), F3 con libros colapsables (Espacio),
+      typewriter en F2, Ctrl+←/→ por palabra ya está en Python. Va al final, con
+      Rust probado. En Python va primero en `proto-voider/`, con tests, y se
+      promueve a `pkgs/voider-py/`.
+- [ ] **Probar Rust contra una copia del void real** (el void de prueba hoy es
+      `~/.local/share/voider-rs/void`; la copia se arma con `rsync -a --exclude O
+      --exclude tts --exclude .git ~/void/ …`). Federico va a pasar una lista de lo
+      que no se comporta como Python; después se revisa Python contra esa lista.
+
+### Antes de abrir el `/void` real con Rust
+- [ ] **P3-3** Canal entre instancias compartido con Python (`QLocalServer
+      "voider_ipc"`); hoy Rust usa el suyo (`voider-rs.sock`) y dos apps abiertas a
+      la vez se pisan.
+- [ ] **P3-4** Un solo archivo de posiciones (`I/_last_lines.json`) y un solo
+      config (hoy Rust usa `voider-rs.conf` y Python `config.json`).
+- [ ] Decidir si `I.txt` entra en el snapshot de git (CLAUDE.md pide solo `I/`).
+
+### Pantallas y teclas
+- [ ] **P1-9** Pantalla de bloqueo con la contraseña del sistema (necesita PAM) y
+      Escape en F1 como disparador.
+- [ ] **P1-14** Teclas configurables desde el config (hoy fijas en el código).
+- [ ] **P2-11 / D-5** F10 como formulario (familia, tamaño 4–999, colores, proporción
+      del carrusel con medida propia). Los colores de texto/fondo no hacen nada
+      en Python tampoco: decidir si se implementan en las dos o se sacan.
+- [ ] **P2-12 / D-4** Ayuda (F11): una columna como Python, y decidir qué tabla queda
+      (la de Python está desactualizada: F5 "Fork", F9 "Metronome").
+- [ ] **P2-1** Resto de F1: recorte elíptico del renglón al círculo (hoy es una banda
+      rectangular; el degradé del typewriter ya está).
+- [ ] **P2-2** Líneas largas: que el cursor nunca quede fuera de la pantalla.
+- [ ] **P2-6** Selección (fondo blanco, letras negras) y cursor titilando siempre
+      (decisión D-7: hoy titila solo con el renglón vacío).
+- [ ] **P2-8** F5: línea gris a los lados de los `/nombre`, `ø` en la fuente de la app.
+- [ ] **P2-13 / D-1** Línea de estado y ayudas al pie que Python no tiene: decidir si
+      se quedan.
+- [ ] **P2-14** Ventana sin marco y a pantalla completa (hoy 1000×700 con marco).
+
+### Infraestructura
+- [ ] **P1-57** `I_preview.txt` y archivos en MAYÚSCULAS por subcarpeta de `I/`, y
+      resolver capítulos en subcarpetas (hoy solo `I/<nombre>`). No importa mientras
+      el void sea plano.
+- [ ] **P3-1** Panel de efectos de Hyprland (Super+J/K/L).
+- [ ] **P3-5** Idioma de la voz: Rust usa una heurística propia, Python `langdetect`.
+- [ ] **P3-6** Partir con `/` sin nombre: Python usa la fecha `%y-%m-%d_%H%M%S`, Rust
+      las primeras cinco palabras.
+- [ ] **D-9** Cuándo Rust pasa al `/void` real (depende de la sección de arriba).
+
+### Para verificar en uso (se implementó con tests, no se vio en pantalla real)
+- Todo el dibujo del 2026-10-07/08: `ø` en F2, foco de párrafo, F3 iluminando el
+  libro bajo un punto, plegado de F3 y su punto de cierre, barra de búsqueda abajo,
+  degradé del typewriter, panel de capítulos, F6/F7/F8 como anillos.
+- F11 que "cambia las vistas" y F12 que "abre lo mismo que F11": no se reprodujeron;
+  falta `wev` (qué tecla llega) y probar F12 con la ayuda cerrada.
+- "Los puntos en F3 no me dejan pasar un título": no se reprodujo con las flechas;
+  falta saber si era con Alt+↑/↓ y la forma de la lista.
+
+### Cosas tuyas sin commitear (no las toqué)
+- `proto-voider/io_mixin.py` (reintento FAT del backup), `proto-voider/config.json`,
+  `roadmap/pending.txt`, `proto-voider/d`.
+- Antes de cualquier rebuild: `pkgs/voider-py/config.json` ya está restaurado, pero no
+  correr nunca la suite de tests de `pkgs/voider-py` (pisa ese config).
