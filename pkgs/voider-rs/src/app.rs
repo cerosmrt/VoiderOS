@@ -479,6 +479,27 @@ impl Voider {
         self.apply_undo_entry(&entry, false)
     }
 
+    /// A summary of everything a key could change on screen — the view, the cursors,
+    /// the line, the library, the page, the open panels. Equal before and after a
+    /// key means the key did nothing, which the terminal log says.
+    pub fn fingerprint(&self) -> String {
+        format!(
+            "{:?}|{}|{}|{}|{}|{}|{}|{:?}|{}|{}|{}|{:?}",
+            self.view,
+            self.ring.index,
+            self.ring.lines.len(),
+            self.entry.text(),
+            self.entry.caret(),
+            self.library.index,
+            self.library.entries.len(),
+            self.current_file,
+            self.page,
+            self.picker_open || self.help_open || self.f2_search.is_some() || self.f3_search.is_some(),
+            self.status,
+            self.entry.selection(),
+        )
+    }
+
     /// How many steps Ctrl+Z can take back.
     pub fn undo_depth(&self) -> usize {
         self.undo.undo_depth()

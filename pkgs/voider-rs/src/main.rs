@@ -95,6 +95,8 @@ fn install_font(ctx: &egui::Context, family: &str) {
 struct VoiderApp {
     /// The mouse pointer is out of the way while you write.
     pointer_hidden: bool,
+    /// The last status line printed to the terminal, so only changes are.
+    last_status: String,
     /// How many pages F4 laid out last frame — measuring needs the fonts, so
     /// it is known at draw time and remembered for the keys that turn pages.
     reading_pages: usize,
@@ -144,6 +146,7 @@ impl VoiderApp {
         Self {
             voider,
             pointer_hidden: true,
+            last_status: String::new(),
             reading_pages: 1,
             carousel_tex: None,
             carousel_font: None,
@@ -332,7 +335,12 @@ impl VoiderApp {
                         }
                         continue;
                     }
+                    let (view, before) = (self.voider.view, self.voider.fingerprint());
                     self.route_key_with(key, modifiers, caps);
+                    if key_is_loggable(key, modifiers) {
+                        let nothing = if self.voider.fingerprint() == before { "   → no hizo nada" } else { "" };
+                        eprintln!("[{view:?}] {}{nothing}", key_label(key, modifiers));
+                    }
                 }
                 _ => {}
             }
@@ -2297,6 +2305,14 @@ impl eframe::App for VoiderApp {
         // Cuando la linea termino de sonar, la voz sigue sola con la siguiente.
         self.voider.tts_poll();
         self.handle_input(ctx);
+        // What Voider says in its status line is also printed, so it can be followed
+        // from the terminal that launched it.
+        if self.voider.status != self.last_status {
+            self.last_status = self.voider.status.clone();
+            if !self.last_status.is_empty() {
+                eprintln!("   ↳ {}", self.last_status);
+            }
+        }
         if self.voider.quit_requested {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
@@ -2434,6 +2450,24 @@ fn copy_action(view: View, shift: bool, searching: bool) -> CopyAction {
         (View::F1 | View::F2 | View::F3 | View::F6, false) => CopyAction::Copy,
         _ => CopyAction::Nothing,
     }
+}
+
+/// Whether a key press is worth a line in the terminal: commands and named keys,
+/// not the letters being typed (those would just echo the text being written).
+fn key_is_loggable(key: egui::Key, m: egui::Modifiers) -> bool {
+    m.ctrl || m.alt || key.name().chars().count() > 1
+}
+
+/// `Ctrl+Shift+X`, `F3`, `ArrowDown`…
+fn key_label(key: egui::Key, m: egui::Modifiers) -> String {
+    let mut s = String::new();
+    for (on, name) in [(m.ctrl, "Ctrl+"), (m.alt, "Alt+"), (m.shift, "Shift+")] {
+        if on {
+            s.push_str(name);
+        }
+    }
+    s.push_str(key.name());
+    s
 }
 
 /// `text` cut to fit `max_w` with a trailing `…` — Qt's `elidedText(ElideRight)`.
@@ -2908,6 +2942,30 @@ mod tests {
         let shown = painted_text(&mut app, |a, p, c, r| a.draw_f2(p, c, r));
         let x = shown.iter().find(|(s, _)| s == "uno").unwrap().1.x;
         assert!(x < 480.0, "centred, so its left edge is left of the middle: x={x}");
+    }
+
+    #[test]
+    fn the_terminal_log_skips_typed_letters_but_names_commands() {
+        assert!(!key_is_loggable(egui::Key::A, none()));
+        assert!(!key_is_loggable(egui::Key::Num5, none()));
+        assert!(key_is_loggable(egui::Key::F3, none()));
+        assert!(key_is_loggable(egui::Key::Enter, none()));
+        assert!(key_is_loggable(egui::Key::Z, ctrl_only()));
+        let ctrl_shift = egui::Modifiers { ctrl: true, shift: true, ..Default::default() };
+        assert_eq!(key_label(egui::Key::X, ctrl_shift), "Ctrl+Shift+X");
+        assert_eq!(key_label(egui::Key::ArrowDown, none()), "Down");
+    }
+
+    #[test]
+    fn the_fingerprint_changes_when_something_does() {
+        let (_d, mut app) = f3_app();
+        let before = app.voider.fingerprint();
+        assert_eq!(app.voider.fingerprint(), before, "it is stable");
+        app.route_key(egui::Key::ArrowDown, none());
+        assert_ne!(app.voider.fingerprint(), before);
+        let moved = app.voider.fingerprint();
+        app.route_key(egui::Key::Insert, none()); // nothing is bound to it in F3
+        assert_eq!(app.voider.fingerprint(), moved);
     }
 
     // ── F1's typewriter fade (views.EdgeFade) ───────────────────────────────
