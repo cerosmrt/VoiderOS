@@ -259,6 +259,31 @@ impl Library {
         (0..self.entries.len()).filter(|&i| !self.is_hidden(i, open)).collect()
     }
 
+    /// What the list draws: the visible rows, plus a closing `.` (None) after the last
+    /// chapter of each open book — unless the next row is already a dot (an open
+    /// book's separator closes the one above). A drawn dot only: the cursor never
+    /// stops on it.
+    pub fn display_rows(&self, open: &[String]) -> Vec<Option<usize>> {
+        let rows = self.visible(open);
+        let mut out = Vec::new();
+        for (k, &i) in rows.iter().enumerate() {
+            out.push(Some(i));
+            let owner = if is_separator(&self.entries[i]) { Some(i) } else { self.owner_dot(i) };
+            let Some(dot) = owner else { continue };
+            if self.book_title(dot).is_none() || self.is_collapsed(dot, open) {
+                continue; // an empty book, or a closed one, has no rows to close
+            }
+            // `i` is the last row of its open book when the next visible row is a separator or nothing.
+            let next = rows.get(k + 1).copied();
+            let last = i != dot && next.map_or(true, |n| is_separator(&self.entries[n]));
+            let dot_follows = next.is_some_and(|n| is_separator(&self.entries[n]) && !self.is_collapsed(n, open));
+            if last && !dot_follows {
+                out.push(None);
+            }
+        }
+        out
+    }
+
     /// ↑/↓ over what is on screen, wrapping.
     pub fn move_visible(&mut self, delta: isize, open: &[String]) {
         let rows = self.visible(open);
@@ -505,6 +530,26 @@ mod tests {
         assert!(l.is_hidden(3, &closed()) && l.is_hidden(9, &closed()));
         assert!(!l.is_hidden(0, &closed()), "a loose row before any book is always seen");
         assert!(!l.is_hidden(1, &closed()), "the separator is the closed row");
+    }
+
+    #[test]
+    fn an_open_book_gets_a_closing_dot_unless_an_open_books_dot_follows() {
+        // . Uno Dos | . Tres | .(empty book)
+        let l = lib(&[".", "Uno.txt", "Dos.txt", ".", "Tres.txt", "."]);
+        let rows = |open: &[&str]| l.display_rows(&open.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        // Uno open, Tres closed: the next row is a closed book's label, not a dot.
+        assert_eq!(rows(&["Uno.txt"]), vec![Some(0), Some(1), Some(2), None, Some(3), Some(5)]);
+        // Both open: Tres's own dot already closes Uno, and the empty book's separator
+        // (a real dot) closes Tres — nothing is drawn twice.
+        assert_eq!(rows(&["Uno.txt", "Tres.txt"]), vec![Some(0), Some(1), Some(2), Some(3), Some(4), Some(5)]);
+        // Nothing open: the plain visible rows.
+        assert_eq!(rows(&[]), vec![Some(0), Some(3), Some(5)]);
+    }
+
+    #[test]
+    fn the_last_open_book_is_closed_too() {
+        let l = lib(&[".", "Uno.txt", "Dos.txt"]);
+        assert_eq!(l.display_rows(&["Uno.txt".to_string()]), vec![Some(0), Some(1), Some(2), None]);
     }
 
     #[test]

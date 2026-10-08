@@ -1464,14 +1464,15 @@ impl VoiderApp {
 
         // What is on screen: a closed book is one row (its separator), its rows hidden.
         let open = &self.voider.config.open_books;
-        let rows = lib.visible(open);
-        let pos = rows.iter().position(|&i| i == lib.index).unwrap_or(0) as isize;
+        // (a drawn closing dot, `None`, follows each open book's last chapter)
+        let rows = lib.display_rows(open);
+        let pos = rows.iter().position(|r| *r == Some(lib.index)).unwrap_or(0) as isize;
         let n = rows.len() as isize;
         if n > 0 {
             // On a dot the book it opens stays lit (the rows below it up to the next dot).
             let on_dot = library::is_separator(lib.current()) && !lib.is_collapsed(lib.index, open);
             let book = if on_dot {
-                (1..n).take_while(|k| !library::is_separator(&lib.entries[rows[(pos + k).rem_euclid(n) as usize]])).count()
+                (1..n).take_while(|k| rows[(pos + k).rem_euclid(n) as usize].is_some_and(|i| !library::is_separator(&lib.entries[i]))).count()
             } else {
                 0
             };
@@ -1479,11 +1480,10 @@ impl VoiderApp {
                 if offset == 0 {
                     continue; // the centre is the editable line, drawn below
                 }
-                let i = rows[(pos + offset).rem_euclid(n) as usize];
-                let label = if lib.is_collapsed(i, open) {
-                    lib.collapsed_label(i, open)
-                } else {
-                    library::display_name(&lib.entries[i])
+                let label = match rows[(pos + offset).rem_euclid(n) as usize] {
+                    None => ".".to_string(),
+                    Some(i) if lib.is_collapsed(i, open) => lib.collapsed_label(i, open),
+                    Some(i) => library::display_name(&lib.entries[i]),
                 };
                 // The chosen line is full; every other is the ring's curve, dimmed.
                 let alpha = ring::to_u8(ring::edit_line_alpha(
@@ -3308,6 +3308,20 @@ mod tests {
         // Focused: lines of the paragraph keep their alpha, the rest ×0.1.
         assert_eq!(ring::focus_alpha(0.8, true), 0.8);
         assert!((ring::focus_alpha(0.8, false) - 0.08).abs() < 1e-6);
+    }
+
+    #[test]
+    fn an_open_book_is_drawn_with_a_closing_dot_below_its_last_chapter() {
+        let (_d, mut app) = f3_app();
+        app.voider.library.entries = vec![".".into(), "Uno.txt".into(), "Dos.txt".into(), ".".into(), "Tres.txt".into()];
+        app.voider.config.open_books = vec!["Uno.txt".into()];
+        app.voider.library.index = 1; // on the title
+        app.voider.f3_sync_entry();
+        let shown = painted_text(&mut app, |a, p, c, r| a.draw_f3(p, c, r));
+        let mut below: Vec<(&str, f32)> = shown.iter().filter(|(_, p)| p.y > 360.0).map(|(t, p)| (t.as_str(), p.y)).collect();
+        below.sort_by(|a, b| a.1.total_cmp(&b.1));
+        let order: Vec<&str> = below.iter().map(|(t, _)| *t).take(3).collect();
+        assert_eq!(order, vec!["Dos", ".", "· Tres · (0)"]);
     }
 
     #[test]
