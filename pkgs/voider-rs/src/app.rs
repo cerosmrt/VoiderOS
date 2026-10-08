@@ -842,6 +842,7 @@ impl Voider {
             View::F3 => {
                 self.library = Library::load(&self.void_dir);
                 self.library.index = self.resolve_f3_index();
+                self.library.snap_to_visible(&self.config.open_books);
                 self.f3_sync_entry();
             }
             View::F10 => {
@@ -3197,9 +3198,35 @@ impl Voider {
             return;
         }
         let cur = self.library.current().to_string();
-        let shown = if library::is_separator(&cur) { ".".to_string() } else { library::display_name(&cur) };
+        let shown = if self.library.is_collapsed(self.library.index, &self.config.open_books) {
+            // A closed book is one row: `· TITLE · (n)`.
+            self.library.collapsed_label(self.library.index, &self.config.open_books)
+        } else if library::is_separator(&cur) {
+            ".".to_string()
+        } else {
+            library::display_name(&cur)
+        };
         self.entry.set_text(&shown);
         self.entry.home();
+    }
+
+    /// Space on a book's separator: open it if it is closed, close it if it is
+    /// open. Remembered. (On a title Space is a letter of the name.)
+    pub fn f3_toggle_book(&mut self) {
+        let dot = self.library.index;
+        if !library::is_separator(self.library.current()) {
+            return;
+        }
+        let Some(title) = self.library.book_title(dot).map(str::to_string) else {
+            return; // nothing after it: nothing to open or close
+        };
+        if let Some(p) = self.config.open_books.iter().position(|o| *o == title) {
+            self.config.open_books.remove(p);
+        } else {
+            self.config.open_books.push(title);
+        }
+        let _ = self.config.save(&self.void_dir);
+        self.f3_sync_entry();
     }
 
     /// Typing in F3: into the name being given, or over the title.
@@ -3209,6 +3236,10 @@ impl Voider {
     /// a new entry or a merge — there it would split the row being named.)
     pub fn f3_type(&mut self, text: &str) {
         let naming = self.pending_new || self.pending_merge;
+        if text == " " && !naming && library::is_separator(self.library.current()) {
+            self.f3_toggle_book();
+            return;
+        }
         if text == "." && !naming {
             let _ = self.book_insert_separator();
             return;
@@ -3229,7 +3260,7 @@ impl Voider {
     /// ↑/↓ in F3.
     pub fn f3_move(&mut self, delta: isize) {
         let _ = self.f3_leave_entry();
-        self.library.move_by(delta);
+        self.library.move_visible(delta, &self.config.open_books);
         self.f3_sync_entry();
     }
 
@@ -3276,6 +3307,10 @@ impl Voider {
         }
         let idx = self.library.index;
         self.library.entries[idx] = new_fname.clone();
+        if let Some(o) = self.config.open_books.iter_mut().find(|o| **o == fname) {
+            *o = new_fname.clone(); // a book is known by its title: follow the rename
+            let _ = self.config.save(&self.void_dir);
+        }
         self.save_library()?;
         let lib_after = self.lib_state();
         self.undo.record_library(
@@ -3420,11 +3455,12 @@ impl Voider {
     /// Home/End in F3: the first / last entry that is not a separator.
     pub fn f3_jump_edge(&mut self, to_end: bool) {
         let _ = self.f3_leave_entry();
-        let found = if to_end {
-            self.library.entries.iter().rposition(|e| !library::is_separator(e))
-        } else {
-            self.library.entries.iter().position(|e| !library::is_separator(e))
+        let open = self.config.open_books.clone();
+        let on_a_title = |i: &usize| {
+            !library::is_separator(&self.library.entries[*i]) || self.library.is_collapsed(*i, &open)
         };
+        let rows = self.library.visible(&open);
+        let found = if to_end { rows.into_iter().rfind(on_a_title) } else { rows.into_iter().find(on_a_title) };
         if let Some(i) = found {
             self.library.index = i;
         }
@@ -3525,6 +3561,10 @@ impl Voider {
             return;
         }
         let _ = self.book_try_rename();
+        // On a closed book the new row would be hidden: open it so it can be seen.
+        if self.library.is_collapsed(self.library.index, &self.config.open_books) {
+            self.f3_toggle_book();
+        }
         let at = self.library.index;
         self.library.insert_below(at, String::new());
         self.library.index = (at + 1).min(self.library.entries.len() - 1);
@@ -5847,6 +5887,7 @@ mod tests {
         let (_d, mut v) = book();
         v.switch_to(View::F3);
         v.library.entries = vec![".".into(), "0.txt".into(), "Uno.txt".into()];
+        v.config.open_books = vec!["Uno.txt".into()]; // an open book shows its separator
         v.library.index = 0;
         v.f3_sync_entry();
         assert_eq!(v.entry.text(), ".");
@@ -6063,6 +6104,98 @@ mod tests {
         assert_eq!(again.library.index, 1);
     }
 
+    // ── Collapsing books in F3: Space on a book's row, remembered ────────────
+    // rows: 0 . | 1 Uno (title) | 2 Dos | 3 . | 4 trash (title)
+
+    fn fold_app() -> (tempfile::TempDir, Voider) {
+        let (d, mut v) = lib_app(&[".", "Uno.txt", "Dos.txt", ".", "trash.txt"]);
+        v.switch_to(View::F1);
+        v.switch_to(View::F3);
+        (d, v)
+    }
+
+    #[test]
+    fn books_start_closed_and_the_row_reads_its_title_and_count() {
+        let (_d, v) = fold_app();
+        assert_eq!(v.library.index, 0);
+        assert!(v.library.is_collapsed(0, &v.config.open_books));
+        assert_eq!(v.entry.text(), "· Uno · (1)");
+        assert!(!v.caret_visible(), "a closed book's row is not written into");
+    }
+
+    #[test]
+    fn space_on_a_closed_book_opens_it_and_again_closes_it() {
+        let (_d, mut v) = fold_app();
+        v.f3_type(" ");
+        assert_eq!(v.config.open_books, vec!["Uno.txt"]);
+        assert_eq!(v.entry.text(), ".", "open: the separator again");
+        v.f3_type(" ");
+        assert!(v.config.open_books.is_empty());
+        assert_eq!(v.entry.text(), "· Uno · (1)");
+    }
+
+    #[test]
+    fn space_on_a_title_is_still_a_space_in_its_name() {
+        let (_d, mut v) = fold_app();
+        v.f3_type(" "); // open
+        v.f3_move(1); // onto Uno
+        v.entry.end();
+        v.f3_type(" ");
+        assert_eq!(v.entry.text(), "Uno ");
+        assert_eq!(v.config.open_books, vec!["Uno.txt"], "the book stayed open");
+    }
+
+    #[test]
+    fn the_arrows_step_over_a_closed_book() {
+        let (_d, mut v) = fold_app();
+        v.f3_move(1);
+        assert_eq!(v.library.index, 3, "from the closed book straight to the next separator");
+        v.f3_move(-1);
+        assert_eq!(v.library.index, 0);
+        v.f3_type(" "); // open the first one
+        v.f3_move(1);
+        assert_eq!(v.library.index, 1);
+    }
+
+    #[test]
+    fn the_open_books_are_remembered_across_a_restart() {
+        let (d, mut v) = fold_app();
+        v.f3_type(" ");
+        v.switch_to(View::F1);
+        let mut again = Voider::open(d.path(), v.current_file.clone());
+        again.switch_to(View::F3);
+        assert_eq!(again.config.open_books, vec!["Uno.txt"]);
+        assert!(!again.library.is_collapsed(0, &again.config.open_books));
+    }
+
+    #[test]
+    fn renaming_a_books_title_keeps_it_open() {
+        let (_d, mut v) = fold_app();
+        v.f3_type(" ");
+        v.f3_move(1);
+        v.entry.set_text("Uno nuevo");
+        v.book_try_rename().unwrap();
+        assert_eq!(v.config.open_books, vec!["Uno nuevo.txt"]);
+    }
+
+    #[test]
+    fn a_new_entry_on_a_closed_book_opens_it_so_it_can_be_seen() {
+        let (_d, mut v) = fold_app();
+        v.begin_new_chapter();
+        assert!(v.pending_new);
+        assert!(!v.library.is_collapsed(0, &v.config.open_books));
+        assert!(!v.library.is_hidden(v.library.index, &v.config.open_books));
+    }
+
+    #[test]
+    fn home_and_end_land_on_rows_that_are_on_screen() {
+        let (_d, mut v) = fold_app();
+        v.f3_jump_edge(true);
+        assert!(!v.library.is_hidden(v.library.index, &v.config.open_books));
+        v.f3_jump_edge(false);
+        assert!(!v.library.is_hidden(v.library.index, &v.config.open_books));
+    }
+
     // ── Enter on a dot in F3: the whole book, read-only (view 9 in Python) ───
 
     #[test]
@@ -6211,6 +6344,7 @@ mod tests {
     #[test]
     fn a_typed_dot_in_f3_is_a_separator_above() {
         let (_d, mut v) = lib_app(&["Uno.txt", "Dos.txt"]);
+        v.config.open_books = vec!["Dos.txt".into()]; // the new book is open: its separator reads '.'
         v.library.index = 1;
         v.f3_sync_entry();
         v.f3_type(".");
@@ -6222,6 +6356,7 @@ mod tests {
     #[test]
     fn home_and_end_in_f3_go_to_the_first_and_last_title() {
         let (_d, mut v) = lib_app(&[".", "Uno.txt", ".", "Dos.txt", "."]);
+        v.config.open_books = vec!["Uno.txt".into(), "Dos.txt".into()];
         v.library.index = 2;
         v.f3_jump_edge(true);
         assert_eq!(v.library.index, 3);
@@ -8910,6 +9045,7 @@ mod tests {
     fn leaving_and_coming_back_to_f4_keeps_the_mode_and_follows_the_chapter() {
         let (_d, mut v) = bundle_app(false); // Dos
         v.toggle_carousel_view();
+        v.config.open_books = vec!["Uno.txt".into()]; // books are closed by default
         v.switch_to(View::F3);
         v.library.index = v.library.position("Uno.txt").unwrap();
         v.switch_to(View::F4);

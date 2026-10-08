@@ -196,6 +196,89 @@ impl Library {
         true
     }
 
+    // ── Collapsing a book ────────────────────────────────────────────────────
+    //
+    // A book is a separator and the rows after it up to the next separator. Its
+    // first chapter is its title. A book is open if its title's file is in `open`;
+    // otherwise it is closed and all of it but the separator is hidden — the
+    // separator's row then reads `· TITLE · (n)`.
+
+    /// The row range `(first, end)` of the chapters after the separator at `dot`.
+    fn book_rows(&self, dot: usize) -> std::ops::Range<usize> {
+        let mut end = dot + 1;
+        while end < self.entries.len() && !is_separator(&self.entries[end]) {
+            end += 1;
+        }
+        dot + 1..end
+    }
+
+    /// The real chapters of a book: not the portal, not an unnamed row.
+    fn book_chapters(&self, dot: usize) -> Vec<usize> {
+        self.book_rows(dot)
+            .filter(|&i| !self.entries[i].is_empty() && !is_portal(&self.entries[i]))
+            .collect()
+    }
+
+    /// The file of a book's title — its first chapter.
+    pub fn book_title(&self, dot: usize) -> Option<&str> {
+        let first = *self.book_chapters(dot).first()?;
+        Some(self.entries[first].as_str())
+    }
+
+    /// Whether the separator at `dot` stands for a closed book. A separator with
+    /// nothing after it has nothing to close.
+    pub fn is_collapsed(&self, dot: usize, open: &[String]) -> bool {
+        dot < self.entries.len()
+            && is_separator(&self.entries[dot])
+            && self.book_title(dot).is_some_and(|t| !open.iter().any(|o| o == t))
+    }
+
+    /// The separator that owns row `i`: the nearest one above it.
+    fn owner_dot(&self, i: usize) -> Option<usize> {
+        (0..i).rev().find(|&p| is_separator(&self.entries[p]))
+    }
+
+    /// Whether row `i` is hidden inside a closed book (a separator never is).
+    pub fn is_hidden(&self, i: usize, open: &[String]) -> bool {
+        if i >= self.entries.len() || is_separator(&self.entries[i]) {
+            return false;
+        }
+        self.owner_dot(i).is_some_and(|p| self.is_collapsed(p, open))
+    }
+
+    /// `· TITLE · (n)`, n being the chapters that are read — the title is not one.
+    pub fn collapsed_label(&self, dot: usize, open: &[String]) -> String {
+        let _ = open;
+        let chapters = self.book_chapters(dot);
+        let title = chapters.first().map(|&i| display_name(&self.entries[i])).unwrap_or_default();
+        format!("· {title} · ({})", chapters.len().saturating_sub(1))
+    }
+
+    /// The rows that are on screen, in order.
+    pub fn visible(&self, open: &[String]) -> Vec<usize> {
+        (0..self.entries.len()).filter(|&i| !self.is_hidden(i, open)).collect()
+    }
+
+    /// ↑/↓ over what is on screen, wrapping.
+    pub fn move_visible(&mut self, delta: isize, open: &[String]) {
+        let rows = self.visible(open);
+        if rows.is_empty() {
+            return;
+        }
+        let here = rows.iter().position(|&i| i == self.index).unwrap_or(0) as isize;
+        let next = (here + delta).rem_euclid(rows.len() as isize) as usize;
+        self.index = rows[next];
+    }
+
+    /// A cursor left on a hidden row goes to the separator of its book.
+    pub fn snap_to_visible(&mut self, open: &[String]) {
+        if self.is_hidden(self.index, open) {
+            if let Some(p) = self.owner_dot(self.index) {
+                self.index = p;
+            }
+        }
+    }
+
     /// PageUp/PageDown in F3: the separator before / after the cursor, wrapping.
     /// Stays put when there is none.
     pub fn goto_dot(&mut self, direction: isize) {
@@ -381,6 +464,79 @@ mod tests {
             entries: entries.iter().map(|s| s.to_string()).collect(),
             index: 0,
         }
+    }
+
+    // ── Collapsing a book in F3 (design, 2026-10-08) ─────────────────────────
+    // A book is a separator and the rows up to the next one; its first chapter is
+    // its title. Closed, it is ONE row (the separator's) that reads `· TITLE · (n)`,
+    // n being the chapters that are read — the title does not count.
+
+    fn books() -> Library {
+        lib(&["Suelto.txt", ".", "26-10-8.txt", "Uno.txt", "Dos.txt", ".", "OTRO.txt", ".", "0.txt", "Viejo.txt", "c.txt"])
+    }
+    // rows: 0 Suelto | 1 . | 2 26-10-8 | 3 Uno | 4 Dos | 5 . | 6 OTRO | 7 . | 8 0.txt | 9 Viejo | 10 c
+
+    fn closed() -> Vec<String> {
+        Vec::new()
+    }
+
+    #[test]
+    fn a_closed_book_is_one_row_and_the_title_is_not_counted() {
+        let l = books();
+        assert!(l.is_collapsed(1, &closed()));
+        assert_eq!(l.collapsed_label(1, &closed()), "· 26-10-8 · (2)");
+        assert_eq!(l.collapsed_label(5, &closed()), "· OTRO · (0)", "only a title: nothing to read yet");
+        // the portal inside a book is neither title nor chapter
+        assert_eq!(l.collapsed_label(7, &closed()), "· Viejo · (1)");
+    }
+
+    #[test]
+    fn an_open_book_shows_all_its_rows() {
+        let l = books();
+        let open = vec!["26-10-8.txt".to_string()];
+        assert!(!l.is_collapsed(1, &open));
+        assert_eq!(l.visible(&open), vec![0, 1, 2, 3, 4, 5, 7]);
+    }
+
+    #[test]
+    fn closed_books_hide_everything_but_their_separator() {
+        let l = books();
+        assert_eq!(l.visible(&closed()), vec![0, 1, 5, 7]);
+        assert!(l.is_hidden(3, &closed()) && l.is_hidden(9, &closed()));
+        assert!(!l.is_hidden(0, &closed()), "a loose row before any book is always seen");
+        assert!(!l.is_hidden(1, &closed()), "the separator is the closed row");
+    }
+
+    #[test]
+    fn the_cursor_steps_over_hidden_rows_both_ways_and_wraps() {
+        let mut l = books();
+        l.index = 1;
+        l.move_visible(1, &closed());
+        assert_eq!(l.index, 5);
+        l.move_visible(1, &closed());
+        assert_eq!(l.index, 7);
+        l.move_visible(1, &closed());
+        assert_eq!(l.index, 0, "wraps round");
+        l.move_visible(-1, &closed());
+        assert_eq!(l.index, 7);
+    }
+
+    #[test]
+    fn a_cursor_left_on_a_hidden_row_snaps_to_its_books_separator() {
+        let mut l = books();
+        l.index = 4; // Dos, inside the closed 26-10-8
+        l.snap_to_visible(&closed());
+        assert_eq!(l.index, 1);
+        l.index = 4;
+        l.snap_to_visible(&["26-10-8.txt".to_string()]);
+        assert_eq!(l.index, 4, "open: where it was");
+    }
+
+    #[test]
+    fn a_separator_with_nothing_after_it_has_nothing_to_close() {
+        let l = lib(&[".", ".", "A.txt"]);
+        assert!(!l.is_collapsed(0, &closed()));
+        assert_eq!(l.visible(&closed()).len(), 3 - 1 + 0 + 0, "{:?}", l.visible(&closed()));
     }
 
     // ── Alt+↑/↓ in F3 (test_book_reorder.py) ─────────────────────────────────

@@ -1421,7 +1421,6 @@ impl VoiderApp {
         let line_h = self.ring_line_h(ctx, &font);
         let lib = &self.voider.library;
         let reach = (rect.height() / 2.0 / line_h).ceil() as isize;
-        let n = lib.entries.len() as isize;
 
         if let Some(search) = &self.voider.f3_search {
             let m = search.matches.len() as isize;
@@ -1463,11 +1462,16 @@ impl VoiderApp {
             return;
         }
 
+        // What is on screen: a closed book is one row (its separator), its rows hidden.
+        let open = &self.voider.config.open_books;
+        let rows = lib.visible(open);
+        let pos = rows.iter().position(|&i| i == lib.index).unwrap_or(0) as isize;
+        let n = rows.len() as isize;
         if n > 0 {
             // On a dot the book it opens stays lit (the rows below it up to the next dot).
-            let on_dot = library::is_separator(lib.current());
+            let on_dot = library::is_separator(lib.current()) && !lib.is_collapsed(lib.index, open);
             let book = if on_dot {
-                (1..n).take_while(|k| !library::is_separator(&lib.entries[(lib.index as isize + k).rem_euclid(n) as usize])).count()
+                (1..n).take_while(|k| !library::is_separator(&lib.entries[rows[(pos + k).rem_euclid(n) as usize]])).count()
             } else {
                 0
             };
@@ -1475,8 +1479,12 @@ impl VoiderApp {
                 if offset == 0 {
                     continue; // the centre is the editable line, drawn below
                 }
-                let i = (lib.index as isize + offset).rem_euclid(n) as usize;
-                let label = library::display_name(&lib.entries[i]);
+                let i = rows[(pos + offset).rem_euclid(n) as usize];
+                let label = if lib.is_collapsed(i, open) {
+                    lib.collapsed_label(i, open)
+                } else {
+                    library::display_name(&lib.entries[i])
+                };
                 // The chosen line is full; every other is the ring's curve, dimmed.
                 let alpha = ring::to_u8(ring::edit_line_alpha(
                     offset,
@@ -2876,7 +2884,7 @@ mod tests {
         let ctx = egui::Context::default();
         for _ in 0..7 {
             let raw = egui::RawInput { events: vec![key(true), key(false)], ..Default::default() };
-            ctx.run(raw, |ctx| app.handle_input(ctx));
+            let _ = ctx.run(raw, |ctx| app.handle_input(ctx));
             assert_eq!(app.voider.view, before);
         }
         // an odd number of presses leaves the help open, as a toggle would
@@ -2887,6 +2895,7 @@ mod tests {
     fn arrows_walk_through_separators_between_titles_in_both_directions() {
         let (_d, mut app) = f3_app();
         app.voider.library.entries = vec!["Uno.txt".into(), ".".into(), "Dos.txt".into(), ".".into(), ".".into(), "Tres.txt".into()];
+        app.voider.config.open_books = vec!["Dos.txt".into(), "Tres.txt".into()];
         app.voider.library.index = 0;
         app.voider.f3_sync_entry();
         let mut seen = Vec::new();
@@ -3302,10 +3311,30 @@ mod tests {
     }
 
     #[test]
+    fn f3_draws_a_closed_book_as_one_row_and_hides_its_chapters() {
+        let (_d, mut app) = f3_app();
+        app.voider.library.entries = vec![".".into(), "Uno.txt".into(), "Dos.txt".into(), ".".into(), "Tres.txt".into()];
+        app.voider.config.open_books = Vec::new();
+        app.voider.library.index = 0;
+        app.voider.f3_sync_entry();
+        let shown = painted_text(&mut app, |a, p, c, r| a.draw_f3(p, c, r));
+        let texts: Vec<&str> = shown.iter().map(|(t, _)| t.as_str()).collect();
+        assert!(texts.contains(&"· Uno · (1)"), "{texts:?}");
+        assert!(texts.contains(&"· Tres · (0)"), "{texts:?}");
+        assert!(!texts.contains(&"Dos") && !texts.contains(&"Uno"), "closed rows leaked: {texts:?}");
+        // Opened, the rows are there.
+        app.voider.config.open_books = vec!["Uno.txt".into()];
+        let shown = painted_text(&mut app, |a, p, c, r| a.draw_f3(p, c, r));
+        let texts: Vec<&str> = shown.iter().map(|(t, _)| t.as_str()).collect();
+        assert!(texts.contains(&"Dos") && texts.contains(&"Uno"), "{texts:?}");
+    }
+
+    #[test]
     fn in_f3_standing_on_a_dot_the_book_it_opens_stays_lit() {
         let (_d, mut app) = f3_app();
         // Same distance from the dot: one row above (another book), one below (this one).
         app.voider.library.entries = vec!["Otro.txt".into(), ".".into(), "Uno.txt".into(), ".".into(), "Fin.txt".into()];
+        app.voider.config.open_books = vec!["Uno.txt".into()]; // the lit book must be open
         app.voider.library.index = 1;
         app.voider.f3_sync_entry();
         let lit = |app: &mut VoiderApp, text: &str| -> u8 {

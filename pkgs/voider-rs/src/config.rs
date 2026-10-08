@@ -45,6 +45,9 @@ pub struct Config {
     /// What releases a line in F1: `enter` (default; the spacebar too with Caps
     /// on) or `space` (the spacebar always) — the Python's `void_key`.
     pub void_key: String,
+    /// The books F3 shows open, by the file of their title (their first chapter).
+    /// Every other book is closed. Written tab-separated.
+    pub open_books: Vec<String>,
 }
 
 impl Default for Config {
@@ -67,6 +70,7 @@ impl Default for Config {
             last_book_index: None,
             last_book_entry: None,
             void_key: "enter".to_string(),
+            open_books: Vec::new(),
         }
     }
 }
@@ -132,6 +136,9 @@ impl Config {
         if self.reading_size != 13.0 {
             lines.push(format!("reading_size = {}", self.reading_size));
         }
+        if !self.open_books.is_empty() {
+            lines.push(format!("open_books = {}", self.open_books.join("\t")));
+        }
         if self.void_key != "enter" {
             lines.push(format!("void_key = {}", self.void_key));
         }
@@ -177,6 +184,7 @@ impl Config {
                 "reading_hyphen_lang" => c.reading_hyphen_lang = value.to_string(),
                 "last_book_index" => c.last_book_index = value.parse().ok(),
                 "void_key" if !value.is_empty() => c.void_key = value.to_string(),
+                "open_books" => c.open_books = value.split('\t').filter(|s| !s.is_empty()).map(str::to_string).collect(),
                 "reading_font" if !value.is_empty() => c.reading_font = value.to_string(),
                 "reading_size" => {
                     if let Ok(v) = value.parse::<f32>() {
@@ -320,6 +328,7 @@ mod tests {
             last_book_index: Some(444),
             last_book_entry: Some("ATTACK BY DRAWING.txt".into()),
             void_key: "space".into(),
+            open_books: vec!["Uno.txt".into(), "Dos bis.txt".into()],
             reading_font: "Consolas".into(),
             reading_size: 14.0,
         };
