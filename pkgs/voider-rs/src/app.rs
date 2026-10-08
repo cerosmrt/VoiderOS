@@ -1398,14 +1398,26 @@ impl Voider {
             return out;
         }
         let mut i = (self.library.index + 1) % n;
+        let mut titled = false;
         for _ in 0..n.saturating_sub(1) {
             let name = &entries[i];
             if library::is_separator(name) {
                 break;
             }
-            if !library::is_portal(name) {
-                let path = library::chapter_path(&self.void_dir, name);
-                if path.is_file() {
+            let path = library::chapter_path(&self.void_dir, name);
+            if !library::is_portal(name) && !name.is_empty() && path.is_file() {
+                if !titled {
+                    // The first chapter of a book IS its title — and its source: the
+                    // book opens with its name on a page of its own, but what that
+                    // chapter says is material for the others, never read here.
+                    titled = true;
+                    out.push(reading::Section {
+                        title: library::display_name(name).to_uppercase(),
+                        paragraphs: Vec::new(),
+                        name: library::display_name(name),
+                        lines: Vec::new(),
+                    });
+                } else {
                     let lines = void::load_doc(&path).lines;
                     let paragraphs = reformat::lines_to_paragraphs(&lines);
                     if !paragraphs.is_empty() {
@@ -8413,6 +8425,78 @@ mod tests {
         assert_eq!(titles, vec!["UNO", "DOS"]);
     }
 
+    // ── The first chapter of a book is its title — and its source (design, 2026-10-08)
+    // F4 opens the book with its name on the first page; that chapter's own text
+    // is the material the rest is drawn from, so it is never read.
+
+    fn read_book(entries: &[&str]) -> (tempfile::TempDir, Voider) {
+        let (d, mut v) = book(); // Uno.txt: 'de uno', Dos.txt: 'de dos'
+        void::atomic_write(&v.void_dir.join("I/0.txt"), &[".".into(), "borrador".into()], false).unwrap();
+        v.library = Library { entries: entries.iter().map(|s| s.to_string()).collect(), index: 0 };
+        v.save_library().unwrap();
+        v.view = View::F3;
+        v.switch_to(View::F4);
+        (d, v)
+    }
+
+    #[test]
+    fn the_first_chapter_of_a_book_is_its_title_and_its_text_is_not_read() {
+        let (_d, v) = read_book(&[".", "Uno.txt", "Dos.txt"]);
+        let titles: Vec<&str> = v.reading.iter().map(|s| s.title.as_str()).collect();
+        assert_eq!(titles, vec!["UNO", "DOS"]);
+        assert!(v.reading[0].paragraphs.is_empty(), "the title page has no body");
+        assert!(v.reading[0].lines.is_empty());
+        let all: Vec<&String> = v.reading.iter().flat_map(|s| s.paragraphs.iter()).collect();
+        assert!(!all.iter().any(|p| p.contains("de uno")), "the source was read: {all:?}");
+        assert!(all.iter().any(|p| p.contains("de dos")));
+    }
+
+    #[test]
+    fn a_book_with_only_a_title_reads_as_one_title_page() {
+        let (_d, v) = read_book(&[".", "Uno.txt"]);
+        assert_eq!(v.reading.len(), 1);
+        assert_eq!(v.reading[0].title, "UNO");
+        assert!(v.reading[0].paragraphs.is_empty());
+    }
+
+    #[test]
+    fn the_portal_is_never_the_title() {
+        let (_d, v) = read_book(&[".", "0.txt", "Uno.txt", "Dos.txt"]);
+        let titles: Vec<&str> = v.reading.iter().map(|s| s.title.as_str()).collect();
+        assert_eq!(titles, vec!["UNO", "DOS"]);
+    }
+
+    #[test]
+    fn the_book_in_f4_opens_on_a_page_with_only_its_name_and_the_chapters_follow() {
+        let (_d, v) = read_book(&[".", "Uno.txt", "Dos.txt"]);
+        let sections: Vec<(String, Vec<String>)> =
+            v.reading.iter().map(|s| (s.name.clone(), s.lines.clone())).collect();
+        let plan = slides::book_plan(&sections, &v.type_font(), 1748, 2480);
+        assert_eq!(plan.pages.len(), 2, "title page + the one chapter");
+        assert_eq!(plan.pages[0].title.as_deref(), Some("Uno"));
+        assert!(plan.pages[0].lines.is_empty());
+        assert_eq!(plan.pages[1].title.as_deref(), Some("Dos"));
+    }
+
+    #[test]
+    fn the_carousel_of_a_book_starts_with_its_name_and_has_no_blank_slide() {
+        let (_d, v) = read_book(&[".", "Uno.txt", "Dos.txt"]);
+        let plan = slides::plan(&v.carousel_sections(), &v.type_font(), 1080, 1350);
+        assert_eq!(plan[0], slides::Slide::Title("Uno".into()));
+        assert_eq!(plan[1], slides::Slide::Title("Dos".into()), "a blank body slide sits between: {plan:?}");
+    }
+
+    #[test]
+    fn reading_a_single_chapter_is_unchanged() {
+        // Only a BOOK has a title chapter: on a chapter, that chapter is read whole.
+        let (_d, mut v) = book();
+        v.switch_to(View::F3);
+        v.library.index = v.library.position("Uno.txt").unwrap();
+        v.switch_to(View::F4);
+        assert_eq!(v.reading.len(), 1);
+        assert!(v.reading[0].paragraphs.iter().any(|p| p.contains("de uno")));
+    }
+
     #[test]
     fn reading_a_book_skips_the_scratch_portal() {
         let (_d, mut v) = book();
@@ -8666,7 +8750,8 @@ mod tests {
         }
         let txt = std::fs::read_to_string(dir.join("MiLibro.txt")).unwrap();
         assert!(txt.contains("/Uno") && txt.contains("/Dos"));
-        assert!(txt.contains("de uno") && txt.contains("de dos"));
+        // Uno is the book's title: its text is the source, not the book.
+        assert!(txt.contains("de dos") && !txt.contains("de uno"));
     }
 
     #[test]
@@ -8892,8 +8977,8 @@ mod tests {
     fn a_whole_book_numbers_its_slides_continuously_across_chapters() {
         let (d, mut v) = bundle_app(true);
         v.export_carousel("MiLibro").unwrap();
-        // Uno's title (1), Uno's body (2), Dos's title (3), Dos's body (4) — no gaps
-        assert_eq!(slides_in(&d, "MiLibro"), vec!["1_titulo.png", "2.png", "3_titulo.png", "4.png"]);
+        // The book's name (1, Uno is its title: no body), Dos's title (2), Dos's body (3) — no gaps
+        assert_eq!(slides_in(&d, "MiLibro"), vec!["1_titulo.png", "2_titulo.png", "3.png"]);
     }
 
     #[test]
@@ -9004,8 +9089,8 @@ mod tests {
         let slides = slides_in(&d, "MiLibro");
         assert_eq!(slides.first().unwrap(), "1_portada.png");
         assert!(slides.last().unwrap().ends_with("_contratapa.png"));
-        // cover, [Uno: title, body], [Dos: title, body], countercover
-        assert_eq!(slides, vec!["1_portada.png", "2_titulo.png", "3.png", "4_titulo.png", "5.png", "6_contratapa.png"]);
+        // cover, the book's name, [Dos: title, body], countercover
+        assert_eq!(slides, vec!["1_portada.png", "2_titulo.png", "3_titulo.png", "4.png", "5_contratapa.png"]);
     }
 
     #[test]
@@ -9072,7 +9157,7 @@ mod tests {
         v.bundle_type("MiLibro");
         v.bundle_confirm().unwrap();
         assert!(v.bundle_prompt.is_none(), "a carousel has no language to ask");
-        assert_eq!(slides_in(&d, "MiLibro").len(), 4);
+        assert_eq!(slides_in(&d, "MiLibro").len(), 3);
     }
 
     #[test]

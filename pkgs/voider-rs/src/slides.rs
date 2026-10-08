@@ -310,6 +310,10 @@ pub fn plan(sections: &[(String, Vec<String>)], font: &TypeFont, w: u32, h: u32)
         // The title has a slide of its own; the body starts on the next one.
         out.push(Slide::Title(name.clone()));
         let paragraphs = crate::reformat::lines_to_paragraphs(lines);
+        // A section with no text (a book's title page) is just its title slide.
+        if paragraphs.is_empty() {
+            continue;
+        }
         let set = crate::typeset::typeset(font, geo.font_px, geo.block_w, geo.indent, line_h, &paragraphs);
         for page in crate::typeset::paginate(set, line_h, geo.block_h) {
             out.push(Slide::Body(page));
@@ -703,10 +707,11 @@ mod tests {
     }
 
     #[test]
-    fn no_sections_is_no_slides_and_an_empty_chapter_is_a_title_and_a_blank_body() {
+    fn no_sections_is_no_slides_and_an_empty_chapter_is_only_its_title() {
         assert!(plan(&[], &font(), 1080, 1350).is_empty());
+        // (A book's title page is a section with nothing to read: no blank slide after it.)
         let p = plan(&[sec("Vacio", &["."])], &font(), 1080, 1350);
-        assert_eq!(kinds(&p), vec!["title", "body"]);
+        assert_eq!(kinds(&p), vec!["title"]);
     }
 
     #[test]
