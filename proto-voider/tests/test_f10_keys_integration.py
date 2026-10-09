@@ -17,7 +17,8 @@ def _app(tmp_path, monkeypatch):
     app.config = {'keybindings': dict(new_interface.DEFAULT_CONFIG['keybindings'])}
     app._kb = {}
     app.keys_view = None
-    for nm in ('_on_keys_remapped', '_keys_capturing', '_rebuild_kb'):
+    for nm in ('_on_keys_remapped', '_keys_capturing', '_rebuild_kb',
+               '_on_setting_changed', '_apply_font_settings'):
         setattr(app, nm, types.MethodType(getattr(FullscreenCircleApp, nm), app))
     return app
 
@@ -43,8 +44,39 @@ def test_reset_goes_back_to_the_default_live(tmp_path, monkeypatch):
 def test_capturing_flag_follows_the_panel(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch)
     assert not app._keys_capturing()
-    app.keys_view = MagicMock(capturing=True)
+    app.keys_view = MagicMock(busy=True)
     app.current_view = 10
     assert app._keys_capturing()
     app.current_view = 1
     assert not app._keys_capturing()
+
+
+def test_setting_change_is_saved_and_font_applied_without_leaving_f10(tmp_path, monkeypatch):
+    import new_interface
+    from PyQt6.QtGui import QFont
+    app = _app(tmp_path, monkeypatch)
+    saved = []
+    monkeypatch.setattr(new_interface, '_save_config', lambda cfg: saved.append(dict(cfg)))
+    editor_view = MagicMock()
+    app.circular_view = editor_view
+    app.book_view = app.o_reader_view = app.o_browser_view = None
+    app.oracle_o_view = app.metronome_view = app.book_concat_view = app.scratch_view = None
+    app.entry = MagicMock()
+    app.switch_to_view = MagicMock()
+    app.config.update({'font_family': 'Georgia', 'font_size': 12})
+    app._on_setting_changed('font_size', 30)
+    assert app.config['font_size'] == 30 and saved
+    assert isinstance(editor_view.editor.setFont.call_args[0][0], QFont)
+    assert editor_view.editor.setFont.call_args[0][0].pointSize() == 30
+    app.switch_to_view.assert_not_called()               # stays on the list
+
+
+def test_non_font_setting_only_saves(tmp_path, monkeypatch):
+    import new_interface
+    app = _app(tmp_path, monkeypatch)
+    saved = []
+    monkeypatch.setattr(new_interface, '_save_config', lambda cfg: saved.append(dict(cfg)))
+    app.switch_to_view = MagicMock()
+    app._on_setting_changed('carousel_preset', '1:1')
+    assert app.config['carousel_preset'] == '1:1' and saved
+    app.switch_to_view.assert_not_called()

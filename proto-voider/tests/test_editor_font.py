@@ -34,6 +34,8 @@ def _settings_app():
     app.switch_to_view = MagicMock()
     app._prev_view = 0
     app._apply_settings = types.MethodType(FullscreenCircleApp._apply_settings, app)
+    app._apply_font_settings = types.MethodType(
+        FullscreenCircleApp._apply_font_settings, app)
     return app
 
 

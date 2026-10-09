@@ -44,7 +44,6 @@ from views import NormalView, EdgeFade
 from metronome_view import MetronomeView
 from fx_panel import FxPanel
 from help_overlay import HelpOverlay
-from settings_panel import SettingsPanel
 from keys_panel import KeysPanel
 from lock_screen import LockScreen
 from reorder_view import ReorderView
@@ -290,8 +289,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self.reading_view = None    # F4: Reading render of current document
         self._f4_carousel_view = False   # F4: book (A5) vs carousel-ratio preview
         self.vault_view = None      # (Oracle, no longer on F4)
-        self.settings_view = None   # F10: Settings panel
-        self.keys_view = None       # F10: key map list (opens the settings form)
+        self.keys_view = None       # F10: settings + key map, one list
         self.transform_view = None  # F5: Transform — editable O/ line → I/
         self.reorder_view = None    # F5: linear paragraph reorder view
         self._f5_para_idx = 0       # F5 current-paragraph cursor
@@ -428,15 +426,6 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
 
     # ── Settings ──────────────────────────────────────────────────────────────
 
-    def _show_settings_form(self):
-        """F10 → Ajustes…: the old settings form, unchanged."""
-        if not self.settings_view:
-            self.settings_view = SettingsPanel(self)
-            self.settings_view.applied.connect(self._apply_settings)
-            self.stack.addWidget(self.settings_view)
-        self.settings_view.load(self.config)
-        self.stack.setCurrentWidget(self.settings_view)
-
     def _rebuild_kb(self):
         self._kb = {action: _parse_keybinding(ks)
                     for action, ks in self.config.get('keybindings', {}).items()}
@@ -453,12 +442,23 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
     def _keys_capturing(self):
         """True while F10 waits for a key to assign: global handlers must not eat it."""
         kv = getattr(self, 'keys_view', None)
-        return bool(kv and self.current_view == 10 and kv.capturing)
+        return bool(kv and self.current_view == 10 and kv.busy)
+
+    def _on_setting_changed(self, key, value):
+        """A setting edited in the F10 list: save it and apply it, staying in F10."""
+        self.config[key] = value
+        _save_config(self.config)
+        if key in ('font_family', 'font_size'):
+            self._apply_font_settings(self.config)
 
     def _apply_settings(self, settings):
-        """Apply settings from F10 panel: update config, font, and repaint all views."""
+        """Apply a batch of settings: update config, font, and repaint all views."""
         self.config.update(settings)
         _save_config(self.config)
+        self._apply_font_settings(settings)
+        self.switch_to_view(self._prev_view if hasattr(self, '_prev_view') else 0)
+
+    def _apply_font_settings(self, settings):
         fam = settings['font_family']
         sz = int(settings['font_size'])
         self._app_font = QFont(fam, sz)
@@ -475,7 +475,6 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                     editor.setFont(self._app_font)
         if self.entry:
             self.entry.setFont(self._app_font)
-        self.switch_to_view(self._prev_view if hasattr(self, '_prev_view') else 0)
 
     def _apply_editor_style(self, editor, red=False):
         """La hoja de estilo del editor del CircularView: blanca, o roja sobre el
@@ -874,16 +873,17 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self.book_concat_view.update()
             self._book_concat_show_editor()
 
-        elif view_index == 10:  # F10 — key map list; Ajustes… opens the form
+        elif view_index == 10:  # F10 — settings + key map list
             if not self.keys_view:
                 self.keys_view = KeysPanel(self)
                 self.keys_view.remapped.connect(self._on_keys_remapped)
-                self.keys_view.open_settings.connect(self._show_settings_form)
+                self.keys_view.setting_changed.connect(self._on_setting_changed)
                 self.stack.addWidget(self.keys_view)
             defaults = DEFAULT_CONFIG['keybindings']
             own = {a: k for a, k in self.config.get('keybindings', {}).items()
                    if defaults.get(a) != k}
-            self.keys_view.load(defaults, own)
+            from PyQt6.QtGui import QFontDatabase
+            self.keys_view.load(defaults, own, self.config, QFontDatabase.families())
             self.stack.setCurrentWidget(self.keys_view)
             self.entry.hide()
             self.keys_view.setFocus()
