@@ -24,6 +24,8 @@ class KeyRouterMixin:
             self.reading_view.setFocus()
         elif self.current_view == 9 and self.book_concat_view:
             self.book_concat_view.editor.setFocus()
+        elif self.current_view == 10 and getattr(self, 'keys_view', None):
+            self.keys_view.setFocus()
 
     def keyPressEvent(self, event):
         key = event.key()
