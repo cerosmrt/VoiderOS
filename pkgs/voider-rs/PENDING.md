@@ -332,3 +332,5 @@ las de ese documento.
       falta pam (Esc desbloquea solo sin pam); remaps en `keybindings.json`.
 - [ ] F10 como lista de teclas remapeables (Python, 2026-10-09): Rust no tiene remapeo
       (P1-14); el diseño y el formato `keybindings.json` ya están definidos del lado Python.
+- [ ] Menú clicable de accesibilidad (aparece con el mouse, se oculta con teclas) y F10 con ajustes
+      como renglones: hechos en Python el 2026-10-09; en Rust el F10 sigue siendo otra cosa.

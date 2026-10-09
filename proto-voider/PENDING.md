@@ -66,7 +66,7 @@ Diseño: F10 es un anillo de renglones como F3. El primer renglón es el título
 nueva y se guarda en `keybindings.json`; en uno de ajuste, se ve o se cambia el valor.
 - [x] **Fase 1 (B, hecha 2026-10-09):** solo las teclas son renglones. El formulario actual de F10
       (fuente de lectura, tamaño, carrusel, hifenación, carpetas de venta) queda como está.
-- [ ] **Fase 2 (A, lo que Federico quiere después):** los ajustes del formulario también pasan
+- [x] **Fase 2 (A, hecha 2026-10-09):** los ajustes del formulario también pasan
       a ser renglones de la lista y el formulario viejo se retira.
 
 ## Accesibilidad: menú clicable (pedido de Federico, 2026-10-09) — después de F10
@@ -80,3 +80,11 @@ y cómo se muestra la tecla de cada una (se puede leer de `keybindings.json`). R
   Falta verlo en pantalla real (solo probado con tests). Los nombres de acción se muestran
   tal cual (`view f1`, `help`…): faltan etiquetas legibles. No avisa choques entre vistas a
   propósito (Alt+↑ ya repite entre acciones de vistas distintas).
+
+## Hecho el 2026-10-09 (sin probar en pantalla real — Federico prueba al final)
+- F10 fase 2: ajustes como renglones (`keys_model.py`, `keys_panel.py`); `settings_panel.py` retirado.
+  Faltan etiquetas legibles para las acciones y avisos de elegir fuente/color con vista previa.
+- Menú clicable (`menu_bar.py`, `menu_model.py`): aparece al mover el mouse, se oculta con una tecla;
+  cada entrada presiona la tecla de su acción. Pendiente de verlo: tamaño/posición sobre cada vista,
+  si tapa algo importante, y si hace falta un modo "siempre visible" y navegación del menú con teclado
+  (accesibilidad real: lector de pantalla / foco). Las entradas son una primera lista.
