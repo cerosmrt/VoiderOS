@@ -46,9 +46,9 @@ DEFAULT_CONFIG = {
     # never opened unless asked. Both are rows in the F10 list.
     "visualizer_source": "off",       # off | mic | output (what is playing)
     "visualizer_style": "pulse",       # pulse | wave | bars
-    # Dictation (Ctrl+Shift+Space): whisper.cpp offline. Empty model = <void>/stt/ggml-small.bin
+    # Dictation (Ctrl+Shift+Space): faster-whisper, offline. Models live in <void>/stt/.
     "dictation_language": "es",        # es | en | auto
-    "dictation_model": "",
+    "dictation_model": "small",        # tiny | base | small | medium (must be downloaded)
     "working_set_size": 100,
     "keybindings": {
         "view_f1": "F1",

@@ -134,3 +134,26 @@ def test_state_is_off_before_start_and_after_stop():
     eng.start()
     eng.stop()
     assert eng.state == 'off'
+
+
+def test_model_is_warmed_up_before_the_first_phrase_and_state_says_loading():
+    gate = threading.Event()
+    seen = {}
+
+    class _Slow(_Transcriber):
+        def warm_up(self):
+            seen['state_during'] = eng.state
+            gate.wait(2)
+
+    tr = _Slow(['hola'])
+    sig = np.concatenate([_tone(1.0), _silence(1.6)])
+    eng = DictationEngine(tr, lambda: _Source(_chunks(sig)))
+    eng.start()
+    assert _wait_for(lambda: 'state_during' in seen)
+    assert seen['state_during'] == 'loading'
+    assert eng.state == 'loading'
+    gate.set()
+    got = []
+    assert _wait_for(lambda: got.extend(eng.poll()) or got)
+    assert got == ['hola'] and eng.state in ('listening', 'transcribing')
+    eng.stop()

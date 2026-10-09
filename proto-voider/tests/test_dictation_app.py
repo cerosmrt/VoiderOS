@@ -141,3 +141,25 @@ def test_default_key_menu_entry_and_language_setting_exist():
     lang = next(d for d in SETTING_DEFS if d.key == 'dictation_language')
     assert lang.choices == ('es', 'en', 'auto')
     assert DEFAULT_CONFIG['dictation_language'] == 'es'
+
+
+def test_label_says_the_model_is_loading(qapp):
+    app = _app(qapp)
+    app._dictation_toggle()
+    app._dictation.state = 'loading'
+    app._dictation_tick()
+    assert 'cargando' in app._dictation_label.setText.call_args[0][0]
+
+
+def test_make_transcriber_uses_model_size_language_and_void_stt_dir(qapp):
+    from new_interface import FullscreenCircleApp
+    app = _app(qapp)
+    app.config.update({'dictation_model': 'base', 'dictation_language': 'en'})
+    t = FullscreenCircleApp._make_transcriber(app)
+    assert (t.model_size, t.language, t.root) == ('base', 'en', '/v/stt')
+
+
+def test_make_transcriber_defaults_to_the_small_model(qapp):
+    from new_interface import FullscreenCircleApp
+    app = _app(qapp)
+    assert FullscreenCircleApp._make_transcriber(app).model_size == 'small'

@@ -47,7 +47,7 @@ from help_overlay import HelpOverlay
 from keys_panel import KeysPanel
 from menu_bar import MenuBar
 from viz_overlay import VizOverlay
-from transcriber import WhisperCli
+from transcriber import FasterWhisper
 from dictation_engine import DictationEngine
 from audio_monitor import AudioMonitor
 from menu_model import entry_key
@@ -435,9 +435,9 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
     # ── Dictation: speak and the void writes ─────────────────────────────────
 
     def _make_transcriber(self):
-        model = self.config.get('dictation_model') or os.path.join(
-            self.void_dir, 'stt', 'ggml-small.bin')
-        return WhisperCli(model=model, language=self.config.get('dictation_language', 'es'))
+        return FasterWhisper(model_size=self.config.get('dictation_model') or 'small',
+                             language=self.config.get('dictation_language', 'es'),
+                             root=os.path.join(self.void_dir, 'stt'))
 
     def _make_dictation_engine(self, transcriber):
         return DictationEngine(transcriber)
@@ -494,8 +494,8 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self._dictation = None
             self._dictation_show(f'dictado detenido — {err}', seconds=6)
         else:
-            self._dictation_show('… transcribiendo' if eng.state == 'transcribing'
-                                 else '● escuchando')
+            self._dictation_show({'loading': '… cargando el modelo (la primera vez tarda)',
+                                  'transcribing': '… transcribiendo'}.get(eng.state, '● escuchando'))
 
     def _apply_visualizer(self):
         """Point the monitor and the overlay at the configured source and style."""

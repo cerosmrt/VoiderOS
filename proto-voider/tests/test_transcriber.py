@@ -1,25 +1,31 @@
-"""WhisperCli: audio → WAV → whisper-cli → clean text. The subprocess is injected,
-so no model or binary is needed here."""
-import wave
+"""FasterWhisper: audio → text in-process (model loaded once). The model is
+injected, so no download and no library are needed here."""
+from types import SimpleNamespace
 
 import numpy as np
 
-from transcriber import WhisperCli, clean_text, write_wav
+from transcriber import FasterWhisper, clean_text
 
 
-def test_write_wav_is_16bit_mono_at_the_given_rate(tmp_path):
-    path = tmp_path / 'a.wav'
-    write_wav(str(path), np.array([0.0, 0.5, -0.5, 1.0], dtype=np.float32), 16000)
-    with wave.open(str(path)) as w:
-        assert (w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()) == (1, 2, 16000, 4)
+class _Model:
+    def __init__(self, texts):
+        self.texts, self.calls = texts, []
+
+    def transcribe(self, audio, **kw):
+        self.calls.append((audio, kw))
+        return [SimpleNamespace(text=t) for t in self.texts], SimpleNamespace(language='es')
 
 
-def test_write_wav_clips_instead_of_wrapping(tmp_path):
-    path = tmp_path / 'a.wav'
-    write_wav(str(path), np.array([2.0, -2.0], dtype=np.float32), 16000)
-    with wave.open(str(path)) as w:
-        data = np.frombuffer(w.readframes(2), dtype=np.int16)
-    assert data[0] == 32767 and data[1] <= -32767
+def _t(model=None, language='es', **kw):
+    model = model or _Model([' hola ', ' mundo'])
+    loads = []
+
+    def loader(size, root):
+        loads.append((size, root))
+        return model
+    t = FasterWhisper(model_size='small', language=language, root='/r', loader=loader, **kw)
+    t._loads = loads
+    return t, model
 
 
 def test_clean_text_joins_lines_and_trims():
@@ -38,67 +44,58 @@ def test_clean_text_drops_known_silence_hallucinations():
     assert clean_text("Gracias por ver el video.") == ""
 
 
-def test_command_uses_model_language_and_quiet_flags(tmp_path):
-    seen = {}
-
-    def runner(cmd, **kw):
-        seen['cmd'] = cmd
-        return 0, "hola\n"
-
-    t = WhisperCli(model='/m/ggml-small.bin', language='es', runner=runner)
-    assert t.transcribe(np.zeros(1600, dtype=np.float32), 16000) == 'hola'
-    cmd = seen['cmd']
-    assert cmd[0] == 'whisper-cli'
-    assert cmd[cmd.index('-m') + 1] == '/m/ggml-small.bin'
-    assert cmd[cmd.index('-l') + 1] == 'es'
-    assert '-nt' in cmd and '-np' in cmd
-    assert cmd[cmd.index('-f') + 1].endswith('.wav')
+def test_segments_are_joined_into_one_text():
+    t, _ = _t()
+    assert t.transcribe(np.zeros(1600, dtype=np.float32), 16000) == 'hola mundo'
 
 
-def test_auto_language_is_passed_to_whisper_as_auto():
-    seen = {}
-    t = WhisperCli(model='m', language='auto',
-                   runner=lambda cmd, **kw: (seen.update(cmd=cmd) or (0, 'x')))
+def test_language_is_passed_and_auto_means_detect():
+    t, m = _t(language='es')
     t.transcribe(np.zeros(1600, dtype=np.float32), 16000)
-    assert seen['cmd'][seen['cmd'].index('-l') + 1] == 'auto'
+    assert m.calls[0][1]['language'] == 'es'
+    t, m = _t(language='auto')
+    t.transcribe(np.zeros(1600, dtype=np.float32), 16000)
+    assert m.calls[0][1]['language'] is None
 
 
-def test_failure_gives_empty_text_and_remembers_the_error():
-    t = WhisperCli(model='m', language='es', runner=lambda cmd, **kw: (1, 'boom'))
+def test_model_is_loaded_once_and_reused():
+    t, _ = _t()
+    for _ in range(3):
+        t.transcribe(np.zeros(1600, dtype=np.float32), 16000)
+    assert t._loads == [('small', '/r')]
+
+
+def test_warm_up_loads_the_model_ahead_of_the_first_phrase():
+    t, _ = _t()
+    t.warm_up()
+    assert t._loads == [('small', '/r')]
+    t.transcribe(np.zeros(1600, dtype=np.float32), 16000)
+    assert len(t._loads) == 1
+
+
+def test_audio_is_resampled_to_16k_when_given_another_rate():
+    t, m = _t()
+    t.transcribe(np.zeros(4410, dtype=np.float32), 44100)
+    assert len(m.calls[0][0]) == 1600
+
+
+def test_a_loader_or_model_failure_gives_empty_text_and_an_error():
+    def loader(size, root):
+        raise RuntimeError('no model files')
+    t = FasterWhisper(model_size='small', language='es', root='/r', loader=loader)
     assert t.transcribe(np.zeros(1600, dtype=np.float32), 16000) == ''
-    assert 'boom' in t.last_error
+    assert 'no model files' in t.last_error
 
 
-def test_missing_binary_is_reported_not_raised():
-    def runner(cmd, **kw):
-        raise FileNotFoundError('whisper-cli')
-
-    t = WhisperCli(model='m', language='es', runner=runner)
-    assert t.transcribe(np.zeros(1600, dtype=np.float32), 16000) == ''
-    assert 'whisper-cli' in t.last_error
-
-
-def test_temp_wav_is_removed_afterwards(tmp_path):
-    import os
-    seen = {}
-
-    def runner(cmd, **kw):
-        seen['wav'] = cmd[cmd.index('-f') + 1]
-        assert os.path.exists(seen['wav'])
-        return 0, 'hola'
-
-    WhisperCli(model='m', language='es', runner=runner).transcribe(
-        np.zeros(1600, dtype=np.float32), 16000)
-    assert not os.path.exists(seen['wav'])
-
-
-def test_availability_checks_binary_and_model(tmp_path):
-    model = tmp_path / 'm.bin'
-    t = WhisperCli(model=str(model), language='es', which=lambda b: None)
+def test_availability_needs_the_library_and_the_local_model():
+    t = FasterWhisper(model_size='small', root='/r', has_lib=lambda: False,
+                      has_model=lambda root, size: True)
     ok, why = t.available()
-    assert not ok and 'whisper-cli' in why
-    t = WhisperCli(model=str(model), language='es', which=lambda b: '/bin/whisper-cli')
+    assert not ok and 'faster-whisper' in why
+    t = FasterWhisper(model_size='small', root='/r', has_lib=lambda: True,
+                      has_model=lambda root, size: False)
     ok, why = t.available()
-    assert not ok and 'm.bin' in why
-    model.write_bytes(b'x')
+    assert not ok and 'small' in why and '/r' in why
+    t = FasterWhisper(model_size='small', root='/r', has_lib=lambda: True,
+                      has_model=lambda root, size: True)
     assert t.available() == (True, '')

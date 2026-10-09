@@ -46,6 +46,7 @@ class DictationEngine:
         self._lock = threading.Lock()
         self._running = False
         self._busy = 0                 # phrases waiting or being transcribed
+        self._loading = False          # the model is being loaded (first start: ~30 s)
         self.error = ''
 
     @property
@@ -54,6 +55,8 @@ class DictationEngine:
             return 'error'
         if not self._running:
             return 'off'
+        if self._loading:
+            return 'loading'
         return 'transcribing' if self._busy else 'listening'
 
     def start(self):
@@ -63,6 +66,7 @@ class DictationEngine:
         self._stop = threading.Event()
         self._phrases = queue.Queue()
         self._running = True
+        self._loading = hasattr(self.transcriber, 'warm_up')
         threading.Thread(target=self._listen, args=(self._stop, self._phrases),
                          daemon=True).start()
         threading.Thread(target=self._transcribe, args=(self._phrases,),
@@ -114,6 +118,13 @@ class DictationEngine:
             phrases.put(None)
 
     def _transcribe(self, phrases):
+        warm = getattr(self.transcriber, 'warm_up', None)
+        if warm is not None:
+            try:
+                warm()
+            except Exception as e:
+                print(f"Dictation: {e}", file=sys.stderr)
+            self._loading = False
         while True:
             audio = phrases.get()
             if audio is None:
