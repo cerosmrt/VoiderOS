@@ -14,9 +14,11 @@
 //! Built on `std::os::unix::net`, so it costs no dependency, and polled once a
 //! frame from the event loop rather than driven by callbacks.
 //!
-//! The socket name is voider-rs's own, deliberately NOT shared with the Python.
-//! The two point at different voids; a save here must never make the real
-//! Voider reload something that isn't its own.
+//! The socket is the Python's own (`voider_ipc` in the temp dir, where Qt's
+//! `QLocalServer` puts it) and the protocol is the same, so a Voider in Rust and
+//! one in Python open on the same void tell each other what they save. Whoever
+//! starts first is the hub; the other connects. A save in a different void
+//! changes nothing for the other: it only reloads a file it has open.
 
 #![allow(dead_code)]
 
@@ -27,12 +29,10 @@ use std::path::{Path, PathBuf};
 
 const PREFIX: &str = "SAVED:";
 
-/// Where the socket lives: the runtime dir if there is one, else /tmp.
+/// Where the socket lives: `voider_ipc` in the temp dir — Qt's `QDir::tempPath()`
+/// (`TMPDIR`, else `/tmp`), exactly where the Python's `QLocalServer` listens.
 pub fn default_socket_path() -> PathBuf {
-    let dir = std::env::var("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/tmp"));
-    dir.join("voider-rs.sock")
+    std::env::temp_dir().join("voider_ipc")
 }
 
 #[cfg(unix)]
@@ -243,6 +243,12 @@ fn parse(msg: &str) -> Option<PathBuf> {
 #[cfg(unix)]
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_default_socket_is_the_pythons() {
+        assert_eq!(default_socket_path().file_name().unwrap(), "voider_ipc");
+        assert_eq!(default_socket_path().parent().unwrap(), std::env::temp_dir());
+    }
+
     use super::*;
 
     fn sock(dir: &tempfile::TempDir) -> PathBuf {
