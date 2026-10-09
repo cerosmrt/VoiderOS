@@ -46,6 +46,8 @@ from fx_panel import FxPanel
 from help_overlay import HelpOverlay
 from keys_panel import KeysPanel
 from menu_bar import MenuBar
+from viz_overlay import VizOverlay
+from audio_monitor import AudioMonitor
 from menu_model import entry_key
 from lock_screen import LockScreen
 from reorder_view import ReorderView
@@ -428,6 +430,19 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
 
     # ── Settings ──────────────────────────────────────────────────────────────
 
+    def _apply_visualizer(self):
+        """Point the monitor and the overlay at the configured source and style."""
+        self._audio.set_source(self.config.get('visualizer_source', 'off'))
+        self._viz.set_style(self.config.get('visualizer_style', 'pulse'))
+
+    def _viz_tick(self):
+        """~30 fps: feed the overlay while a circle view (F1/F2) is showing."""
+        on = (self.config.get('visualizer_source', 'off') != 'off'
+              and self.current_view in (0, 1))
+        self._viz.setVisible(on)
+        if on:
+            self._viz.feed(self._audio.frame())
+
     def _rebuild_kb(self):
         self._kb = {action: _parse_keybinding(ks)
                     for action, ks in self.config.get('keybindings', {}).items()}
@@ -466,6 +481,8 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         _save_config(self.config)
         if key in ('font_family', 'font_size'):
             self._apply_font_settings(self.config)
+        elif key.startswith('visualizer_'):
+            self._apply_visualizer()
 
     def _apply_settings(self, settings):
         """Apply a batch of settings: update config, font, and repaint all views."""
@@ -917,6 +934,15 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         # Self-contained — writes <tmp>/voider-fx and runs `voider-fx-update`.
         # Opened by a Hyprland keybind that drops a request file we poll for.
         # Clickable menu (accessibility): shows on mouse movement, hides on keys.
+        # Audio visualizer (F1/F2 circle). The monitor opens nothing while off.
+        self._audio = AudioMonitor(start=False)
+        self._viz = VizOverlay(self)
+        self._viz.setGeometry(self.rect())
+        self._viz.hide()
+        self._viz_timer = QTimer(self)
+        self._viz_timer.timeout.connect(self._viz_tick)
+        self._viz_timer.start(33)
+        self._apply_visualizer()
         self._menu_bar = MenuBar(self)
         self._menu_bar.set_keybindings(self.config.get('keybindings', {}))
         self._menu_bar.setGeometry(0, 0, self.width(), self._menu_bar.bar_height())
@@ -1032,6 +1058,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._f3_search_bar.move(bar_x, bar_y)
 
     def closeEvent(self, event):
+        self._audio.close()
         self._save_last_line()
         self._ws_save_position()
         self._save_working_set()
@@ -1059,6 +1086,8 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._reposition_entry()
         if getattr(self, '_menu_bar', None):
             self._menu_bar.setGeometry(0, 0, self.width(), self._menu_bar.preferred_height())
+        if getattr(self, '_viz', None):
+            self._viz.setGeometry(self.rect())
         if self._help_overlay:
             self._help_overlay.setGeometry(self.rect())
         if self._lock_screen:
