@@ -30,6 +30,10 @@ SETTING_DEFS = (
                choices=('1:1', '4:5', '1.91:1', 'custom')),
     SettingDef('carousel_w', 'carousel width', 'int', lo=100, hi=8000),
     SettingDef('carousel_h', 'carousel height', 'int', lo=100, hi=8000),
+    SettingDef('visualizer_source', 'visualizer source', 'choice',
+               choices=('off', 'mic', 'output')),
+    SettingDef('visualizer_style', 'visualizer style', 'choice',
+               choices=('pulse', 'wave', 'bars')),
 )
 _DEF_BY_KEY = {d.key: d for d in SETTING_DEFS}
 _HEX = re.compile(r'^#[0-9a-fA-F]{6}$')

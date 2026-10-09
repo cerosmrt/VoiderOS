@@ -42,6 +42,10 @@ DEFAULT_CONFIG = {
     "carousel_w": 1080,
     "carousel_h": 1350,
     "text_color": "#ffffff",
+    # Audio visualizer around the F1/F2 circle. Source off by default: the mic is
+    # never opened unless asked. Both are rows in the F10 list.
+    "visualizer_source": "off",       # off | mic | output (what is playing)
+    "visualizer_style": "pulse",       # pulse | wave | bars
     "working_set_size": 100,
     "keybindings": {
         "view_f1": "F1",

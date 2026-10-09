@@ -43,7 +43,7 @@ def test_arrows_and_pages_move_the_selection(qapp):
     _press(p, K.Key_Up)
     assert p.model.index == len(p.model.rows) - 1       # wrapped
     _press(p, K.Key_PageUp)
-    assert p.model.index == 0
+    assert p.model.index == len(p.model.rows) - 1 - 10
 
 
 def test_enter_then_a_key_remaps_and_emits(qapp):

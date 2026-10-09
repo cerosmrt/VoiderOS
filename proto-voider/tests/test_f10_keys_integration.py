@@ -113,3 +113,54 @@ def test_remap_updates_the_menu_hints(tmp_path, monkeypatch):
     app._on_keys_remapped({'export_doc': 'Ctrl+K'})
     app._menu_bar.set_keybindings.assert_called()
     assert app._menu_bar.set_keybindings.call_args[0][0]['export_doc'] == 'Ctrl+K'
+
+
+# ── visualizador de audio ────────────────────────────────────────────────────
+
+def _viz_app(tmp_path, monkeypatch):
+    from new_interface import FullscreenCircleApp
+    app = _app(tmp_path, monkeypatch)
+    app.config.update({'visualizer_source': 'mic', 'visualizer_style': 'bars'})
+    app._audio = MagicMock()
+    app._audio.frame.return_value = {'level': 0.5, 'wave': [0.0], 'bands': [0.1]}
+    app._viz = MagicMock()
+    for nm in ('_apply_visualizer', '_viz_tick'):
+        setattr(app, nm, types.MethodType(getattr(FullscreenCircleApp, nm), app))
+    return app
+
+
+def test_apply_visualizer_sets_source_and_style(tmp_path, monkeypatch):
+    app = _viz_app(tmp_path, monkeypatch)
+    app._apply_visualizer()
+    app._audio.set_source.assert_called_with('mic')
+    app._viz.set_style.assert_called_with('bars')
+
+
+def test_changing_the_setting_reapplies_the_visualizer(tmp_path, monkeypatch):
+    import new_interface
+    app = _viz_app(tmp_path, monkeypatch)
+    monkeypatch.setattr(new_interface, '_save_config', lambda cfg: None)
+    app._on_setting_changed('visualizer_source', 'output')
+    app._audio.set_source.assert_called_with('output')
+
+
+def test_tick_feeds_the_overlay_only_in_the_circle_views(tmp_path, monkeypatch):
+    app = _viz_app(tmp_path, monkeypatch)
+    app.current_view = 0
+    app._viz_tick()
+    app._viz.feed.assert_called_once()
+    app._viz.setVisible.assert_called_with(True)
+    app._viz.reset_mock()
+    app.current_view = 2                                   # F3: no circle
+    app._viz_tick()
+    app._viz.feed.assert_not_called()
+    app._viz.setVisible.assert_called_with(False)
+
+
+def test_tick_does_nothing_when_the_source_is_off(tmp_path, monkeypatch):
+    app = _viz_app(tmp_path, monkeypatch)
+    app.config['visualizer_source'] = 'off'
+    app.current_view = 0
+    app._viz_tick()
+    app._viz.feed.assert_not_called()
+    app._viz.setVisible.assert_called_with(False)

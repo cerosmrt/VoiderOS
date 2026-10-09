@@ -24,10 +24,11 @@ def test_rows_are_title_then_settings_then_actions():
     m = _m()
     actions = [r.action for r in m.rows]
     assert actions[0] == TITLE_ROW
-    assert actions[1:8] == ['set:font_family', 'set:font_size', 'set:text_color',
-                            'set:bg_color', 'set:carousel_preset', 'set:carousel_w',
-                            'set:carousel_h']
-    assert actions[8:] == ['help', 'view_f1', 'rebase']
+    assert actions[1:10] == ['set:font_family', 'set:font_size', 'set:text_color',
+                             'set:bg_color', 'set:carousel_preset', 'set:carousel_w',
+                             'set:carousel_h', 'set:visualizer_source',
+                             'set:visualizer_style']
+    assert actions[10:] == ['help', 'view_f1', 'rebase']
 
 
 def test_row_shows_current_key_and_custom_flag():
@@ -237,3 +238,14 @@ def test_cycle_does_nothing_on_a_text_setting_or_key_row():
     assert m.cycle(1) is None
     _goto(m, 'help')
     assert m.cycle(1) is None
+
+
+def test_visualizer_source_and_style_are_choices_that_cycle():
+    m = _sm({'visualizer_source': 'off', 'visualizer_style': 'pulse'})
+    _goto(m, 'set:visualizer_source')
+    assert m.cycle(1) == ('visualizer_source', 'mic')
+    assert m.cycle(1) == ('visualizer_source', 'output')
+    assert m.cycle(1) == ('visualizer_source', 'off')
+    _goto(m, 'set:visualizer_style')
+    assert m.cycle(1) == ('visualizer_style', 'wave')
+    assert m.cycle(1) == ('visualizer_style', 'bars')
