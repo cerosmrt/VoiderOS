@@ -158,6 +158,25 @@ def _write_json(path, obj):
         print(f"⚠️ Error writing {os.path.basename(path)}: {e}")
 
 
+def _overrides_path_for(config_path):
+    return os.path.join(os.path.dirname(config_path), 'keybindings.json')
+
+
+def _load_key_overrides(config_path):
+    """Only the keys the user remapped (keybindings.json next to config.json).
+    Kept apart from config.json so a new build never overwrites them."""
+    path = _overrides_path_for(config_path)
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+    except Exception as e:
+        print(f"⚠️ Error loading keybindings.json: {e}")
+        return {}
+
+
 def _load_config_from(config_path):
     """Committed config (merged over DEFAULT_CONFIG), then runtime state overlaid
     on top. One merged dict — callers keep using self.config[...] unchanged."""
@@ -171,7 +190,8 @@ def _load_config_from(config_path):
             print(f"⚠️ Error loading config: {e}")
     config.update(data)
     merged_kb = dict(DEFAULT_CONFIG['keybindings'])
-    merged_kb.update(data.get('keybindings', {}))
+    merged_kb.update(data.get('keybindings', {}))          # legacy remaps
+    merged_kb.update(_load_key_overrides(config_path))        # keybindings.json wins
     config['keybindings'] = merged_kb
     sp = _state_path_for(config_path)
     if os.path.exists(sp):
@@ -190,6 +210,11 @@ def _save_config_to(config_path, config):
     _write_json(_state_path_for(config_path),
                 {k: config[k] for k in STATE_KEYS if k in config})
     rest = {k: v for k, v in config.items() if k not in STATE_KEYS}
+    # Defaults (and whatever lives in keybindings.json) are never frozen into
+    # config.json: a newer build's defaults must be able to take effect.
+    defaults, own = DEFAULT_CONFIG['keybindings'], _load_key_overrides(config_path)
+    rest['keybindings'] = {a: ks for a, ks in config.get('keybindings', {}).items()
+                            if defaults.get(a) != ks and own.get(a) != ks}
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             cur = json.load(f)
