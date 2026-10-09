@@ -58,3 +58,13 @@ Se desarrolla en `proto-voider/` con tests primero, y recién después se promue
 - Nota 4: el fix de input transparente está en el código desde 2026-09-10 (c79ff45); el .exe de
   Windows probablemente es anterior. Reconstruir el exe y probar antes de tocar más.
 - Nota 3: hecha la capa keybindings.json; falta el MENÚ en la app para remapear (sin diseñar).
+
+## F10 como lista tipo F3 (pedido de Federico, 2026-10-09)
+Diseño: F10 es un anillo de renglones como F3. El primer renglón es el título
+("Configuración", no editable); los demás son parámetros/funciones con su valor o tecla.
+↑/↓ y RePág/AvPág navegan; Enter entra al renglón: en uno de tecla, se aprieta la combinación
+nueva y se guarda en `keybindings.json`; en uno de ajuste, se ve o se cambia el valor.
+- [~] **Fase 1 (B, decidida):** solo las teclas son renglones. El formulario actual de F10
+      (fuente de lectura, tamaño, carrusel, hifenación, carpetas de venta) queda como está.
+- [ ] **Fase 2 (A, lo que Federico quiere después):** los ajustes del formulario también pasan
+      a ser renglones de la lista y el formulario viejo se retira.
