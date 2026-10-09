@@ -326,3 +326,7 @@ las de ese documento.
 - [ ] **F4 sobre un capítulo suelto que es el primero de su libro**: Python muestra su
       contenido (Federico pidió ese capítulo explícitamente); Rust hoy lo trata como título
       sin leerlo. Decidir y alinear (2026-10-09).
+- [ ] Hechas en Python el 2026-10-09 y no en Rust: Ctrl+Z/redo llevan el cursor a la línea que
+      cambió; posición guardada sola cada 2 s y al cerrar; Ctrl+F en F3 abre con la lista de F3
+      (con separadores); refoco del editor al volver de otra ventana; candado sin caída si
+      falta pam (Esc desbloquea solo sin pam); remaps en `keybindings.json`.

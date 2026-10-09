@@ -42,14 +42,19 @@ Se desarrolla en `proto-voider/` con tests primero, y recién después se promue
       (queda el título, sin página aparte). Si se pide ese capítulo suelto, se muestra entero.
       Tests escritos (fallan); falta implementar. Esperando que cierres proto.
 - [x] 2. Esc → pide contraseña (`lock_screen.py`), con cualquier clave se "bugea" y sale.
-- [ ] 7. Ctrl+Z restaura también la posición del cursor (`undo_manager.py`).
-- [ ] 6. A veces no se guarda la posición del cursor al cerrar.
-- [ ] 1. Comando en F2 que borra todos los separadores (para hacer shuffle).
-- [ ] 5. Ctrl+F en F3 debe verse igual que F3.
-- [ ] 4. Opacidad (Windows empaquetado): al bajarla el fondo se aclara pero el input queda negro.
-- [ ] 3. Menú de remapeo de teclas con JSON propio (solo los cambios), para que un exe nuevo no pise.
-- [ ] 9. Al volver a Voider desde otra ventana (VSCodium) no andan flechas arriba/abajo ni las
+- [x] 7. Ctrl+Z restaura también la posición del cursor (`undo_manager.py`).
+- [x] 6. A veces no se guarda la posición del cursor al cerrar.
+- [~] 1. Comando en F2 que borra todos los separadores (para hacer shuffle).
+- [x] 5. Ctrl+F en F3 debe verse igual que F3.
+- [~] 4. Opacidad (Windows empaquetado): al bajarla el fondo se aclara pero el input queda negro.
+- [x] 3. Menú de remapeo de teclas con JSON propio (solo los cambios), para que un exe nuevo no pise.
+- [x] 9. Al volver a Voider desde otra ventana (VSCodium) no andan flechas arriba/abajo ni las
       letras, pero sí RePág/AvPág. Hipótesis: al reactivarse la ventana el foco no vuelve al
       editor (`_refocus_active_editor` en `key_router_mixin.py` solo se llama al cambiar de vista).
 - Nota del 2 (candado): el Python del launcher `proto-voider` no tiene `python-pam`; falta
   agregarlo en Nix (lo hace Federico con el rebuild). Mientras tanto, sin pam, Esc desbloquea.
+- Nota 1: ya existe `collapse_paragraphs` (Ctrl+Shift+Delete) en F2, pero solo actúa con el cursor
+  en el primer punto; decidir si hay que relajar esa condición.
+- Nota 4: el fix de input transparente está en el código desde 2026-09-10 (c79ff45); el .exe de
+  Windows probablemente es anterior. Reconstruir el exe y probar antes de tocar más.
+- Nota 3: hecha la capa keybindings.json; falta el MENÚ en la app para remapear (sin diseñar).
