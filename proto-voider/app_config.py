@@ -46,6 +46,9 @@ DEFAULT_CONFIG = {
     # never opened unless asked. Both are rows in the F10 list.
     "visualizer_source": "off",       # off | mic | output (what is playing)
     "visualizer_style": "pulse",       # pulse | wave | bars
+    # Dictation (Ctrl+Shift+Space): whisper.cpp offline. Empty model = <void>/stt/ggml-small.bin
+    "dictation_language": "es",        # es | en | auto
+    "dictation_model": "",
     "working_set_size": 100,
     "keybindings": {
         "view_f1": "F1",
@@ -96,6 +99,7 @@ DEFAULT_CONFIG = {
         "export_sale_bundle": "Ctrl+Shift+A",
         "collapse_paragraphs": "Ctrl+Shift+Delete",
         "typewriter_toggle": "Ctrl+Shift+W",
+        "dictation_toggle": "Ctrl+Shift+Space",
         "backup": "Ctrl+B"
     }
 }

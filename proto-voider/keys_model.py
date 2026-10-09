@@ -34,6 +34,8 @@ SETTING_DEFS = (
                choices=('off', 'mic', 'output')),
     SettingDef('visualizer_style', 'visualizer style', 'choice',
                choices=('pulse', 'wave', 'bars')),
+    SettingDef('dictation_language', 'dictation language', 'choice',
+               choices=('es', 'en', 'auto')),
 )
 _DEF_BY_KEY = {d.key: d for d in SETTING_DEFS}
 _HEX = re.compile(r'^#[0-9a-fA-F]{6}$')

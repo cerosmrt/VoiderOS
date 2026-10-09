@@ -24,11 +24,11 @@ def test_rows_are_title_then_settings_then_actions():
     m = _m()
     actions = [r.action for r in m.rows]
     assert actions[0] == TITLE_ROW
-    assert actions[1:10] == ['set:font_family', 'set:font_size', 'set:text_color',
+    assert actions[1:11] == ['set:font_family', 'set:font_size', 'set:text_color',
                              'set:bg_color', 'set:carousel_preset', 'set:carousel_w',
                              'set:carousel_h', 'set:visualizer_source',
-                             'set:visualizer_style']
-    assert actions[10:] == ['help', 'view_f1', 'rebase']
+                             'set:visualizer_style', 'set:dictation_language']
+    assert actions[11:] == ['help', 'view_f1', 'rebase']
 
 
 def test_row_shows_current_key_and_custom_flag():

@@ -47,6 +47,8 @@ from help_overlay import HelpOverlay
 from keys_panel import KeysPanel
 from menu_bar import MenuBar
 from viz_overlay import VizOverlay
+from transcriber import WhisperCli
+from dictation_engine import DictationEngine
 from audio_monitor import AudioMonitor
 from menu_model import entry_key
 from lock_screen import LockScreen
@@ -429,6 +431,71 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self.book_view.update()
 
     # ── Settings ──────────────────────────────────────────────────────────────
+
+    # ── Dictation: speak and the void writes ─────────────────────────────────
+
+    def _make_transcriber(self):
+        model = self.config.get('dictation_model') or os.path.join(
+            self.void_dir, 'stt', 'ggml-small.bin')
+        return WhisperCli(model=model, language=self.config.get('dictation_language', 'es'))
+
+    def _make_dictation_engine(self, transcriber):
+        return DictationEngine(transcriber)
+
+    def _dictation_target(self):
+        return QApplication.focusWidget()
+
+    def _dictation_show(self, text, seconds=0):
+        lbl = self._dictation_label
+        lbl.setText(text)
+        lbl.setGeometry(0, self.height() - 60, self.width(), 40)
+        lbl.show()
+        lbl.raise_()
+        if seconds:
+            QTimer.singleShot(int(seconds * 1000), lambda: self._dictation is None and lbl.hide())
+
+    def _dictation_toggle(self):
+        """Dictation on/off. While on it always listens; each phrase is typed at the
+        cursor of the line you are on, so you can keep typing and correcting."""
+        if self._dictation is not None:
+            self._dictation.stop()
+            self._dictation = None
+            self._dictation_label.hide()
+            print('🎙 Dictado OFF')
+            return
+        transcriber = self._make_transcriber()
+        ok, why = transcriber.available()
+        if not ok:
+            print(f'🎙 Dictado no disponible: {why}')
+            self._dictation_show(f'dictado no disponible — {why}', seconds=6)
+            return
+        self._dictation = self._make_dictation_engine(transcriber)
+        self._dictation.start()
+        self._dictation_show('● escuchando')
+        print('🎙 Dictado ON')
+
+    def _dictation_insert(self, text):
+        ed = self._dictation_target()
+        if not isinstance(ed, QLineEdit) or ed.isReadOnly():
+            print(f'🎙 (no hay dónde escribir) {text}')
+            return
+        before = ed.text()[:ed.cursorPosition()]
+        ed.insert((' ' if before and not before.endswith(' ') else '') + text)
+
+    def _dictation_tick(self):
+        eng = self._dictation
+        if eng is None:
+            return
+        for text in eng.poll():
+            self._dictation_insert(text)
+        if eng.state == 'error':
+            err = eng.error
+            eng.stop()
+            self._dictation = None
+            self._dictation_show(f'dictado detenido — {err}', seconds=6)
+        else:
+            self._dictation_show('… transcribiendo' if eng.state == 'transcribing'
+                                 else '● escuchando')
 
     def _apply_visualizer(self):
         """Point the monitor and the overlay at the configured source and style."""
@@ -943,6 +1010,18 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._viz_timer.timeout.connect(self._viz_tick)
         self._viz_timer.start(33)
         self._apply_visualizer()
+        # Dictation status line (bottom centre) + the poll that types what was heard.
+        from PyQt6.QtWidgets import QLabel
+        self._dictation = None
+        self._dictation_label = QLabel(self)
+        self._dictation_label.setStyleSheet(
+            'color: rgba(255,255,255,170); background: transparent; font: 12pt Sans Serif;')
+        self._dictation_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._dictation_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._dictation_label.hide()
+        self._dictation_timer = QTimer(self)
+        self._dictation_timer.timeout.connect(self._dictation_tick)
+        self._dictation_timer.start(150)
         self._menu_bar = MenuBar(self)
         self._menu_bar.set_keybindings(self.config.get('keybindings', {}))
         self._menu_bar.setGeometry(0, 0, self.width(), self._menu_bar.bar_height())
@@ -1058,6 +1137,8 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._f3_search_bar.move(bar_x, bar_y)
 
     def closeEvent(self, event):
+        if getattr(self, '_dictation', None) is not None:
+            self._dictation.stop()
         self._audio.close()
         self._save_last_line()
         self._ws_save_position()
