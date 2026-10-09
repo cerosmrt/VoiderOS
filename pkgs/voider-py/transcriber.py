@@ -1,19 +1,18 @@
-"""transcriber.py — turns a phrase of audio into text with whisper.cpp.
+"""transcriber.py — turns a phrase of audio into text with faster-whisper.
 
-Runs the `whisper-cli` binary (offline: your voice never leaves the machine) on a
-temporary WAV and cleans up what it prints. The subprocess runner is injectable
-so everything but the model itself is testable. Failures never raise: the text
-comes back empty and `last_error` says why."""
+In-process and offline: your voice never leaves the machine. The model is loaded
+once (warm_up() does it ahead of the first phrase, since it takes ~30 s) and
+reused for every phrase. Failures never raise: the text comes back empty and
+`last_error` says why. The model loader is injectable so everything but the
+model itself is testable.
+
+(whisper.cpp was tried first; the nixpkgs build of whisper-cpp 1.7.5 here
+segfaults in ggml_backend_dev_backend_reg — it ships without the CPU backend.)"""
+import glob
 import os
 import re
-import shutil
-import subprocess
-import tempfile
-import wave
 
 import numpy as np
-
-BINARY = 'whisper-cli'
 
 # What whisper prints on silence/noise, or invents out of it.
 _PLACEHOLDER = re.compile(r'^\s*[\[\(\*].*[\]\)\*]\s*$')
@@ -22,16 +21,7 @@ _HALLUCINATIONS = (
     'gracias por ver', 'suscríbete', 'subtitles by', 'thanks for watching',
     'thank you for watching',
 )
-
-
-def write_wav(path, samples, rate):
-    """float32 -1..1 → 16-bit mono WAV, clipped (never wrapped)."""
-    pcm = (np.clip(np.asarray(samples, dtype=np.float32), -1.0, 1.0) * 32767).astype(np.int16)
-    with wave.open(path, 'wb') as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(rate)
-        w.writeframes(pcm.tobytes())
+RATE = 16000
 
 
 def clean_text(raw):
@@ -50,44 +40,63 @@ def clean_text(raw):
     return text
 
 
-def _run(cmd, **kw):
-    p = subprocess.run(cmd, capture_output=True, text=True, **kw)
-    return p.returncode, (p.stdout if p.returncode == 0 else (p.stderr or p.stdout))
+def _has_lib():
+    import importlib.util
+    return importlib.util.find_spec('faster_whisper') is not None
 
 
-class WhisperCli:
-    def __init__(self, model, language='es', threads=4, runner=_run, which=shutil.which):
-        self.model, self.language, self.threads = model, language, threads
-        self._run, self._which = runner, which
+def _has_model(root, size):
+    """True when faster-whisper-<size> is already under `root` (no download)."""
+    return bool(glob.glob(os.path.join(root, f'models--Systran--faster-whisper-{size}',
+                                       'snapshots', '*', 'model.bin')))
+
+
+def _load(size, root):
+    from faster_whisper import WhisperModel
+    return WhisperModel(size, device='cpu', compute_type='int8',
+                        download_root=root, local_files_only=True)
+
+
+class FasterWhisper:
+    def __init__(self, model_size='small', language='es', root='', loader=_load,
+                 has_lib=_has_lib, has_model=_has_model):
+        self.model_size, self.language, self.root = model_size, language, root
+        self._loader, self._has_lib, self._has_model = loader, has_lib, has_model
+        self._model = None
         self.last_error = ''
 
     def available(self):
-        """(True, '') when the binary and the model exist, else (False, why)."""
-        if not self._which(BINARY):
-            return False, f"falta {BINARY} (whisper-cpp) en el PATH"
-        if not os.path.isfile(self.model):
-            return False, f"falta el modelo: {self.model}"
+        """(True, '') when the library and the local model exist, else (False, why)."""
+        if not self._has_lib():
+            return False, 'falta la librería faster-whisper (python)'
+        if not self._has_model(self.root, self.model_size):
+            return False, f"falta el modelo '{self.model_size}' en {self.root}"
         return True, ''
 
-    def transcribe(self, samples, rate):
-        fd, wav = tempfile.mkstemp(suffix='.wav', prefix='voider-dictation-')
-        os.close(fd)
+    def warm_up(self):
+        """Load the model now (slow) so the first phrase does not wait for it."""
         try:
-            write_wav(wav, samples, rate)
-            cmd = [BINARY, '-m', self.model, '-l', self.language, '-t', str(self.threads),
-                   '-nt', '-np', '-f', wav]
-            try:
-                code, out = self._run(cmd)
-            except OSError as e:
-                self.last_error = f"{BINARY}: {e}"
-                return ''
-            if code != 0:
-                self.last_error = (out or '').strip()[-300:]
-                return ''
+            if self._model is None:
+                self._model = self._loader(self.model_size, self.root)
             self.last_error = ''
-            return clean_text(out)
-        finally:
-            try:
-                os.unlink(wav)
-            except OSError:
-                pass
+        except Exception as e:
+            self.last_error = str(e)
+
+    def transcribe(self, samples, rate):
+        samples = np.asarray(samples, dtype=np.float32)
+        if rate != RATE and len(samples):
+            n = int(len(samples) * RATE / rate)
+            samples = np.interp(np.linspace(0, len(samples) - 1, n),
+                                np.arange(len(samples)), samples).astype(np.float32)
+        self.warm_up()
+        if self._model is None:
+            return ''
+        try:
+            segments, _info = self._model.transcribe(
+                samples, language=None if self.language == 'auto' else self.language,
+                beam_size=1, vad_filter=False, condition_on_previous_text=False)
+            self.last_error = ''
+            return clean_text('\n'.join(s.text.strip() for s in segments))
+        except Exception as e:
+            self.last_error = str(e)
+            return ''
