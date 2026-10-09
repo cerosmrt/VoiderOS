@@ -122,3 +122,50 @@ class TestLockScreenLogic:
             ls._try_unlock()
 
             mock_instance.authenticate.assert_called_once_with('federico', 'pw')
+
+
+class TestLockScreenWithoutPam:
+    """Sin el módulo pam (p. ej. el Python de proto), Enter no debe tirar la app."""
+
+    def _locked(self, text='whatever'):
+        ls = _FakeLockScreen()
+        ls.show_lock()
+        ls._password_text = text
+        return ls
+
+    def test_enter_without_pam_does_not_raise_and_stays_locked(self):
+        ls = self._locked()
+        with patch('lock_screen.pam', None):
+            ls._try_unlock()
+        assert ls.isVisible()
+        ls._error_label.setText.assert_called()
+        ls._error_label.show.assert_called()
+
+    def test_authenticate_error_does_not_raise_and_stays_locked(self):
+        ls = self._locked()
+        with patch('lock_screen.pam') as mock_pam_mod:
+            mock_pam_mod.pam.return_value.authenticate.side_effect = OSError('boom')
+            ls._try_unlock()
+        assert ls.isVisible()
+        ls._error_label.setText.assert_called()
+
+    def _esc(self, ls):
+        from PyQt6.QtCore import Qt
+        from lock_screen import LockScreen
+        ev = MagicMock()
+        ev.key.return_value = Qt.Key.Key_Escape
+        LockScreen.keyPressEvent(ls, ev)
+        return ev
+
+    def test_escape_unlocks_when_pam_is_missing(self):
+        ls = self._locked()
+        with patch('lock_screen.pam', None):
+            ev = self._esc(ls)
+        assert not ls.isVisible()
+        ev.accept.assert_called()
+
+    def test_escape_does_not_unlock_when_pam_exists(self):
+        ls = self._locked()
+        with patch('lock_screen.pam', MagicMock()):
+            self._esc(ls)
+        assert ls.isVisible()
