@@ -1014,12 +1014,9 @@ class F3Mixin:
         self._book_settle_pending()
         self._f3_search_active = True
         self._f3_search_saved = self.book_ring.index
-        display = [l for l in self.book_ring.lines if l != '.'] or ['.']
-        self._f3_display_ring = LineRing(display)
-        # Start at the file currently highlighted in F3
-        cur = self.book_ring.current()
-        if cur and cur != '.' and cur in display:
-            self._f3_display_ring.index = display.index(cur)
+        # Mirror F3: the same list (separators included), same row highlighted.
+        self._f3_display_ring = LineRing(list(self.book_ring.lines) or ['.'])
+        self._f3_display_ring.index = self.book_ring.index
         self.book_view.search_mode = True
         self.book_view.ring = self._f3_display_ring
         self.book_view._offset = 0.0
@@ -1049,7 +1046,7 @@ class F3Mixin:
             return
         q = text.strip().lower()
         if not q:
-            filtered = [l for l in self.book_ring.lines if l != '.'] or ['.']
+            filtered = list(self.book_ring.lines) or ['.']
         else:
             filtered = [l for l in self.book_ring.lines if l != '.' and q in l.lower()] or ['.']
         self._f3_display_ring = LineRing(filtered)
