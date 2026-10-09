@@ -64,7 +64,7 @@ Diseño: F10 es un anillo de renglones como F3. El primer renglón es el título
 ("Configuración", no editable); los demás son parámetros/funciones con su valor o tecla.
 ↑/↓ y RePág/AvPág navegan; Enter entra al renglón: en uno de tecla, se aprieta la combinación
 nueva y se guarda en `keybindings.json`; en uno de ajuste, se ve o se cambia el valor.
-- [~] **Fase 1 (B, decidida):** solo las teclas son renglones. El formulario actual de F10
+- [x] **Fase 1 (B, hecha 2026-10-09):** solo las teclas son renglones. El formulario actual de F10
       (fuente de lectura, tamaño, carrusel, hifenación, carpetas de venta) queda como está.
 - [ ] **Fase 2 (A, lo que Federico quiere después):** los ajustes del formulario también pasan
       a ser renglones de la lista y el formulario viejo se retira.
@@ -75,3 +75,8 @@ Exportar, Guardar, Salir, Menú, Opciones…) que **aparece solo al mover el mou
 al usar el teclado** (mismo criterio que el cursor auto-oculto, `cursor_autohide.py`).
 Cada entrada llama a las funciones que hoy están solo en teclas. Falta diseñar: qué entradas,
 y cómo se muestra la tecla de cada una (se puede leer de `keybindings.json`). Rust después.
+- Fase 1 hecha: F10 abre `KeysPanel` (`keys_panel.py`, modelo `keys_model.py`); Enter captura la
+  tecla nueva, Supr restaura el default, la última fila "Ajustes…" abre el formulario de antes.
+  Falta verlo en pantalla real (solo probado con tests). Los nombres de acción se muestran
+  tal cual (`view f1`, `help`…): faltan etiquetas legibles. No avisa choques entre vistas a
+  propósito (Alt+↑ ya repite entre acciones de vistas distintas).

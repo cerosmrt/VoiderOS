@@ -330,3 +330,5 @@ las de ese documento.
       cambió; posición guardada sola cada 2 s y al cerrar; Ctrl+F en F3 abre con la lista de F3
       (con separadores); refoco del editor al volver de otra ventana; candado sin caída si
       falta pam (Esc desbloquea solo sin pam); remaps en `keybindings.json`.
+- [ ] F10 como lista de teclas remapeables (Python, 2026-10-09): Rust no tiene remapeo
+      (P1-14); el diseño y el formato `keybindings.json` ya están definidos del lado Python.
