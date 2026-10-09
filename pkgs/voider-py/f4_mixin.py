@@ -61,8 +61,11 @@ class F4Mixin:
                 if fn != '0.txt':                      # skip scratch portals
                     fpath = self._library_path_cache.get(fn)
                     if fpath and os.path.isfile(fpath):
-                        secs.append((os.path.splitext(fn)[0],
-                                     self._reading_file_lines(fpath)))
+                        # The first chapter is the book's title/source: shown by
+                        # name, its text is never read.
+                        lines = ([] if not secs
+                                 else self._reading_file_lines(fpath))
+                        secs.append((os.path.splitext(fn)[0], lines))
                 i = (i + 1) % n
             if secs:
                 return secs, False
