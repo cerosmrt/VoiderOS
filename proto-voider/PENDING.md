@@ -36,3 +36,18 @@ Se desarrolla en `proto-voider/` con tests primero, y recién después se promue
 ## Cosas tuyas sin commitear (no las toqué)
 - `proto-voider/io_mixin.py`, `proto-voider/config.json`, `roadmap/pending.txt`,
   `proto-voider/d`.
+
+## Bugs que pasaste (2026-10-09), en este orden
+- [ ] 8. Omitir el contenido del primer capítulo de un libro en F4 / slides / PDF / EPUB / TXT
+      (queda el título, sin página aparte). Si se pide ese capítulo suelto, se muestra entero.
+      Tests escritos (fallan); falta implementar. Esperando que cierres proto.
+- [ ] 2. Esc → pide contraseña (`lock_screen.py`), con cualquier clave se "bugea" y sale.
+- [ ] 7. Ctrl+Z restaura también la posición del cursor (`undo_manager.py`).
+- [ ] 6. A veces no se guarda la posición del cursor al cerrar.
+- [ ] 1. Comando en F2 que borra todos los separadores (para hacer shuffle).
+- [ ] 5. Ctrl+F en F3 debe verse igual que F3.
+- [ ] 4. Opacidad (Windows empaquetado): al bajarla el fondo se aclara pero el input queda negro.
+- [ ] 3. Menú de remapeo de teclas con JSON propio (solo los cambios), para que un exe nuevo no pise.
+- [ ] 9. Al volver a Voider desde otra ventana (VSCodium) no andan flechas arriba/abajo ni las
+      letras, pero sí RePág/AvPág. Hipótesis: al reactivarse la ventana el foco no vuelve al
+      editor (`_refocus_active_editor` en `key_router_mixin.py` solo se llama al cambiar de vista).

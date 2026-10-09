@@ -321,3 +321,8 @@ las de ese documento.
   `roadmap/pending.txt`, `proto-voider/d`.
 - Antes de cualquier rebuild: `pkgs/voider-py/config.json` ya está restaurado, pero no
   correr nunca la suite de tests de `pkgs/voider-py` (pisa ese config).
+
+### Diferencias nuevas: Python hace y Rust no (anotar acá cada una)
+- [ ] **F4 sobre un capítulo suelto que es el primero de su libro**: Python muestra su
+      contenido (Federico pidió ese capítulo explícitamente); Rust hoy lo trata como título
+      sin leerlo. Decidir y alinear (2026-10-09).
