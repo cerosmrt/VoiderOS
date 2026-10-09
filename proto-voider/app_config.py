@@ -135,6 +135,38 @@ def _parse_keybinding(s):
     return key, mods
 
 
+_MOD_ORDER = (('Ctrl', Qt.KeyboardModifier.ControlModifier),
+              ('Alt', Qt.KeyboardModifier.AltModifier),
+              ('Shift', Qt.KeyboardModifier.ShiftModifier))
+
+
+def _format_keybinding(key, mods):
+    """Inverse of _parse_keybinding: (Key_F, Ctrl|Shift) -> 'Ctrl+Shift+F'.
+    None when the key can't be written down so that it loads back identically
+    (bare modifier, or a key outside the key map)."""
+    key = int(key)
+    name = next((n for n, k in _KEY_MAP.items() if int(k) == key and n != 'Enter'), None)
+    if name is None:
+        qt_name = getattr(Qt.Key(key), 'name', '') if key in {int(k) for k in Qt.Key} else ''
+        base = qt_name[4:] if qt_name.startswith('Key_') else ''
+        if len(base) == 1 and base.isalnum():
+            name = base
+    if name is None:
+        return None
+    text = '+'.join([m for m, flag in _MOD_ORDER if mods & flag] + [name])
+    parsed_key, parsed_mods = _parse_keybinding(text)
+    if parsed_key is None or int(parsed_key) != key:
+        return None
+    return text
+
+
+def _save_key_overrides(config_path, overrides):
+    """Write keybindings.json with only the entries that differ from the defaults."""
+    defaults = DEFAULT_CONFIG['keybindings']
+    own = {a: ks for a, ks in overrides.items() if defaults.get(a) != ks}
+    _write_json(_overrides_path_for(config_path), own)
+
+
 # Volatile, per-session runtime state. These live in a separate, git-ignored
 # state file (state.json) next to config.json — never in the committed config —
 # so a runtime write can't churn or truncate the committed defaults/keybindings
