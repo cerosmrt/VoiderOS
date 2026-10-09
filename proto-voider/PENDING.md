@@ -99,14 +99,15 @@ Por verificar en uso: que `pyaudio` encuentre el dispositivo *monitor* en tu Pip
 y en Windows la salida (monitor) no existe: allí solo sirve el micrófono (hace falta WASAPI loopback).
 Ideas: más estilos, elegir dispositivo concreto, sensibilidad (hoy `GAIN=6`), mostrarlo en más vistas.
 
-## Dictado (hablar → el void escribe) — hecho, sin probar con voz real
+## Dictado (hablar → el void escribe) — hecho; probado de punta a punta con voz de piper
 Ctrl+Shift+Space (remapeable en F10) enciende/apaga. Encendido, escucha siempre; cada frase (voz +
-pausa de ~1 s) se transcribe con whisper.cpp (`whisper-cli`, offline) y se inserta en el cursor de la
+pausa de ~1 s) se transcribe con faster-whisper (offline, en proceso) y se inserta en el cursor de la
 línea enfocada: se puede seguir tecleando y corregir en el medio. Idioma `dictation_language`
-(es/en/auto) en F10. Modelo: `<void>/stt/ggml-small.bin` (fuera de git vía `.git/info/exclude`).
-Requiere `whisper-cpp` en Nix (agregado a `nix/modules/voider.nix`: falta TU rebuild) y el modelo.
-Por probar: latencia real en esta máquina; que no transcriba ruido/TTS (filtra marcadores y
-alucinaciones típicas de whisper en silencio); que ande con el micrófono real.
+(es/en/auto) en F10; modelo `dictation_model` (small) en `<void>/stt/` (ya descargado, fuera de git).
+**Para que ande en proto hace falta TU rebuild**: `faster-whisper` (y `python-pam`) ya están en
+`nix/profiles/dev.nix`. La primera vez que se enciende carga el modelo (~30 s, dice "cargando").
+Whisper.cpp de nixpkgs (1.7.5) se cae al cargar (le falta el backend de CPU), por eso faster-whisper.
+Medido: ~6 s por frase en CPU. Falta probar con micrófono real y ruido de cuarto.
 Pendiente / ideas: pausar el dictado mientras habla el TTS (si no, se transcribe a sí mismo);
 comandos de voz ("punto", "nueva línea"); modo en vivo; modelo más chico (`base`) si `small` va lento;
 aviso de "sin modelo" más visible; en F3/F5 solo se inserta si hay un campo de texto enfocado.
