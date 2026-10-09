@@ -68,3 +68,10 @@ nueva y se guarda en `keybindings.json`; en uno de ajuste, se ve o se cambia el 
       (fuente de lectura, tamaño, carrusel, hifenación, carpetas de venta) queda como está.
 - [ ] **Fase 2 (A, lo que Federico quiere después):** los ajustes del formulario también pasan
       a ser renglones de la lista y el formulario viejo se retira.
+
+## Accesibilidad: menú clicable (pedido de Federico, 2026-10-09) — después de F10
+Su coach le pidió trabajar la accesibilidad. Idea: una barra de menú clicable (Archivo,
+Exportar, Guardar, Salir, Menú, Opciones…) que **aparece solo al mover el mouse y se oculta
+al usar el teclado** (mismo criterio que el cursor auto-oculto, `cursor_autohide.py`).
+Cada entrada llama a las funciones que hoy están solo en teclas. Falta diseñar: qué entradas,
+y cómo se muestra la tecla de cada una (se puede leer de `keybindings.json`). Rust después.
