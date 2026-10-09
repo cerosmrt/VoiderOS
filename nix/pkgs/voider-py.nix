@@ -10,6 +10,7 @@ let
     pyaudio
     watchdog
     python-pam
+    faster-whisper  # dictado (Ctrl+Shift+Space)
   ]);
 
   qtwayland = pkgs.qt6.qtwayland;

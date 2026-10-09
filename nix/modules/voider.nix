@@ -9,6 +9,7 @@ let
   # Shared Python env — used by both voider-py and voider-proto
   voiderPython = pkgs.python3.withPackages (ps: with ps; [
     pyqt6 numpy pyaudio watchdog langdetect pyphen
+    faster-whisper  # dictado (Ctrl+Shift+Space): reconocimiento de voz offline; modelo en <void>/stt/
     ebooklib  # F4 Ctrl+Shift+A: EPUB export, part of the PDF+EPUB+TXT sale bundle
   ]);
 
@@ -648,7 +649,6 @@ in
     pkgs.yt-dlp
     pkgs.hyprlock
     pkgs.piper-tts
-    pkgs.whisper-cpp   # dictado (Ctrl+Shift+Space): whisper-cli, offline; modelo en <void>/stt/
     pkgs.alsa-utils
     pkgs.grim
     pkgs.wl-clipboard
