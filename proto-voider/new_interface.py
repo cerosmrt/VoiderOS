@@ -11,7 +11,7 @@ import app_config as _app_config
 from app_config import (
     CONFIG_PATH, DEFAULT_CONFIG, _KEY_MAP, _MOD_MAP,
     _parse_keybinding, _clean_book_title, _qt_msg_handler,
-    _load_config_from, _save_config_to,
+    _load_config_from, _save_config_to, _save_key_overrides,
 )
 
 
@@ -45,6 +45,7 @@ from metronome_view import MetronomeView
 from fx_panel import FxPanel
 from help_overlay import HelpOverlay
 from settings_panel import SettingsPanel
+from keys_panel import KeysPanel
 from lock_screen import LockScreen
 from reorder_view import ReorderView
 
@@ -290,6 +291,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._f4_carousel_view = False   # F4: book (A5) vs carousel-ratio preview
         self.vault_view = None      # (Oracle, no longer on F4)
         self.settings_view = None   # F10: Settings panel
+        self.keys_view = None       # F10: key map list (opens the settings form)
         self.transform_view = None  # F5: Transform — editable O/ line → I/
         self.reorder_view = None    # F5: linear paragraph reorder view
         self._f5_para_idx = 0       # F5 current-paragraph cursor
@@ -425,6 +427,33 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self.book_view.update()
 
     # ── Settings ──────────────────────────────────────────────────────────────
+
+    def _show_settings_form(self):
+        """F10 → Ajustes…: the old settings form, unchanged."""
+        if not self.settings_view:
+            self.settings_view = SettingsPanel(self)
+            self.settings_view.applied.connect(self._apply_settings)
+            self.stack.addWidget(self.settings_view)
+        self.settings_view.load(self.config)
+        self.stack.setCurrentWidget(self.settings_view)
+
+    def _rebuild_kb(self):
+        self._kb = {action: _parse_keybinding(ks)
+                    for action, ks in self.config.get('keybindings', {}).items()}
+
+    def _on_keys_remapped(self, overrides):
+        """Save only the remaps (keybindings.json) and use them right away."""
+        _save_key_overrides(CONFIG_PATH, overrides)
+        merged = dict(DEFAULT_CONFIG['keybindings'])
+        merged.update(overrides)
+        self.config['keybindings'] = merged
+        _save_config(self.config)
+        self._rebuild_kb()
+
+    def _keys_capturing(self):
+        """True while F10 waits for a key to assign: global handlers must not eat it."""
+        kv = getattr(self, 'keys_view', None)
+        return bool(kv and self.current_view == 10 and kv.capturing)
 
     def _apply_settings(self, settings):
         """Apply settings from F10 panel: update config, font, and repaint all views."""
@@ -845,14 +874,19 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self.book_concat_view.update()
             self._book_concat_show_editor()
 
-        elif view_index == 10:  # F10 — settings panel
-            if not self.settings_view:
-                self.settings_view = SettingsPanel(self)
-                self.settings_view.applied.connect(self._apply_settings)
-                self.stack.addWidget(self.settings_view)
-            self.settings_view.load(self.config)
-            self.stack.setCurrentWidget(self.settings_view)
+        elif view_index == 10:  # F10 — key map list; Ajustes… opens the form
+            if not self.keys_view:
+                self.keys_view = KeysPanel(self)
+                self.keys_view.remapped.connect(self._on_keys_remapped)
+                self.keys_view.open_settings.connect(self._show_settings_form)
+                self.stack.addWidget(self.keys_view)
+            defaults = DEFAULT_CONFIG['keybindings']
+            own = {a: k for a, k in self.config.get('keybindings', {}).items()
+                   if defaults.get(a) != k}
+            self.keys_view.load(defaults, own)
+            self.stack.setCurrentWidget(self.keys_view)
             self.entry.hide()
+            self.keys_view.setFocus()
 
         self._tts_on_view(view_index)
 
@@ -1238,6 +1272,8 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         # Backtick is a bare (no-modifier) key, so a focused text field would type
         # it instead of letting the router see it. Intercept it here so the scratch
         # round-trip works from F1/F2 too, not only F5.
+        if event.type() == QEvent.Type.KeyPress and self._keys_capturing():
+            return super().eventFilter(obj, event)
         if event.type() == QEvent.Type.KeyPress and not event.isAutoRepeat() \
                 and self._matches(event.key(), event.modifiers(), 'scratch_toggle'):
             self._goto_scratch_toggle()
