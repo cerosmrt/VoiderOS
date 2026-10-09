@@ -38,10 +38,10 @@ Se desarrolla en `proto-voider/` con tests primero, y recién después se promue
   `proto-voider/d`.
 
 ## Bugs que pasaste (2026-10-09), en este orden
-- [ ] 8. Omitir el contenido del primer capítulo de un libro en F4 / slides / PDF / EPUB / TXT
+- [x] 8. Omitir el contenido del primer capítulo de un libro en F4 / slides / PDF / EPUB / TXT
       (queda el título, sin página aparte). Si se pide ese capítulo suelto, se muestra entero.
       Tests escritos (fallan); falta implementar. Esperando que cierres proto.
-- [ ] 2. Esc → pide contraseña (`lock_screen.py`), con cualquier clave se "bugea" y sale.
+- [x] 2. Esc → pide contraseña (`lock_screen.py`), con cualquier clave se "bugea" y sale.
 - [ ] 7. Ctrl+Z restaura también la posición del cursor (`undo_manager.py`).
 - [ ] 6. A veces no se guarda la posición del cursor al cerrar.
 - [ ] 1. Comando en F2 que borra todos los separadores (para hacer shuffle).
@@ -51,3 +51,5 @@ Se desarrolla en `proto-voider/` con tests primero, y recién después se promue
 - [ ] 9. Al volver a Voider desde otra ventana (VSCodium) no andan flechas arriba/abajo ni las
       letras, pero sí RePág/AvPág. Hipótesis: al reactivarse la ventana el foco no vuelve al
       editor (`_refocus_active_editor` en `key_router_mixin.py` solo se llama al cambiar de vista).
+- Nota del 2 (candado): el Python del launcher `proto-voider` no tiene `python-pam`; falta
+  agregarlo en Nix (lo hace Federico con el rebuild). Mientras tanto, sin pam, Esc desbloquea.

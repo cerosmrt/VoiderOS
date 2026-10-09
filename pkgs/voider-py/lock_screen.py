@@ -11,6 +11,14 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPainter, QColor, QFont
 
 
+def _release(widget):
+    """Hide the lock and hand the focus back to the active editor."""
+    widget.hide()
+    parent = widget.parentWidget()
+    if parent and hasattr(parent, '_refocus_active_editor'):
+        parent._refocus_active_editor()
+
+
 class LockScreen(QWidget):
     """Full-screen overlay that locks Voider until the Linux password is entered."""
 
@@ -66,12 +74,22 @@ class LockScreen(QWidget):
     def _try_unlock(self):
         password = self._password_input.text()
         user = getpass.getuser()
-        p = pam.pam()
-        if p.authenticate(user, password):
-            self.hide()
-            parent = self.parentWidget()
-            if parent and hasattr(parent, '_refocus_active_editor'):
-                parent._refocus_active_editor()
+        if pam is None:
+            # An exception escaping a Qt slot aborts the whole app.
+            self._password_input.clear()
+            self._error_label.setText("PAM not available — Esc to unlock")
+            self._error_label.show()
+            return
+        try:
+            ok = pam.pam().authenticate(user, password)
+        except Exception as e:
+            self._password_input.clear()
+            self._error_label.setText(f"authentication error: {e}")
+            self._error_label.show()
+            self._password_input.setFocus()
+            return
+        if ok:
+            _release(self)
         else:
             self._password_input.clear()
             self._error_label.setText("incorrect password")
@@ -87,6 +105,8 @@ class LockScreen(QWidget):
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
+            if pam is None:             # no PAM here: Esc is the only way out
+                _release(self)
             event.accept()
             return
         super().keyPressEvent(event)
