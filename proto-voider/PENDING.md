@@ -111,3 +111,34 @@ Medido: ~6 s por frase en CPU. Falta probar con micrófono real y ruido de cuart
 Pendiente / ideas: pausar el dictado mientras habla el TTS (si no, se transcribe a sí mismo);
 comandos de voz ("punto", "nueva línea"); modo en vivo; modelo más chico (`base`) si `small` va lento;
 aviso de "sin modelo" más visible; en F3/F5 solo se inserta si hay un campo de texto enfocado.
+
+## ✅ PARA PROBAR cuando vuelvas (todo hecho el 2026-10-09, nada visto en pantalla real salvo el dictado)
+Antes: snapshot del void (`git -C /home/federico/void add -A I/ && git -C /home/federico/void commit -m "snapshot $(date '+%Y-%m-%d %H:%M:%S')"`),
+y abrir proto con Super+P. El rebuild de Nix ya está hecho (faster-whisper + python-pam).
+- [ ] **Candado (Esc):** con `python-pam` ahora instalado, Esc pide la clave de Linux de verdad: probar clave
+      buena (desbloquea) y mala ("incorrect password", no se cierra la app).
+- [ ] **F4 / primer capítulo:** en F3 parado en un `.` → F4 muestra el libro con el primer capítulo solo como título;
+      parado en ese capítulo suelto → muestra su texto. Probar también carrusel y Ctrl+Shift+A (paquete de venta).
+- [ ] **Ctrl+Z / Ctrl+Shift+Z:** el cursor vuelve a la línea que cambió.
+- [ ] **Posición:** moverse, esperar ~3 s, cerrar kitty con la X, reabrir → misma línea.
+- [ ] **Ctrl+F en F3:** abre con la lista de F3 (con separadores) y la misma fila marcada.
+- [ ] **Foco:** ir a VSCodium y volver → flechas y letras andan sin hacer clic.
+- [ ] **F10 (lista):** ↑/↓ y RePág/AvPág; en un ajuste: ←/→ o Enter (tipear valor, Enter confirma, Esc cancela);
+      en una tecla: Enter + tecla nueva, Supr restaura. Se crea `proto-voider/keybindings.json` solo con tus cambios.
+- [ ] **Menú clicable:** mover el mouse → aparece la barra; escribir → desaparece; probar Archivo / Vistas / Exportar / Opciones.
+      Ver si tapa algo en F1, F2, F3.
+- [ ] **Visualizador:** F10 → `visualizer source` = `mic` (ahora el Blue Snowball es el predeterminado) y hablar;
+      `output` con música o Ctrl+T (TTS); rotar `visualizer style` (pulse/wave/bars). Dejarlo en `off` al terminar.
+- [ ] **Dictado:** Ctrl+Shift+Space (la 1.ª vez carga el modelo ~30 s). Hablar, pausar ~1 s, aparece la frase en el cursor.
+      Teclear en el medio para corregir. Probar `dictation model`: `small` (~7 s por frase de 6 s, mejor) vs `base`
+      (~2 s, se equivoca más con nombres propios: puso "boy" por "Void"). Probar `dictation language`: es / en / auto.
+- [ ] **Opacidad en Windows:** reconstruir el .exe antes de volver a mirar (el arreglo está en el código desde 2026-09-10).
+
+## Ideas / pendientes que salieron al probar
+- Callar el ruido `ALSA lib ... unable to open slave` de la terminal (PortAudio al abrir el mic; inofensivo). Truco con `ctypes`.
+- Que el log del dictado diga cuánto tardó cada frase y con qué modelo (para decidir small vs base).
+- Elegir el micrófono desde F10 (hoy usa el predeterminado del sistema: `wpctl set-default <id>` o pavucontrol).
+- Pausar el dictado mientras habla el TTS (se transcribiría a sí mismo).
+- Etiquetas legibles para las acciones en F10 (hoy `view f1`, `help`…).
+- Entrada directa del visualizador en el menú clicable.
+- Borrar separadores en F2: ya existe `Ctrl+Shift+Delete` pero solo con el cursor en el primer punto; decidir si se relaja.
