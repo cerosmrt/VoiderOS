@@ -648,6 +648,7 @@ in
     pkgs.yt-dlp
     pkgs.hyprlock
     pkgs.piper-tts
+    pkgs.whisper-cpp   # dictado (Ctrl+Shift+Space): whisper-cli, offline; modelo en <void>/stt/
     pkgs.alsa-utils
     pkgs.grim
     pkgs.wl-clipboard

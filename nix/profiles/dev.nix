@@ -13,6 +13,7 @@ let
 
   voiderPython = pkgs.python3.withPackages (ps: with ps; [
     pyqt6 numpy pyaudio watchdog langdetect pyphen
+    python-pam  # el candado (Esc) autentica contra PAM; sin esto proto no puede desbloquear
     ebooklib  # F4 Ctrl+Shift+A: EPUB export, part of the PDF+EPUB+TXT sale bundle
   ]);
 
