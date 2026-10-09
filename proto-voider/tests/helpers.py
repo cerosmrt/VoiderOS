@@ -89,7 +89,7 @@ def make_ring_app(lines, tmp_file=None):
         '_append_new_files_to_library',
         # undo/redo (no-op without _undo, which is set only in the real app)
         '_undo_capture', '_undo_begin', '_undo_commit', '_undo_trackable',
-        '_undo_apply', '_undo_refresh',
+        '_undo_apply', '_undo_refresh', '_undo_cursor_line',
         # F3 library/structural undo
         '_f3_state', '_f3_undo_begin', '_f3_undo_file', '_f3_undo_commit',
         '_f3_restore', '_read_lines_or_none', '_rescue_on_large_shrink',

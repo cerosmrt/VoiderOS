@@ -33,7 +33,7 @@ def _undo_app(tmp_path):
     app.load_doc_lines = MagicMock()
     app._doc_show_editor = MagicMock()
     for nm in ('auto_save_circular', '_atomic_write_lines', '_undo_capture',
-               '_undo_apply', '_undo_refresh', '_undo_begin', '_undo_commit',
+               '_undo_apply', '_undo_refresh', '_undo_cursor_line', '_undo_begin', '_undo_commit',
                '_undo_trackable'):
         setattr(app, nm, types.MethodType(getattr(FullscreenCircleApp, nm), app))
     return app

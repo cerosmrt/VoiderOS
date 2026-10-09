@@ -301,15 +301,32 @@ class IoMixin:
         self._undo_refresh(entry)
         print(("↪️ redo" if redo else "↩️ undo") + f" ({len(entry['files'])} file/s)")
 
+    def _undo_cursor_line(self, entry, cur_abs):
+        """Ring index of the first line that differs between the before/after of the
+        active file in `entry` (None if it isn't part of it). Same normalisation
+        as load_doc_lines: blanks dropped, a leading '.' ensured."""
+        def norm(lines):
+            out = [l.strip() for l in lines if l.strip()]
+            if out and out[0] != '.':
+                out.insert(0, '.')
+            return out
+        for p, before, after in entry['files']:
+            if os.path.abspath(p) != cur_abs:
+                continue
+            b, a = norm(before), norm(after)
+            n = min(len(b), len(a))
+            return next((k for k in range(n) if b[k] != a[k]), n)
+        return None
+
     def _undo_refresh(self, entry):
         """Reload + redraw the active view if it shows a file we just restored."""
         cur = os.path.abspath(self.current_file_path)
         if not any(os.path.abspath(p) == cur for p, _, _ in entry['files']):
             return
-        # Keep the cursor where the user is. load_doc_lines() would otherwise snap
-        # it to the last-saved nav line (which lags by one), so undo looked like it
-        # moved the cursor up a line.
-        keep = self.line_ring.index
+        # Put the cursor on the line the change touched (load_doc_lines() would
+        # otherwise snap it to the last-saved nav line, which lags by one).
+        target = self._undo_cursor_line(entry, cur)
+        keep = self.line_ring.index if target is None else target
         self.load_doc_lines()
         self.line_ring.index = max(0, min(keep, len(self.line_ring.lines) - 1))
         v = getattr(self, 'current_view', None)
