@@ -80,3 +80,36 @@ def test_non_font_setting_only_saves(tmp_path, monkeypatch):
     app._on_setting_changed('carousel_preset', '1:1')
     assert app.config['carousel_preset'] == '1:1' and saved
     app.switch_to_view.assert_not_called()
+
+
+# ── menú clicable ────────────────────────────────────────────────────────────
+
+def test_menu_trigger_presses_the_actions_key(tmp_path, monkeypatch):
+    import new_interface
+    from new_interface import FullscreenCircleApp
+    app = _app(tmp_path, monkeypatch)
+    app._menu_trigger = types.MethodType(FullscreenCircleApp._menu_trigger, app)
+    app._refocus_active_editor = MagicMock()
+    pressed = []
+    app.keyPressEvent = lambda ev: pressed.append((ev.key(), ev.modifiers()))
+    app._menu_trigger('export_doc')                         # Ctrl+S
+    assert pressed == [(Qt.Key.Key_S, Qt.KeyboardModifier.ControlModifier)]
+    app._refocus_active_editor.assert_called()
+
+
+def test_menu_trigger_ignores_unbound_actions(tmp_path, monkeypatch):
+    from new_interface import FullscreenCircleApp
+    app = _app(tmp_path, monkeypatch)
+    app._menu_trigger = types.MethodType(FullscreenCircleApp._menu_trigger, app)
+    app._refocus_active_editor = MagicMock()
+    app.keyPressEvent = MagicMock()
+    app._menu_trigger('does_not_exist')
+    app.keyPressEvent.assert_not_called()
+
+
+def test_remap_updates_the_menu_hints(tmp_path, monkeypatch):
+    app = _app(tmp_path, monkeypatch)
+    app._menu_bar = MagicMock()
+    app._on_keys_remapped({'export_doc': 'Ctrl+K'})
+    app._menu_bar.set_keybindings.assert_called()
+    assert app._menu_bar.set_keybindings.call_args[0][0]['export_doc'] == 'Ctrl+K'

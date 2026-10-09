@@ -45,6 +45,8 @@ from metronome_view import MetronomeView
 from fx_panel import FxPanel
 from help_overlay import HelpOverlay
 from keys_panel import KeysPanel
+from menu_bar import MenuBar
+from menu_model import entry_key
 from lock_screen import LockScreen
 from reorder_view import ReorderView
 
@@ -429,6 +431,20 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
     def _rebuild_kb(self):
         self._kb = {action: _parse_keybinding(ks)
                     for action, ks in self.config.get('keybindings', {}).items()}
+        mb = getattr(self, '_menu_bar', None)
+        if mb is not None:
+            mb.set_keybindings(self.config.get('keybindings', {}))
+
+    def _menu_trigger(self, action):
+        """A menu entry was clicked: press that action's key, exactly as the
+        keyboard would, so every view keeps its own handling."""
+        from PyQt6.QtGui import QKeyEvent
+        pressed = entry_key(action, self.config.get('keybindings', {}))
+        if pressed is None:
+            return
+        key, mods = pressed
+        self.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, key, mods))
+        self._refocus_active_editor()
 
     def _on_keys_remapped(self, overrides):
         """Save only the remaps (keybindings.json) and use them right away."""
@@ -900,6 +916,11 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         # FxPanel: in-app tuner for Hyprland visual effects (CRT/grain/B&W).
         # Self-contained — writes <tmp>/voider-fx and runs `voider-fx-update`.
         # Opened by a Hyprland keybind that drops a request file we poll for.
+        # Clickable menu (accessibility): shows on mouse movement, hides on keys.
+        self._menu_bar = MenuBar(self)
+        self._menu_bar.set_keybindings(self.config.get('keybindings', {}))
+        self._menu_bar.setGeometry(0, 0, self.width(), self._menu_bar.bar_height())
+        self._menu_bar.triggered.connect(self._menu_trigger)
         self._fx_panel = FxPanel(self)
         self._fx_panel.setGeometry(self.rect())
         self._panel_poll = QTimer(self)
@@ -1036,6 +1057,8 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._reposition_entry()
+        if getattr(self, '_menu_bar', None):
+            self._menu_bar.setGeometry(0, 0, self.width(), self._menu_bar.preferred_height())
         if self._help_overlay:
             self._help_overlay.setGeometry(self.rect())
         if self._lock_screen:
@@ -1269,6 +1292,9 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         ah = getattr(self, '_cursor_autohide', None)
         if ah is not None:
             ah.handle_event_type(event.type())
+        mb = getattr(self, '_menu_bar', None)
+        if mb is not None:
+            mb.handle_event_type(event.type())
         # Backtick is a bare (no-modifier) key, so a focused text field would type
         # it instead of letting the router see it. Intercept it here so the scratch
         # round-trip works from F1/F2 too, not only F5.
