@@ -255,7 +255,7 @@ las de ese documento.
       el título/fuente (F4 y exportaciones), F3 con libros colapsables (Espacio),
       typewriter en F2, Ctrl+←/→ por palabra ya está en Python. Va al final, con
       Rust probado. En Python va primero en `proto-voider/`, con tests, y se
-      promueve a `pkgs/voider-py/`.
+      promueve a `pkgs/voider-py/`. El detalle ahora está en `proto-voider/PENDING.md`.
 - [~] **Probar Rust contra el void real** — desde el 2026-10-09 `~/.local/share/voider-rs/void`
       es un enlace a `/home/federico/void` (el de prueba quedó en `void.sandbox`; para
       volver: borrar el enlace y `mv void.sandbox void`). Federico va a pasar una lista
