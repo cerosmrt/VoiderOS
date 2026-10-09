@@ -78,3 +78,32 @@ def test_at_para_true_when_highlight_is_active_file(tmp_path):
     app.current_file_path = app._library_path_cache['A.txt']   # active == highlight
     sections, at_para = app._reading_sections()
     assert at_para is True
+
+
+def test_book_first_chapter_is_title_only(tmp_path):
+    # The first chapter of a book is its title/source: shown by name, never read.
+    app = _app(tmp_path, ['.', 'A', 'B', 'C'], book_index=0)
+    sections, _ = app._reading_sections()
+    assert [t for t, _ in sections] == ['A', 'B', 'C']
+    assert sections[0][1] == []
+    assert sections[1][1] == ['body of B']
+    assert sections[2][1] == ['body of C']
+
+
+def test_book_title_skips_portal_before_it(tmp_path):
+    # '0' is a portal, not a chapter: the title is the first real chapter.
+    app = _app(tmp_path, ['.', '0', 'A', 'B'], book_index=0)
+    app._library_lines = ['.', '0.txt', 'A.txt', 'B.txt']
+    app.book_ring = LineRing(['.', '0', 'A', 'B'])
+    app.book_ring.index = 0
+    sections, _ = app._reading_sections()
+    assert [t for t, _ in sections] == ['A', 'B']
+    assert sections[0][1] == []
+    assert sections[1][1] == ['body of B']
+
+
+def test_single_highlighted_title_chapter_keeps_its_text(tmp_path):
+    # Asking for that one chapter explicitly still shows its content.
+    app = _app(tmp_path, ['.', 'A', 'B'], book_index=1)
+    sections, _ = app._reading_sections()
+    assert sections == [('A', ['body of A'])]

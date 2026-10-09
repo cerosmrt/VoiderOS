@@ -139,13 +139,14 @@ class TestExportSaleBundle:
         assert (d / 'MiLibro.epub').is_file()
         assert (d / 'MiLibro.txt').is_file()
 
-    def test_whole_book_txt_has_both_chapters(self, qapp, tmp_path):
+    def test_whole_book_txt_skips_title_chapter_text(self, qapp, tmp_path):
         app = _app(tmp_path, ['.', 'A', 'B'], book_index=0)
         with _dialogs(name_result=('MiLibro', True)):
             app.export_sale_bundle()
         content = (_bundle_dir(tmp_path, 'MiLibro') / 'MiLibro.txt').read_text(
             encoding='utf-8')
-        assert 'Contenido real de A' in content
+        # A is the book's title/source: its text is never read
+        assert 'Contenido real de A' not in content
         assert 'Contenido real de B' in content
 
     def test_cancelled_name_dialog_writes_nothing(self, qapp, tmp_path):
