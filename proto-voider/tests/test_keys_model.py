@@ -24,11 +24,11 @@ def test_rows_are_title_then_settings_then_actions():
     m = _m()
     actions = [r.action for r in m.rows]
     assert actions[0] == TITLE_ROW
-    assert actions[1:11] == ['set:font_family', 'set:font_size', 'set:text_color',
+    assert actions[1:12] == ['set:font_family', 'set:font_size', 'set:text_color',
                              'set:bg_color', 'set:carousel_preset', 'set:carousel_w',
                              'set:carousel_h', 'set:visualizer_source',
-                             'set:visualizer_style', 'set:dictation_language']
-    assert actions[11:] == ['help', 'view_f1', 'rebase']
+                             'set:visualizer_style', 'set:dictation_language', 'set:dictation_model']
+    assert actions[12:] == ['help', 'view_f1', 'rebase']
 
 
 def test_row_shows_current_key_and_custom_flag():
@@ -50,7 +50,8 @@ def test_page_moves_by_a_page_and_clamps():
     m = KeysModel({f'a{i}': 'F1' for i in range(30)}, {})
     m.page(1)
     assert m.index == 10
-    m.page(1); m.page(1); m.page(1)
+    for _ in range(len(m.rows) // 10 + 1):
+        m.page(1)
     assert m.index == len(m.rows) - 1
     m.page(-1)
     assert m.index == len(m.rows) - 11
@@ -249,3 +250,11 @@ def test_visualizer_source_and_style_are_choices_that_cycle():
     _goto(m, 'set:visualizer_style')
     assert m.cycle(1) == ('visualizer_style', 'wave')
     assert m.cycle(1) == ('visualizer_style', 'bars')
+
+
+def test_dictation_model_is_a_choice_from_fastest_to_most_accurate():
+    m = _sm({'dictation_model': 'small'})
+    _goto(m, 'set:dictation_model')
+    assert m.cycle(1) == ('dictation_model', 'tiny')       # wraps
+    assert m.cycle(1) == ('dictation_model', 'base')
+    assert m.cycle(1) == ('dictation_model', 'small')
