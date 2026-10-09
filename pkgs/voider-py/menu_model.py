@@ -36,6 +36,7 @@ MENUS = (
         ('Ayuda', 'help'),
         ('Bloquear', 'quit'),
         ('Máquina de escribir', 'typewriter_toggle'),
+        ('Dictado (hablar para escribir)', 'dictation_toggle'),
     )),
 )
 

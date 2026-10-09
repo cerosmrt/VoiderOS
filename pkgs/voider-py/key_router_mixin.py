@@ -110,6 +110,10 @@ class KeyRouterMixin:
         if self._matches(key, mods, 'title_toggle'):
             self._toggle_view_title(); event.accept(); return
 
+        # Global: dictation on/off (always listening while on).
+        if self._matches(key, mods, 'dictation_toggle'):
+            self._dictation_toggle(); event.accept(); return
+
         # Global: toggle F1 typewriter mode.
         if self._matches(key, mods, 'typewriter_toggle'):
             self._toggle_typewriter(); event.accept(); return
