@@ -256,17 +256,19 @@ las de ese documento.
       typewriter en F2, Ctrl+←/→ por palabra ya está en Python. Va al final, con
       Rust probado. En Python va primero en `proto-voider/`, con tests, y se
       promueve a `pkgs/voider-py/`.
-- [ ] **Probar Rust contra una copia del void real** (el void de prueba hoy es
-      `~/.local/share/voider-rs/void`; la copia se arma con `rsync -a --exclude O
-      --exclude tts --exclude .git ~/void/ …`). Federico va a pasar una lista de lo
-      que no se comporta como Python; después se revisa Python contra esa lista.
+- [~] **Probar Rust contra el void real** — desde el 2026-10-09 `~/.local/share/voider-rs/void`
+      es un enlace a `/home/federico/void` (el de prueba quedó en `void.sandbox`; para
+      volver: borrar el enlace y `mv void.sandbox void`). Federico va a pasar una lista
+      de lo que no se comporta como Python; después se revisa Python contra esa lista.
 
 ### Antes de abrir el `/void` real con Rust
-- [ ] **P3-3** Canal entre instancias compartido con Python (`QLocalServer
-      "voider_ipc"`); hoy Rust usa el suyo (`voider-rs.sock`) y dos apps abiertas a
-      la vez se pisan.
+- [x] **P3-3** Canal entre instancias compartido con Python (`/tmp/voider_ipc`, mismo
+      protocolo `SAVED:`). Probado solo con tests propios: **falta verlo andar contra un
+      Python real** abierto sobre el mismo archivo.
 - [ ] **P3-4** Un solo archivo de posiciones (`I/_last_lines.json`) y un solo
-      config (hoy Rust usa `voider-rs.conf` y Python `config.json`).
+      config (hoy Rust usa `voider-rs.conf` y Python `config.json`). `voider-rs.conf` e
+      `I/_last_lines.conf` están excluidos del git del void (`.git/info/exclude`): hoy el
+      config de Rust **no viaja** con el repo.
 - [ ] Decidir si `I.txt` entra en el snapshot de git (CLAUDE.md pide solo `I/`).
 
 ### Pantallas y teclas
@@ -287,6 +289,13 @@ las de ese documento.
 - [ ] **P2-13 / D-1** Línea de estado y ayudas al pie que Python no tiene: decidir si
       se quedan.
 - [ ] **P2-14** Ventana sin marco y a pantalla completa (hoy 1000×700 con marco).
+
+### Migrar el sistema a otra computadora
+- [ ] **Paquete de Nix para voider-rs** (hoy se corre con `cargo` desde el repo; Super+O
+      llama a `voider-rs-dev`, en `nix/profiles/dev.nix`, que busca `target/release/voider-rs`).
+- [ ] Decidir **dónde vive el config de Rust** para que viaje con el repo (ver P3-4).
+- [ ] Lo que no es del programa y hay que llevar a mano: el corpus `O/` (`/mnt/data`),
+      los modelos de voz `tts/`, y la config de Hyprland.
 
 ### Infraestructura
 - [ ] **P1-57** `I_preview.txt` y archivos en MAYÚSCULAS por subcarpeta de `I/`, y
