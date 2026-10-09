@@ -267,6 +267,12 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._undo_last = {}        # path -> last written line list
         self._undo_applying = False
         self._undo_txn = None
+        # Cursor position -> _last_lines.json every couple of seconds when it moved,
+        # so a killed window (SIGHUP, no closeEvent) still remembers where you were.
+        self._pos_saved = None
+        self._pos_timer = QTimer(self)
+        self._pos_timer.timeout.connect(self._position_autosave_tick)
+        self._pos_timer.start(2000)
         QApplication.instance().installEventFilter(self)
         # Auto-hide the mouse pointer while typing; show it (as a transparent white
         # ring, so you can see what's behind) on any mouse activity.
@@ -970,9 +976,21 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._f3_search_bar.move(bar_x, bar_y)
 
     def closeEvent(self, event):
+        self._save_last_line()
         self._ws_save_position()
         self._save_working_set()
         super().closeEvent(event)
+
+    def _position_autosave_tick(self):
+        """Save the cursor position if (file, index) changed since the last save."""
+        ring = getattr(self, 'line_ring', None)
+        if ring is None or not getattr(self, 'current_file_path', None):
+            return
+        state = (self.current_file_path, ring.index)
+        if state == getattr(self, '_pos_saved', None):
+            return
+        self._save_last_line()
+        self._pos_saved = state
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
