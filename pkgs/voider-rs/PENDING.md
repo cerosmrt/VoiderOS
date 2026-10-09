@@ -336,3 +336,4 @@ las de ese documento.
       como renglones: hechos en Python el 2026-10-09; en Rust el F10 sigue siendo otra cosa.
 - [ ] Visualizador de audio (micrófono o salida, estilos pulso/onda/barras) hecho en Python el
       2026-10-09; en Rust no existe (haría falta captura de audio: cpal/pipewire).
+- [ ] Dictado por voz (whisper.cpp offline, Ctrl+Shift+Space) hecho en Python el 2026-10-09; en Rust no.

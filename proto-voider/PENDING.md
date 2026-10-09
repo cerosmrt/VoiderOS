@@ -98,3 +98,15 @@ Por verificar en uso: que `pyaudio` encuentre el dispositivo *monitor* en tu Pip
 `AudioMonitor.status` lo dice y la animación queda quieta); cuánto dibuja en el margen de 35 px;
 y en Windows la salida (monitor) no existe: allí solo sirve el micrófono (hace falta WASAPI loopback).
 Ideas: más estilos, elegir dispositivo concreto, sensibilidad (hoy `GAIN=6`), mostrarlo en más vistas.
+
+## Dictado (hablar → el void escribe) — hecho, sin probar con voz real
+Ctrl+Shift+Space (remapeable en F10) enciende/apaga. Encendido, escucha siempre; cada frase (voz +
+pausa de ~1 s) se transcribe con whisper.cpp (`whisper-cli`, offline) y se inserta en el cursor de la
+línea enfocada: se puede seguir tecleando y corregir en el medio. Idioma `dictation_language`
+(es/en/auto) en F10. Modelo: `<void>/stt/ggml-small.bin` (fuera de git vía `.git/info/exclude`).
+Requiere `whisper-cpp` en Nix (agregado a `nix/modules/voider.nix`: falta TU rebuild) y el modelo.
+Por probar: latencia real en esta máquina; que no transcriba ruido/TTS (filtra marcadores y
+alucinaciones típicas de whisper en silencio); que ande con el micrófono real.
+Pendiente / ideas: pausar el dictado mientras habla el TTS (si no, se transcribe a sí mismo);
+comandos de voz ("punto", "nueva línea"); modo en vivo; modelo más chico (`base`) si `small` va lento;
+aviso de "sin modelo" más visible; en F3/F5 solo se inserta si hay un campo de texto enfocado.
