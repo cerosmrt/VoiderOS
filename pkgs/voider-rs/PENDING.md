@@ -334,3 +334,5 @@ las de ese documento.
       (P1-14); el diseño y el formato `keybindings.json` ya están definidos del lado Python.
 - [ ] Menú clicable de accesibilidad (aparece con el mouse, se oculta con teclas) y F10 con ajustes
       como renglones: hechos en Python el 2026-10-09; en Rust el F10 sigue siendo otra cosa.
+- [ ] Visualizador de audio (micrófono o salida, estilos pulso/onda/barras) hecho en Python el
+      2026-10-09; en Rust no existe (haría falta captura de audio: cpal/pipewire).

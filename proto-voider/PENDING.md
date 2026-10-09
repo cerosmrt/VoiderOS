@@ -88,3 +88,13 @@ y cómo se muestra la tecla de cada una (se puede leer de `keybindings.json`). R
   cada entrada presiona la tecla de su acción. Pendiente de verlo: tamaño/posición sobre cada vista,
   si tapa algo importante, y si hace falta un modo "siempre visible" y navegación del menú con teclado
   (accesibilidad real: lector de pantalla / foco). Las entradas son una primera lista.
+
+## Visualizador de audio (pedido de Federico, 2026-10-09) — hecho, sin probar en pantalla real
+Alrededor del círculo de F1/F2, tres estilos (F10 → `visualizer style`): pulso, onda
+(osciloscopio curvado) y barras (espectro). Fuente (`visualizer source`): apagado (por defecto),
+micrófono, o salida (monitor de PipeWire: TTS, YouTube, lo que suene). Viene del `AudioMonitor`
+de las primeras versiones (solo volumen, solo salida), ahora con mic, onda y espectro.
+Por verificar en uso: que `pyaudio` encuentre el dispositivo *monitor* en tu PipeWire (si no,
+`AudioMonitor.status` lo dice y la animación queda quieta); cuánto dibuja en el margen de 35 px;
+y en Windows la salida (monitor) no existe: allí solo sirve el micrófono (hace falta WASAPI loopback).
+Ideas: más estilos, elegir dispositivo concreto, sensibilidad (hoy `GAIN=6`), mostrarlo en más vistas.
