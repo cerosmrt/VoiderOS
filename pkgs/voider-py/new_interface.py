@@ -274,6 +274,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._pos_timer.timeout.connect(self._position_autosave_tick)
         self._pos_timer.start(2000)
         QApplication.instance().installEventFilter(self)
+        QApplication.instance().applicationStateChanged.connect(self._on_app_state_changed)
         # Auto-hide the mouse pointer while typing; show it (as a transparent white
         # ring, so you can see what's behind) on any mouse activity.
         from cursor_autohide import CursorAutohide, make_ring_cursor
@@ -980,6 +981,12 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._ws_save_position()
         self._save_working_set()
         super().closeEvent(event)
+
+    def _on_app_state_changed(self, state):
+        """Back from another window (alt-tab, VSCodium): focus is lost, so hand it
+        back to the active editor or arrows/letters go nowhere."""
+        if state == Qt.ApplicationState.ApplicationActive:
+            self._refocus_active_editor()
 
     def _position_autosave_tick(self):
         """Save the cursor position if (file, index) changed since the last save."""
