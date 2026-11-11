@@ -16,7 +16,9 @@ from helpers import make_ring_app
 BACKUP_METHODS = ('_detect_drives', '_backup_plan', '_backup_folder_name',
                   '_backup_copy', '_parse_mtp_list', '_detect_phones',
                   '_phone_backup_root', '_mount_phone', '_unmount_phone',
-                  '_copy_file', '_backup_zip', '_backup_deliver')
+                  '_copy_file', '_backup_zip', '_backup_deliver',
+                  '_program_plan', '_windows_bundle_ready', '_backup_zip_entries',
+                  '_backup_entries', '_installer_bat', '_requirements_txt', '_arc')
 
 
 def _app(tmp_path):
@@ -408,3 +410,125 @@ def test_el_contador_cuenta_zips_del_mismo_dia(tmp_path):
     destino.mkdir()
     (destino / '25-08-28(1)_void.zip').write_bytes(b'z')
     assert app._backup_folder_name(str(destino), fecha='25-08-28') == '25-08-28(2)_void'
+
+
+# ── el programa en el pendrive: instalador para Windows, offline ──────────────
+
+def _programa_falso(base):
+    """Un proto-voider en miniatura, con lo que viaja y lo que no."""
+    for rel, txt in {
+        'voider.py': 'print(1)', 'io_mixin.py': 'x', 'voider.spec': 'spec',
+        'voider.ico': 'ico', 'fonts/EBGaramond.ttf': 'ttf', 'fonts/OFL.txt': 'ofl',
+        'VOIDER — Instrucciones.txt': 'leeme', 'BUILD-WINDOWS.md': 'md',
+        # lo que NO viaja: rutas personales, el void de prueba, tests, caché
+        'config.json': '{"void_dir": "/home/federico/void"}', 'state.json': '{}',
+        'void/0.txt': 'sandbox', 'tests/test_x.py': 't', '__pycache__/a.pyc': 'c',
+        'd': 'basura', 'PENDING.md': 'notas',
+    }.items():
+        _write(os.path.join(base, rel), txt)
+    return base
+
+
+def test_el_programa_lleva_codigo_spec_icono_fuentes_e_instrucciones(tmp_path):
+    app = _app(tmp_path)
+    src = _programa_falso(str(tmp_path / 'proto'))
+    rels = sorted(r for r, _ in app._program_plan(src))
+    assert rels == sorted([
+        'voider.py', 'io_mixin.py', 'voider.spec', 'voider.ico',
+        os.path.join('fonts', 'EBGaramond.ttf'), os.path.join('fonts', 'OFL.txt'),
+        'VOIDER — Instrucciones.txt', 'BUILD-WINDOWS.md',
+    ])
+
+
+def test_el_programa_no_lleva_rutas_personales_ni_el_void_de_prueba(tmp_path):
+    app = _app(tmp_path)
+    src = _programa_falso(str(tmp_path / 'proto'))
+    rels = [r for r, _ in app._program_plan(src)]
+    for no in ('config.json', 'state.json', 'd', 'PENDING.md'):
+        assert no not in rels, f'viajó {no}'
+    assert not any(r.split(os.sep)[0] in ('void', 'tests', '__pycache__') and os.sep in r
+                   for r in rels)
+
+
+def _cache_falsa(base, con_python=True, con_wheels=True):
+    os.makedirs(base, exist_ok=True)
+    if con_python:
+        _write(os.path.join(base, 'python-3.10.11-amd64.exe'), 'py')
+    if con_wheels:
+        _write(os.path.join(base, 'wheels', 'PyQt6-6.7.0-cp38-abi3-win_amd64.whl'), 'w')
+    return base
+
+
+def test_sin_cache_el_programa_no_se_puede_agregar_y_dice_por_que(tmp_path):
+    app = _app(tmp_path)
+    ok, motivo = app._windows_bundle_ready(str(tmp_path / 'no-existe'))
+    assert ok is False and motivo
+
+
+def test_cache_sin_python_o_sin_wheels_no_alcanza(tmp_path):
+    app = _app(tmp_path)
+    assert app._windows_bundle_ready(_cache_falsa(str(tmp_path / 'a'), con_python=False))[0] is False
+    assert app._windows_bundle_ready(_cache_falsa(str(tmp_path / 'b'), con_wheels=False))[0] is False
+
+
+def test_cache_completa_esta_lista(tmp_path):
+    app = _app(tmp_path)
+    assert app._windows_bundle_ready(_cache_falsa(str(tmp_path / 'c'))) == (True, '')
+
+
+def test_sin_programa_el_zip_queda_como_siempre(tmp_path):
+    app = _app(tmp_path)
+    _write(os.path.join(app.void_dir, 'I', 'a.txt'), 'hola')
+    files, _, _ = app._backup_plan(app.void_dir)
+    entries = app._backup_entries(files, 'b')
+    destino = str(tmp_path / 'x.zip')
+    assert app._backup_zip_entries(destino, entries) is True
+    assert _leer_zip(destino) == {'b/I/a.txt': 'hola'}
+
+
+def test_con_programa_el_zip_trae_void_programa_e_instalador(tmp_path):
+    app = _app(tmp_path)
+    _write(os.path.join(app.void_dir, 'I', 'a.txt'), 'hola')
+    _write(os.path.join(app.void_dir, '.git', 'HEAD'), 'ref: x')
+    src = _programa_falso(str(tmp_path / 'proto'))
+    cache = _cache_falsa(str(tmp_path / 'cache'))
+    files, _, _ = app._backup_plan(app.void_dir)
+    entries = app._backup_entries(files, 'b', program_src=src, bundle_cache=cache)
+    destino = str(tmp_path / 'x.zip')
+    app._backup_zip_entries(destino, entries)
+    z = _leer_zip(destino)
+    assert z['b/void/I/a.txt'] == 'hola'
+    assert 'b/void/.git/HEAD' in z, 'el backup con programa perdió el historial'
+    assert z['b/programa/voider.py'] == 'print(1)'
+    assert 'b/programa/fonts/EBGaramond.ttf' in z
+    assert 'b/programa/python-3.10.11-amd64.exe' in z
+    assert 'b/programa/wheels/PyQt6-6.7.0-cp38-abi3-win_amd64.whl' in z
+    assert 'b/programa/requirements.txt' in z
+    assert 'b/INSTALAR.bat' in z
+    assert not any(k.endswith('config.json') for k in z), 'viajaron tus rutas'
+
+
+def test_zip_entries_avisa_y_se_puede_cancelar(tmp_path):
+    app = _app(tmp_path)
+    entries = [(f'b/{i}.txt', b'x') for i in range(4)]
+    destino = str(tmp_path / 'x.zip')
+    ok = app._backup_zip_entries(destino, entries, on_progress=lambda i, n, r: i < 2)
+    assert ok is False and not os.path.exists(destino)
+
+
+def test_el_instalador_es_offline_y_usa_el_spec(tmp_path):
+    app = _app(tmp_path)
+    bat = app._installer_bat()
+    assert '\r\n' in bat, 'un .bat con finales de línea de Linux falla en cmd'
+    assert '--no-index' in bat and '--find-links' in bat, 'tiene que andar sin internet'
+    assert 'voider.spec' in bat
+    assert 'pause' in bat.lower(), 'si falla, la ventana tiene que quedar abierta'
+
+
+def test_pyaudio_es_opcional(tmp_path):
+    """Si pyaudio no instala, el resto tiene que compilar igual."""
+    app = _app(tmp_path)
+    req = app._requirements_txt()
+    assert 'PyQt6' in req and 'pyinstaller' in req.lower()
+    assert 'pyaudio' not in req.lower()
+    assert 'pyaudio' in app._installer_bat().lower()

@@ -24,6 +24,8 @@ def _square_crop_for(wx, wy, ww, wh):
 # que no se puede recuperar; los modelos de voz se vuelven a bajar y pesan más
 # que todo el resto junto (309 MB contra 78 MB de texto e historial).
 _BACKUP_SKIP_DIRS = ("tts",)
+# Lo que viaja del código cuando el backup lleva el programa (más fonts/).
+_PROGRAM_EXTS = ('.py', '.spec', '.ico')
 
 
 class IoMixin:
@@ -1602,7 +1604,8 @@ class IoMixin:
 
         resultado = None
         try:
-            resultado = self._backup_to(dest_root, only_txt=(kind == 'phone'))
+            resultado = self._backup_to(dest_root, only_txt=(kind == 'phone'),
+                                        offer_program=(kind == 'drive'))
         finally:
             if mp is not None:
                 # Por MTP, desmontar es lo que termina de escribir: mostrarlo,
@@ -1649,22 +1652,34 @@ class IoMixin:
 
     def _backup_zip(self, src_dir, zip_path, files, top, on_progress=None):
         """Armar UN zip local con los archivos del plan, dentro de la carpeta
-        `top`. Devuelve True si quedó entero; False si se canceló (no deja
-        nada) o falló. Se escribe a .part y se renombra: nunca un zip a medias."""
+        `top`. Devuelve True si quedó entero; False si se canceló o falló."""
+        entries = [(os.path.join(src_dir, rel), self._arc(top, rel))
+                   for rel, _size in files]
+        return self._backup_zip_entries(zip_path, entries, on_progress)
+
+    def _arc(self, *parts):
+        """Ruta dentro del zip: siempre con '/', venga de donde venga."""
+        return '/'.join(p.replace(os.sep, '/').strip('/') for p in parts if p)
+
+    def _backup_zip_entries(self, zip_path, entries, on_progress=None):
+        """entries = [(origen, ruta_en_zip)]; origen es una ruta o bytes.
+        Se escribe a .part y se renombra: nunca queda un zip a medias."""
         import zipfile
         self._backup_cancelled = False
         part = zip_path + '.part'
         try:
             with zipfile.ZipFile(part, 'w', zipfile.ZIP_DEFLATED) as z:
-                for idx, (rel, _size) in enumerate(files, 1):
-                    if on_progress is not None and on_progress(idx, len(files), rel) is False:
+                for idx, (src, arc) in enumerate(entries, 1):
+                    if on_progress is not None and on_progress(idx, len(entries), arc) is False:
                         self._backup_cancelled = True
                         break
                     try:
-                        z.write(os.path.join(src_dir, rel),
-                                arcname=os.path.join(top, rel))
+                        if isinstance(src, bytes):
+                            z.writestr(arc, src)
+                        else:
+                            z.write(src, arcname=arc)
                     except OSError as e:
-                        print(f"⚠️ No se pudo agregar {rel}: {e}")
+                        print(f"⚠️ No se pudo agregar {arc}: {e}")
             if self._backup_cancelled:
                 os.remove(part)
                 return False
@@ -1677,6 +1692,148 @@ class IoMixin:
             except OSError:
                 pass
             return False
+
+    # ── el programa en el pendrive: instalador de Windows, sin internet ───────
+    #
+    # PyInstaller no compila para Windows desde Linux. Entonces viaja todo lo
+    # necesario para compilar ALLÁ, sin red: el código, el instalador de Python
+    # y las dependencias ya bajadas (las baja una vez prepare_windows_bundle.sh
+    # a la caché). INSTALAR.bat hace el resto con un doble clic.
+
+    def _program_source_dir(self):
+        """El código de ESTA copia de Voider (proto o voider-py)."""
+        return os.path.dirname(os.path.abspath(__file__))
+
+    def _program_plan(self, src_dir):
+        """Qué del código viaja. Lista blanca: nada de config.json/state.json
+        (rutas personales), ni el void de prueba, ni tests, ni cachés."""
+        out = []
+        try:
+            names = sorted(os.listdir(src_dir))
+        except OSError:
+            return out
+        for name in names:
+            full = os.path.join(src_dir, name)
+            if not os.path.isfile(full):
+                continue
+            if (name.endswith(_PROGRAM_EXTS) or name == 'BUILD-WINDOWS.md'
+                    or (name.startswith('VOIDER') and name.endswith('.txt'))):
+                out.append((name, os.path.getsize(full)))
+        fonts = os.path.join(src_dir, 'fonts')
+        for dirpath, _dirs, filenames in os.walk(fonts):
+            for fname in sorted(filenames):
+                full = os.path.join(dirpath, fname)
+                out.append((os.path.relpath(full, src_dir), os.path.getsize(full)))
+        return out
+
+    def _windows_bundle_cache(self):
+        return os.path.join(os.path.expanduser('~'), '.cache', 'voider',
+                            'windows-bundle')
+
+    def _windows_bundle_ready(self, cache):
+        """(True, '') si la caché tiene Python y dependencias; si no, por qué."""
+        import glob
+        if not os.path.isdir(cache):
+            return False, f'falta preparar la caché ({cache})'
+        if not glob.glob(os.path.join(cache, 'python-*.exe')):
+            return False, 'falta el instalador de Python en la caché'
+        if not glob.glob(os.path.join(cache, 'wheels', '*.whl')):
+            return False, 'faltan las dependencias en la caché'
+        return True, ''
+
+    def _requirements_txt(self):
+        # pyaudio NO va acá: suele fallar en Windows y es sólo el dictado.
+        # El .bat lo intenta aparte, sin cortar si falla.
+        return '\n'.join(['PyQt6', 'numpy', 'watchdog', 'langdetect', 'pyphen',
+                          'ebooklib', 'pyinstaller']) + '\n'
+
+    def _installer_bat(self):
+        lines = r'''@echo off
+setlocal EnableExtensions
+title Voider - instalador
+cd /d "%~dp0"
+set "ROOT=%~dp0"
+set "PROG=%ROOT%programa"
+set "WORK=%LOCALAPPDATA%\VoiderBuild"
+set "PY=%LOCALAPPDATA%\Programs\Python\Python310\python.exe"
+
+echo.
+echo   VOIDER - instalador, sin internet
+echo.
+
+if exist "%PY%" goto tiene_python
+echo [1/4] Instalando Python 3.10 - solo para este usuario...
+for %%I in ("%PROG%\python-*.exe") do "%%~fI" /quiet InstallAllUsers=0 PrependPath=0 Include_launcher=0 Include_test=0 Shortcuts=0
+if not exist "%PY%" goto fallo
+:tiene_python
+echo [1/4] Python: %PY%
+
+echo [2/4] Preparando el entorno...
+if not exist "%WORK%\venv\Scripts\python.exe" "%PY%" -m venv "%WORK%\venv"
+if errorlevel 1 goto fallo
+set "VPY=%WORK%\venv\Scripts\python.exe"
+
+echo [3/4] Instalando dependencias desde el pendrive...
+"%VPY%" -m pip install --no-index --find-links "%PROG%\wheels" -r "%PROG%\requirements.txt"
+if errorlevel 1 goto fallo
+"%VPY%" -m pip install --no-index --find-links "%PROG%\wheels" pyaudio >nul 2>&1
+if errorlevel 1 echo       - pyaudio no se instalo: Voider anda igual, sin dictado
+
+echo [4/4] Compilando voider.exe - tarda unos minutos...
+pushd "%PROG%"
+"%VPY%" -m PyInstaller --noconfirm --clean --distpath "%ROOT:~0,-1%" --workpath "%WORK%\build" voider.spec
+set "RC=%errorlevel%"
+popd
+if not "%RC%"=="0" goto fallo
+if not exist "%ROOT%voider.exe" goto fallo
+
+echo.
+echo   Listo: voider.exe quedo al lado de la carpeta void.
+echo   Abrilo con doble clic.
+echo.
+pause
+exit /b 0
+
+:fallo
+echo.
+echo   ALGO FALLO. Saca una foto de esta ventana.
+echo.
+pause
+exit /b 1
+'''
+        return lines.replace('\r\n', '\n').replace('\n', '\r\n')
+
+    def _backup_entries(self, files, top, program_src=None, bundle_cache=None):
+        """Qué entra al zip. Sin programa: el void en <top>/. Con programa:
+        <top>/void/, <top>/programa/ y <top>/INSTALAR.bat."""
+        if program_src is None:
+            return [(os.path.join(self.void_dir, rel), self._arc(top, rel))
+                    for rel, _s in files]
+        entries = [(os.path.join(self.void_dir, rel), self._arc(top, 'void', rel))
+                   for rel, _s in files]
+        entries += [(os.path.join(program_src, rel), self._arc(top, 'programa', rel))
+                    for rel, _s in self._program_plan(program_src)]
+        for dirpath, _dirs, filenames in os.walk(bundle_cache):
+            for fname in sorted(filenames):
+                full = os.path.join(dirpath, fname)
+                rel = os.path.relpath(full, bundle_cache)
+                entries.append((full, self._arc(top, 'programa', rel)))
+        entries.append((self._requirements_txt().encode('utf-8'),
+                        self._arc(top, 'programa', 'requirements.txt')))
+        entries.append((self._installer_bat().encode('utf-8'),
+                        self._arc(top, 'INSTALAR.bat')))
+        return entries
+
+    @staticmethod
+    def _dir_bytes(path):
+        total = 0
+        for dirpath, _d, filenames in os.walk(path):
+            for f in filenames:
+                try:
+                    total += os.path.getsize(os.path.join(dirpath, f))
+                except OSError:
+                    pass
+        return total
 
     def _backup_deliver(self, src_zip, dst_zip):
         """Copiar el zip al destino y comprobar que llegó entero (mismo tamaño).
@@ -1695,7 +1852,7 @@ class IoMixin:
             pass
         return False
 
-    def _backup_to(self, dest_root, only_txt=False):
+    def _backup_to(self, dest_root, only_txt=False, offer_program=False):
         """Confirmar, commitear, armar el zip y entregarlo a dest_root.
 
         Devuelve (archivos, bytes_del_zip, ruta_destino, cancelado, ok) o None."""
@@ -1718,13 +1875,26 @@ class IoMixin:
             detalle += '\n\n(sólo .txt, sin historial)'
         if skipped:
             detalle += f'\n\n(sin seguir: {", ".join(skipped)})'
-        respuesta = QMessageBox.question(
-            self, 'Backup', detalle,
-            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Ok)
-        if respuesta != QMessageBox.StandardButton.Ok:
+        caja = QMessageBox(QMessageBox.Icon.Question, 'Backup', detalle,
+                           QMessageBox.StandardButton.Ok
+                           | QMessageBox.StandardButton.Cancel, self)
+        caja.setDefaultButton(QMessageBox.StandardButton.Ok)
+        casilla = None
+        if offer_program:
+            from PyQt6.QtWidgets import QCheckBox
+            cache = self._windows_bundle_cache()
+            listo, motivo = self._windows_bundle_ready(cache)
+            if listo:
+                peso = self._human_bytes(self._dir_bytes(cache))
+                casilla = QCheckBox(f'Incluir el programa (instalador para Windows, ≈{peso})')
+            else:
+                casilla = QCheckBox(f'Incluir el programa — no disponible: {motivo}')
+                casilla.setEnabled(False)
+            caja.setCheckBox(casilla)
+        if caja.exec() != QMessageBox.StandardButton.Ok:
             print('↩ Backup cancelado')
             return None
+        con_programa = casilla is not None and casilla.isEnabled() and casilla.isChecked()
 
         # Commitear primero, para que no quede nada sin registrar afuera.
         self.commit_void()
@@ -1751,8 +1921,14 @@ class IoMixin:
             return not barra.wasCanceled()
 
         try:
-            armado = self._backup_zip(self.void_dir, local_zip, files, nombre,
-                                      on_progress=avance)
+            if con_programa:
+                entries = self._backup_entries(
+                    files, nombre, program_src=self._program_source_dir(),
+                    bundle_cache=self._windows_bundle_cache())
+            else:
+                entries = self._backup_entries(files, nombre)
+            barra.setMaximum(len(entries))
+            armado = self._backup_zip_entries(local_zip, entries, on_progress=avance)
             barra.close()
             if not armado:
                 return (0, 0, dest_zip, self._backup_cancelled, False)
