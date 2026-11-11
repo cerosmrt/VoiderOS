@@ -613,6 +613,16 @@ in
   ];
 
   # ── Packages ──────────────────────────────────────────────────────────────────
+  # MTP (teléfono para Ctrl+B): jmtpfs necesita abrir el dispositivo USB. Se da
+  # acceso (uaccess) al usuario de la sesión por fabricante. 2717 = Xiaomi; sumar
+  # otros idVendor acá. El archivo es 70-: el paso que convierte uaccess en permisos
+  # (73-seat-late) corre antes que 99-local, por eso no sirve extraRules.
+  services.udev.packages = [
+    (pkgs.writeTextDir "lib/udev/rules.d/70-phone-mtp.rules" ''
+      SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="2717", TAG+="uaccess"
+    '')
+  ];
+
   environment.systemPackages = [
     voiderShell
     voiderPy
@@ -641,6 +651,7 @@ in
     pkgs.xdg-utils
     pkgs.xfce.thunar        # GUI file manager — easy drag-drop copy to USB/disk
     pkgs.gvfs              # lets Thunar see/mount removable drives (trash, etc.)
+    pkgs.jmtpfs            # Ctrl+B: monta el teléfono por MTP para el backup
     pkgs.zathura
     pkgs.imv
     pkgs.pavucontrol
