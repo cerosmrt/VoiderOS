@@ -1368,7 +1368,75 @@ class IoMixin:
                     found.append(p)
         return found
 
-    def _backup_plan(self, src_dir):
+    # ── el teléfono, por MTP (jmtpfs) ─────────────────────────────────────────
+    #
+    # MTP no es un disco: no aparece en /run/media. Se monta a mano con jmtpfs
+    # en una carpeta temporal, se copia y se desmonta. Al teléfono van sólo los
+    # .txt (sin .git): miles de archivos chicos por MTP son lentos y frágiles.
+
+    def _parse_mtp_list(self, text):
+        """Salida de `jmtpfs -l` -> [(bus, dev, 'Fabricante Producto')]."""
+        found, in_list = [], False
+        for line in (text or '').splitlines():
+            if line.startswith('Available devices'):
+                in_list = True
+                continue
+            if not in_list:
+                continue
+            parts = [p.strip() for p in line.split(',')]
+            if len(parts) >= 6 and parts[0].isdigit() and parts[1].isdigit():
+                found.append((parts[0], parts[1], f'{parts[5]} {parts[4]}'.strip()))
+        return found
+
+    def _detect_phones(self):
+        """Teléfonos MTP enchufados. Vacío si no hay, o si falta jmtpfs."""
+        try:
+            r = subprocess.run(['jmtpfs', '-l'], capture_output=True,
+                               text=True, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            return []
+        return self._parse_mtp_list(r.stdout)
+
+    def _phone_backup_root(self, mountpoint):
+        """<almacenamiento>/Download/Void Backup, o None si el teléfono no
+        expuso almacenamiento (bloqueado, o en modo 'solo carga')."""
+        try:
+            storages = sorted(d for d in os.listdir(mountpoint)
+                              if os.path.isdir(os.path.join(mountpoint, d)))
+        except OSError:
+            return None
+        if not storages:
+            return None
+        storage = os.path.join(mountpoint, storages[0])
+        return os.path.join(storage, 'Download', 'Void Backup')
+
+    def _mount_phone(self, bus, dev):
+        """Monta el teléfono. Devuelve el punto de montaje, o None si falla."""
+        import tempfile
+        mp = tempfile.mkdtemp(prefix='voider-phone-')
+        try:
+            r = subprocess.run(['jmtpfs', f'-device={bus},{dev}', mp],
+                               capture_output=True, text=True, timeout=20)
+        except (OSError, subprocess.SubprocessError):
+            r = None
+        if r is None or r.returncode != 0 or self._phone_backup_root(mp) is None:
+            self._unmount_phone(mp)
+            return None
+        return mp
+
+    def _unmount_phone(self, mp):
+        for cmd in (['fusermount', '-u', mp], ['fusermount3', '-u', mp]):
+            try:
+                if subprocess.run(cmd, capture_output=True, timeout=20).returncode == 0:
+                    break
+            except (OSError, subprocess.SubprocessError):
+                continue
+        try:
+            os.rmdir(mp)
+        except OSError:
+            pass
+
+    def _backup_plan(self, src_dir, only_txt=False):
         """Qué se copiaría, SIN escribir nada.
 
         Devuelve (archivos, bytes, enlaces_salteados), donde archivos es una
@@ -1395,7 +1463,12 @@ class IoMixin:
                 if os.path.islink(full):
                     dirnames.remove(d)
                     skipped.append(os.path.relpath(full, src_dir))
+            if only_txt and os.path.abspath(dirpath) == os.path.abspath(src_dir):
+                if '.git' in dirnames:
+                    dirnames.remove('.git')
             for fname in filenames:
+                if only_txt and not fname.lower().endswith('.txt'):
+                    continue
                 full = os.path.join(dirpath, fname)
                 if os.path.islink(full):
                     continue
@@ -1416,27 +1489,67 @@ class IoMixin:
             now = datetime.datetime.now()
             fecha = f"{str(now.year)[2:]}-{now.strftime('%m-%d')}"
         vault = os.path.basename(os.path.normpath(self.void_dir)) or 'void'
-        prefix = f'{vault}_{fecha}'
+        prefix = f'{fecha}('
         try:
             existing = [d for d in os.listdir(dest_root)
-                        if d.startswith(prefix)
-                        and os.path.isdir(os.path.join(dest_root, d))]
+                        if d.startswith(prefix)]
         except OSError:
             existing = []
-        return f'{prefix}({len(existing) + 1})'
+        return f'{fecha}({len(existing) + 1})_{vault}'
 
-    def _backup_copy(self, src_dir, dest_dir, files):
-        """Hacer la copia que el plan describe. Devuelve cuántos archivos llegaron."""
+    # Caracteres que FAT32/exFAT rechazan en un nombre de archivo (los
+    # pendrives suelen venir formateados así). Ninguno es raro en el void:
+    # los títulos en forma de pregunta usan '¿...?' todo el tiempo.
+    _FAT_FORBIDDEN = '\\/:*?"<>|'
+
+    @classmethod
+    def _fat_sanitize(cls, rel):
+        head, tail = os.path.split(rel)
+        for ch in cls._FAT_FORBIDDEN:
+            tail = tail.replace(ch, '_')
+        return os.path.join(head, tail) if head else tail
+
+    def _copy_file(self, src, dst):
+        """Copiar contenido y, si el destino lo admite, fechas. MTP no deja
+        cambiar las fechas: eso no debe contar como archivo perdido."""
+        shutil.copyfile(src, dst)
+        try:
+            shutil.copystat(src, dst)
+        except OSError:
+            pass
+
+    def _backup_copy(self, src_dir, dest_dir, files, on_progress=None):
+        """Hacer la copia que el plan describe. Devuelve cuántos archivos llegaron.
+
+        on_progress(i, n, rel) se llama antes de cada archivo; si devuelve
+        False la copia se corta y self._backup_cancelled queda en True."""
         copied = 0
-        for rel, _size in files:
+        self._backup_cancelled = False
+        for idx, (rel, _size) in enumerate(files, 1):
+            if on_progress is not None and on_progress(idx, len(files), rel) is False:
+                self._backup_cancelled = True
+                break
             src = os.path.join(src_dir, rel)
             dst = os.path.join(dest_dir, rel)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             try:
-                shutil.copy2(src, dst)
+                self._copy_file(src, dst)
                 copied += 1
+                continue
             except OSError as e:
-                print(f"⚠️ No se pudo copiar {rel}: {e}")
+                if e.errno != 22:  # no es un nombre inválido para el destino
+                    print(f"⚠️ No se pudo copiar {rel}: {e}")
+                    continue
+            # Errno 22 en el destino: probablemente FAT32/exFAT rechazando
+            # un carácter del nombre (p.ej. '¿pregunta?.txt'). Reintentar
+            # con el nombre saneado en vez de perder el archivo.
+            safe_rel = self._fat_sanitize(rel)
+            safe_dst = os.path.join(dest_dir, safe_rel)
+            try:
+                self._copy_file(src, safe_dst)
+                copied += 1
+            except OSError as e2:
+                print(f"⚠️ No se pudo copiar {rel}: {e2}")
         return copied
 
     @staticmethod
@@ -1449,36 +1562,160 @@ class IoMixin:
                 return f'{n / scale:.1f} {unit}'
 
     def _backup_vault(self):
-        """Ctrl+B: el void entero a un pendrive, con su historial."""
+        """Ctrl+B: el void a un pendrive (con su historial) o al teléfono
+        (sólo los .txt, por MTP)."""
         from PyQt6.QtWidgets import QMessageBox
 
-        drives = self._detect_drives()
-        if not drives:
+        # Destinos: (etiqueta, tipo, dato). Pendrives primero, teléfonos después.
+        destinos = [(d, 'drive', d) for d in self._detect_drives()]
+        for bus, dev, nombre in self._detect_phones():
+            destinos.append((f'📱 {nombre}', 'phone', (bus, dev)))
+        if not destinos:
             QMessageBox.information(self, 'Backup',
-                                    'No hay ningún pendrive montado.')
+                                    'No hay ningún pendrive ni teléfono conectado.')
             return
 
         # Con más de uno, que elija; con uno solo, se muestra igual para aceptar.
-        dest_root = drives[0]
-        if len(drives) > 1:
+        elegido = destinos[0]
+        if len(destinos) > 1:
             from PyQt6.QtWidgets import QInputDialog
-            elegido, ok = QInputDialog.getItem(
-                self, 'Backup', '¿A cuál?', drives, 0, False)
+            etiquetas = [d[0] for d in destinos]
+            texto, ok = QInputDialog.getItem(
+                self, 'Backup', '¿A cuál?', etiquetas, 0, False)
             if not ok:
                 return
-            dest_root = elegido
+            elegido = destinos[etiquetas.index(texto)]
 
-        files, total, skipped = self._backup_plan(self.void_dir)
+        _label, kind, dato = elegido
+        mp = None
+        if kind == 'phone':
+            mp = self._mount_phone(*dato)
+            if mp is None:
+                QMessageBox.warning(
+                    self, 'Backup',
+                    'Teléfono detectado pero no accesible: desbloquealo y '
+                    'elegí "Transferencia de archivos".')
+                return
+            dest_root = self._phone_backup_root(mp)
+        else:
+            dest_root = dato
+
+        resultado = None
+        try:
+            resultado = self._backup_to(dest_root, only_txt=(kind == 'phone'))
+        finally:
+            if mp is not None:
+                # Por MTP, desmontar es lo que termina de escribir: mostrarlo,
+                # porque el "listo" sólo es verdad después de esto.
+                espera = self._backup_wait_dialog(
+                    'Terminando de escribir en el teléfono…\n\nNo lo desenchufes.')
+                self._unmount_phone(mp)
+                if espera is not None:
+                    espera.close()
+        if resultado is None:
+            return
+        archivos, zip_bytes, dest_zip, cancelado, ok = resultado
+        print(f'📦 Backup: {archivos} archivos · {self._human_bytes(zip_bytes)} → {dest_zip}')
+        if cancelado:
+            QMessageBox.information(self, 'Backup', 'Cancelado. No se copió nada.')
+            return
+        if not ok:
+            QMessageBox.warning(
+                self, 'Backup',
+                'El backup NO se completó: el zip no llegó entero al destino.\n'
+                'Mirá la consola para el detalle.')
+            return
+        aviso = '\n\nYa podés desenchufar.' if mp is not None else ''
+        QMessageBox.information(
+            self, 'Backup',
+            f'Listo: {archivos} archivos · {self._human_bytes(zip_bytes)}'
+            f'\n\n{dest_zip}{aviso}')
+
+    def _backup_wait_dialog(self, texto):
+        """Un cartel sin botones que se ve mientras algo bloquea la interfaz."""
+        try:
+            from PyQt6.QtWidgets import QProgressDialog, QApplication
+            from PyQt6.QtCore import Qt
+            d = QProgressDialog(texto, None, 0, 0, self)
+            d.setWindowTitle('Backup')
+            d.setWindowModality(Qt.WindowModality.WindowModal)
+            d.setMinimumDuration(0)
+            d.show()
+            QApplication.processEvents()
+            return d
+        except Exception as e:
+            print(f'⚠️ cartel de espera: {e}')
+            return None
+
+    def _backup_zip(self, src_dir, zip_path, files, top, on_progress=None):
+        """Armar UN zip local con los archivos del plan, dentro de la carpeta
+        `top`. Devuelve True si quedó entero; False si se canceló (no deja
+        nada) o falló. Se escribe a .part y se renombra: nunca un zip a medias."""
+        import zipfile
+        self._backup_cancelled = False
+        part = zip_path + '.part'
+        try:
+            with zipfile.ZipFile(part, 'w', zipfile.ZIP_DEFLATED) as z:
+                for idx, (rel, _size) in enumerate(files, 1):
+                    if on_progress is not None and on_progress(idx, len(files), rel) is False:
+                        self._backup_cancelled = True
+                        break
+                    try:
+                        z.write(os.path.join(src_dir, rel),
+                                arcname=os.path.join(top, rel))
+                    except OSError as e:
+                        print(f"⚠️ No se pudo agregar {rel}: {e}")
+            if self._backup_cancelled:
+                os.remove(part)
+                return False
+            os.replace(part, zip_path)
+            return True
+        except OSError as e:
+            print(f"⚠️ No se pudo armar el zip: {e}")
+            try:
+                os.remove(part)
+            except OSError:
+                pass
+            return False
+
+    def _backup_deliver(self, src_zip, dst_zip):
+        """Copiar el zip al destino y comprobar que llegó entero (mismo tamaño).
+        Una copia cortada a la mitad se borra: no puede parecer un backup."""
+        try:
+            shutil.copyfile(src_zip, dst_zip)
+            if os.path.getsize(dst_zip) == os.path.getsize(src_zip):
+                return True
+            print(f"⚠️ Copia incompleta: {os.path.getsize(dst_zip)} de "
+                  f"{os.path.getsize(src_zip)} bytes")
+        except OSError as e:
+            print(f"⚠️ No se pudo copiar el zip: {e}")
+        try:
+            os.remove(dst_zip)
+        except OSError:
+            pass
+        return False
+
+    def _backup_to(self, dest_root, only_txt=False):
+        """Confirmar, commitear, armar el zip y entregarlo a dest_root.
+
+        Devuelve (archivos, bytes_del_zip, ruta_destino, cancelado, ok) o None."""
+        import tempfile
+        from PyQt6.QtWidgets import QMessageBox, QProgressDialog, QApplication
+        from PyQt6.QtCore import Qt
+
+        files, total, skipped = self._backup_plan(self.void_dir, only_txt=only_txt)
         if not files:
             QMessageBox.information(self, 'Backup', 'No hay nada que copiar.')
-            return
+            return None
 
-        folder = self._backup_folder_name(dest_root)
-        dest_dir = os.path.join(dest_root, folder)
+        nombre = self._backup_folder_name(dest_root)
+        dest_zip = os.path.join(dest_root, nombre + '.zip')
 
         # El paso de confirmación: mostrar qué y a dónde ANTES de escribir nada.
         detalle = (f'{len(files)} archivos · {self._human_bytes(total)}\n\n'
-                   f'{dest_dir}')
+                   f'{dest_zip}')
+        if only_txt:
+            detalle += '\n\n(sólo .txt, sin historial)'
         if skipped:
             detalle += f'\n\n(sin seguir: {", ".join(skipped)})'
         respuesta = QMessageBox.question(
@@ -1487,25 +1724,49 @@ class IoMixin:
             QMessageBox.StandardButton.Ok)
         if respuesta != QMessageBox.StandardButton.Ok:
             print('↩ Backup cancelado')
-            return
+            return None
 
         # Commitear primero, para que no quede nada sin registrar afuera.
         self.commit_void()
         # Volver a planificar: el commit acaba de cambiar el .git, y ese
         # historial es justamente el punto.
-        files, total, _ = self._backup_plan(self.void_dir)
+        files, total, _ = self._backup_plan(self.void_dir, only_txt=only_txt)
+
+        # 1) El zip se arma en el disco local (rápido). 2) Se entrega de una
+        # sola vez: por MTP cada archivo suelto cuesta un viaje de ida y vuelta,
+        # y 900 viajes tardaban una eternidad.
+        tmpdir = tempfile.mkdtemp(prefix='voider-backup-')
+        local_zip = os.path.join(tmpdir, nombre + '.zip')
+        barra = QProgressDialog('Armando el zip…', 'Cancelar', 0, len(files), self)
+        barra.setWindowTitle('Backup')
+        barra.setWindowModality(Qt.WindowModality.WindowModal)
+        barra.setMinimumDuration(0)
+        barra.setAutoClose(False)
+        barra.setAutoReset(False)
+
+        def avance(i, n, rel):
+            barra.setValue(i - 1)
+            barra.setLabelText(f'Armando el zip · {i} de {n}\n{rel}')
+            QApplication.processEvents()
+            return not barra.wasCanceled()
 
         try:
-            os.makedirs(dest_dir, exist_ok=True)
-            copiados = self._backup_copy(self.void_dir, dest_dir, files)
-        except OSError as e:
-            QMessageBox.warning(self, 'Backup', f'No se pudo escribir:\n{e}')
-            return
+            armado = self._backup_zip(self.void_dir, local_zip, files, nombre,
+                                      on_progress=avance)
+            barra.close()
+            if not armado:
+                return (0, 0, dest_zip, self._backup_cancelled, False)
 
-        print(f'📦 Backup: {copiados} archivos · {self._human_bytes(total)} → {dest_dir}')
-        QMessageBox.information(
-            self, 'Backup',
-            f'{copiados} archivos · {self._human_bytes(total)}\n\n{dest_dir}')
+            zip_bytes = os.path.getsize(local_zip)
+            espera = self._backup_wait_dialog(
+                f'Copiando el zip ({self._human_bytes(zip_bytes)})…\n\n'
+                'No desenchufes hasta el "Listo".')
+            ok = self._backup_deliver(local_zip, dest_zip)
+            if espera is not None:
+                espera.close()
+            return (len(files), zip_bytes, dest_zip, False, ok)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
     def take_screenshot(self):
         """F12: Capture the full screen and save to void_dir/screenshots/."""
