@@ -148,6 +148,20 @@ class TtsMixin:
         # F4 (reading view) has no TTS — it's a visual prose render
         elif view_index == 7:                        # F8 — oracle O/
             self._tts_speak(self.oracle_o_ring.current())
+        elif view_index == 9:                        # libro entero (F3 + Enter en un punto)
+            self._tts_speak(self.book_concat_ring.current())
+            self._tts_timer.start()
+
+    def _book_concat_next_index(self):
+        """El próximo renglón legible del libro (sin puntos ni títulos de
+        capítulo, como la navegación), o None si ya es el último: el libro
+        se lee una vez, no en círculo."""
+        ring = self.book_concat_ring
+        lines = ring.lines
+        for j in range(ring.index + 1, len(lines)):
+            if lines[j] not in ('.', '') and j not in self._book_concat_header_indices:
+                return j
+        return None
 
     def _tts_poll(self):
         """Poll every 50ms; when aplay finishes, advance and speak next line."""
@@ -188,5 +202,23 @@ class TtsMixin:
             while lines[peek] in ('.', '') and peek != idx:
                 peek = (peek + 1) % len(lines)
             self._tts_prefetch(lines[peek])
+        elif self.current_view == 9:                 # libro entero, en orden
+            j = self._book_concat_next_index()
+            if j is None:                            # fin del libro: callarse
+                self.tts_active = False
+                self._tts_timer.stop()
+                print("🔇 TTS: fin del libro")
+                return
+            self.book_concat_ring.index = j
+            view = self.book_concat_view
+            if view:
+                view._offset = 0.0
+                view.editor.setText(self.book_concat_ring.current())
+                view.editor.setCursorPosition(0)
+                view.update()
+            self._tts_speak(self.book_concat_ring.current())
+            nxt = self._book_concat_next_index()
+            if nxt is not None:
+                self._tts_prefetch(self.book_concat_ring.lines[nxt])
         else:
             self._tts_timer.stop()
