@@ -1731,6 +1731,17 @@ class IoMixin:
             raise box['error']
         return box.get('value')
 
+    def _copy_label(self, hecho, total):
+        """(texto, terminando). Al 100% los datos ya pasaron, pero el fsync
+        espera a que el pendrive los escriba de verdad (unos segundos): decirlo,
+        en vez de quedarse mudo en 100%."""
+        if total and hecho >= total:
+            return ('Terminando de escribir…\n'
+                    'No lo desenchufes todavía.'), True
+        return (f'Copiando el zip · {self._human_bytes(hecho)} de '
+                f'{self._human_bytes(total)}\n'
+                'No desenchufes hasta el "Listo".'), False
+
     def _progress_label(self, etapa, i, n, rel, ancho=56):
         """Dos líneas de largo acotado; un nombre largo se recorta al medio,
         conservando el final (la extensión)."""
@@ -2031,6 +2042,10 @@ exit /b 1
         barra.setAutoClose(False)
         barra.setAutoReset(False)
         barra.setFixedWidth(self._BACKUP_DIALOG_WIDTH)
+        # Alto fijo para dos líneas de texto: sin esto el cartel no crecía al
+        # cambiar el texto y el botón Cancelar quedaba cortado abajo.
+        barra.setLabelText('Armando el zip…\n ')
+        barra.setFixedHeight(barra.sizeHint().height() + 12)
 
         def avance_zip(i, n, rel):
             estado.update(i=i, n=n, rel=rel)
@@ -2043,13 +2058,15 @@ exit /b 1
         def tick():
             if barra.wasCanceled():
                 estado['cancel'] = True
-            barra.setValue(int(1000 * estado['i'] / max(estado['n'], 1)))
             if estado['etapa'] == 'Copiando':
-                barra.setLabelText(
-                    f"Copiando el zip · {self._human_bytes(estado['i'])} de "
-                    f"{self._human_bytes(estado['n'])}\n"
-                    'No desenchufes hasta el "Listo".')
+                texto, terminando = self._copy_label(estado['i'], estado['n'])
+                barra.setLabelText(texto)
+                if terminando:
+                    barra.setRange(0, 0)  # barra en movimiento: está trabajando
+                else:
+                    barra.setValue(int(1000 * estado['i'] / max(estado['n'], 1)))
             else:
+                barra.setValue(int(1000 * estado['i'] / max(estado['n'], 1)))
                 barra.setLabelText(self._progress_label(
                     estado['etapa'], estado['i'], estado['n'], estado['rel']))
 
