@@ -5,6 +5,31 @@ state what's about to be done and get confirmation before touching files.
 
 ACTIVE — ready to implement next
 ---------------------------------
+- CTRL+B: RESUELTO (2026-11-13, commits 7a09e91..2ebcbce). Sólo texto (29 MB),
+  no congela la interfaz, casilla visible, cartel sin cortes y que explica el
+  100% (fsync). Federico: "todo re bien". Queda:
+  * INSTALAR.bat NO COMPILÓ en su Windows. Falta el error (foto de la ventana).
+  * A definir: ¿agrupar por carpetas dentro del backup?
+- F3 + ENTER EN UN PUNTO + Ctrl+T: HECHO (2026-11-13, bbf173b / e4531fa).
+  Lee el libro entero, salta puntos y títulos, se calla al final.
+  Pendiente de decidir: ¿que anuncie los títulos de capítulo?
+
+- F3 → F9: si en F3 estoy parado en un punto (o entré al libro desde un
+  punto), F9 debería mostrar el libro completo (2026-11-13). SIN EMPEZAR.
+  Hoy F9 (vista 8, new_interface.py ~930) es el editor de prosa de UN archivo
+  (current_file_path) y _editor_save lo reescribe al salir. Opciones hablada:
+  1. SÓLO LECTURA (recomendada): libro entero en prosa, capítulos seguidos
+     (reutilizar la armada de _book_open_concat, f3_mixin.py:553). Sin riesgo.
+  2. EDITABLE con reparto por capítulo al salir: riesgo de pisar capítulos de
+     /void si se toca un título; exigiría snapshot previo y no guardar si los
+     títulos no coinciden. Dejar como mejora posterior.
+  Falta que Federico confirme 1 o 2.
+
+- LA BARRA DE MENÚ (la que aparece al mover el mouse) NO RESPONDE: ningún
+  botón se puede clickear (2026-11-11). NO tiene que ver con Ctrl+B — es un
+  bug aparte, sin investigar todavía. Federico (2026-11-13): "deberían
+  funcionar, no entiendo qué hacen ahí si no hacen nada".
+
 - F12 (take_screenshot, io_mixin.py) PROBABLEMENTE ESTÁ IGUAL DE ROTO QUE
   ESTABA Shift+F12 (2026-09-24, hallado de rebote, no tocado). Shift+F12
   usaba QScreen.grabWindow(0) y devolvía un pixmap vacío en este
@@ -223,6 +248,31 @@ ACTIVE — ready to implement next
 
 BUGS
 ----
+- CTRL+SHIFT+DELETE (F2, collapse_paragraphs) SIGUE SIN FUNCIONAR (2026-10-01,
+  NO RESUELTO). Comando nuevo: parado en el primer punto ("ø") del documento,
+  debía borrar todos los "." y fundir el archivo en un solo párrafo para que
+  Tab mezcle todas las líneas de una. Primer intento fue Ctrl+Shift+. — no
+  andaba, diagnosticado (sin confirmar en vivo) como el típico problema de Qt
+  con Shift+Period: el evento puede llegar con key()=Key_Greater (el glifo
+  shifteado) en vez de Key_Period, así que el match exacto nunca disparaba.
+  Se cambió a Ctrl+Shift+Delete (sin ese problema, _KEY_MAP ya tiene
+  'Delete': Qt.Key.Key_Delete) y se agregó el guard de "solo en el primer
+  punto" (_doc_collapse_to_one_paragraph hace no-op si line_ring.index != 0)
+  — Federico lo pidió así para que no dispare por accidente a mitad de
+  documento. Igual sigue sin funcionar tras el cambio, sin confirmar todavía
+  si es el mismo problema de teclado/layout (la capa custom "voider-accents"
+  de nix/modules/voider.nix, o el teclado ISO-UK físico) interceptando
+  Ctrl+Shift+Delete también, o algo en el routing de key_router_mixin.py
+  (_handle_f2_keys), o que el keybinding cargado en runtime seguía siendo el
+  viejo valor cacheado en config.json (ya corregido a mano en
+  proto-voider/config.json, pkgs/voider-py/config.json seguía sin ese bug
+  porque nunca tuvo la clave vieja escrita). Código + 17 tests ya promovidos
+  (commits 4a118e6, a5430e1) — el fallo es en el entorno real, no en la
+  lógica (los tests pasan con la clase real FullscreenCircleApp). Antes de
+  seguir: confirmar en vivo qué tecla llega realmente al router (loguear
+  key()/modifiers() crudo de Qt en _handle_f2_keys) en vez de seguir
+  adivinando a ciegas.
+
 - F9 YA NO FUNDE POR FALTA DE PUNTUACIÓN — ARREGLADO DEL LADO DE LA APERTURA
   (2026-09-08, arreglado 2026-09-15, commit a08e5d8). El bug que fundía scriptio
   continua en una sola línea al abrir F9 está resuelto: lines_to_paragraphs
@@ -877,6 +927,43 @@ LONG-TERM / DEFERRED
   Windows, no del cross-compile). NO publicar/compilar para godplaystheartist
   hasta que el mirror esté más cerca de paridad — ver también la nota de
   compilar-en-Windows más abajo.
+
+- BUILD DE WINDOWS (PYTHON) SALIÓ BUGUEADO — DIAGNÓSTICO Y PLAN (2026-10-05).
+  El .exe hecho con PyInstaller desde Windows (spec en
+  /mnt/data/programming/proto-voider-source/voider.spec) salió con la
+  interfaz rota, distinta a como se ve en NixOS. Revisado el spec y el código:
+  1. Pasar de PyInstaller a NUITKA (menos hidden-imports/plugins de Qt
+     faltantes que PyInstaller). Mientras tanto, el spec actual es mínimo:
+     onefile + upx=True (UPX es fuente conocida de exes raros) + datas=[]
+     (nada embebido) — sacar upx como primer paso barato.
+  2. FUENTES (causa más probable de los problemas de interfaz): el default es
+     "Consolas" (config font_family, reorder_view, circular_view, etc.) y la
+     lectura usa "EB Garamond" (f4_mixin, io_mixin). En NixOS Consolas NO
+     existe, así que Qt caía en otra monoespaciada; en Windows sí existe y
+     las métricas cambian, moviendo todo layout calculado desde la fuente.
+     EB Garamond probablemente no está instalada en Windows y cae en otra.
+     Solución: embeber las fuentes (QFontDatabase.addApplicationFont desde
+     un directorio de fuentes empaquetado) y usar el MISMO default en ambas
+     plataformas en vez de depender de las del sistema.
+  3. RUTAS HARDCODEADAS de Linux: /tmp/voider-fx y /tmp/voider-fx-panel
+     (fx_panel, new_interface), ~/void/tts/*.onnx (tts_mixin),
+     ~/void/library.txt (io_mixin). Centralizar detrás de una config /
+     función única (tempfile.gettempdir(), raíz del void configurable).
+     config.json/state.json ya manejan sys.frozen bien (app_config.py).
+  Nota: Rust (voider-rs) evita por diseño el punto 1 y buena parte del 2
+  (binario único, fuentes embebidas, render propio), pero NO el 3 si las
+  rutas se portan tal cual.
+  HECHO EN CÓDIGO (2026-10-06, commits ba9146c y aafd8ed): fuentes
+  empaquetadas en proto-voider/fonts (+ licencia OFL) y registradas en Qt
+  antes de crear la ventana (resources.py); default font_family = EB Garamond;
+  rutas fuera de Linux (platform_paths.py: tempfile.gettempdir() y
+  <void>/tts); voider.spec nuevo en proto-voider/ (upx=False; datas con las
+  fuentes y los datos de pyphen y langdetect, que fallan EN SILENCIO si
+  faltan); build_windows_nuitka.bat y BUILD-WINDOWS.md. Promovido a
+  pkgs/voider-py. SIN PROBAR: nada de esto se pudo compilar desde NixOS —
+  hay que correr el build en Windows y mirar el .exe una vez (letras EB
+  Garamond, hifenado de F4). Ojo: el spec de /mnt/data/programming/
+  proto-voider-source/voider.spec sigue siendo el viejo; copiar el nuevo.
 
 - COMPILAR PYTHON A .EXE DESDE UNA VM DE WINDOWS (2026-09-28). PyInstaller no
   cross-compila desde Linux (necesita correr EN el target) — el camino real
