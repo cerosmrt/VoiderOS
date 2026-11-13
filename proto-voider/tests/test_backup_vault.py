@@ -20,7 +20,7 @@ BACKUP_METHODS = ('_detect_drives', '_backup_plan', '_backup_folder_name',
                   '_program_plan', '_windows_bundle_ready', '_backup_zip_entries',
                   '_backup_entries', '_installer_bat', '_requirements_txt', '_arc',
                   '_run_in_thread', '_copy_chunks', '_progress_label',
-                  '_backup_checkbox')
+                  '_backup_checkbox', '_copy_label')
 
 
 def _app(tmp_path):
@@ -623,3 +623,24 @@ def test_la_casilla_no_disponible_se_ve_apagada(tmp_path, qapp):
     c = app._backup_checkbox('no disponible', enabled=False)
     assert not c.isEnabled()
     assert 'QCheckBox::indicator:disabled' in c.styleSheet().replace(' ', '')
+
+
+# ── el 100%: los datos pasaron, falta que el pendrive termine de escribir ─────
+
+def test_mientras_copia_dice_cuanto_lleva(tmp_path):
+    app = _app(tmp_path)
+    from new_interface import FullscreenCircleApp
+    app._human_bytes = FullscreenCircleApp._human_bytes
+    texto, terminando = app._copy_label(50 * 1024 * 1024, 140 * 1024 * 1024)
+    assert 'de' in texto and 'MB' in texto
+    assert terminando is False
+
+
+def test_al_cien_por_ciento_dice_que_esta_terminando_de_escribir(tmp_path):
+    """Se quedaba unos segundos en 100% sin explicar nada (es el fsync)."""
+    app = _app(tmp_path)
+    texto, terminando = app._copy_label(140, 140)
+    assert terminando is True
+    assert 'Terminando de escribir' in texto
+    assert 'desenchuf' in texto
+    assert len(texto.splitlines()) == 2, 'mismo alto que el resto: no se corta'
