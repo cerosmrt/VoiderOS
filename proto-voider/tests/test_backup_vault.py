@@ -18,7 +18,8 @@ BACKUP_METHODS = ('_detect_drives', '_backup_plan', '_backup_folder_name',
                   '_phone_backup_root', '_mount_phone', '_unmount_phone',
                   '_copy_file', '_backup_zip', '_backup_deliver',
                   '_program_plan', '_windows_bundle_ready', '_backup_zip_entries',
-                  '_backup_entries', '_installer_bat', '_requirements_txt', '_arc')
+                  '_backup_entries', '_installer_bat', '_requirements_txt', '_arc',
+                  '_run_in_thread', '_copy_chunks', '_progress_label')
 
 
 def _app(tmp_path):
@@ -389,10 +390,11 @@ def test_entregar_detecta_una_copia_incompleta_y_la_borra(tmp_path, monkeypatch)
     destino = tmp_path / 'tel' / 'a.zip'
     destino.parent.mkdir()
 
-    def a_medias(src, dst):
+    def a_medias(src, dst, on_progress=None):
         with open(dst, 'wb') as f:
             f.write(b'x' * 100)
-    monkeypatch.setattr(shutil, 'copyfile', a_medias)
+        return True
+    monkeypatch.setattr(app, '_copy_chunks', a_medias)
     assert app._backup_deliver(str(origen), str(destino)) is False
     assert not destino.exists(), 'quedó una copia rota que parece buena'
 
@@ -532,3 +534,85 @@ def test_pyaudio_es_opcional(tmp_path):
     assert 'PyQt6' in req and 'pyinstaller' in req.lower()
     assert 'pyaudio' not in req.lower()
     assert 'pyaudio' in app._installer_bat().lower()
+
+
+# ── que Voider no se cuelgue: lo pesado va a un hilo ──────────────────────────
+
+@pytest.fixture
+def qapp():
+    from PyQt6.QtWidgets import QApplication
+    return QApplication.instance() or QApplication([])
+
+
+def test_run_in_thread_devuelve_el_resultado_desde_otro_hilo(tmp_path, qapp):
+    import threading
+    app = _app(tmp_path)
+    principal = threading.get_ident()
+    hilo, valor = app._run_in_thread(lambda: (threading.get_ident(), 42))
+    assert valor == 42
+    assert hilo != principal, 'corrió en el hilo de la interfaz'
+
+
+def test_run_in_thread_deja_vivir_a_la_interfaz_mientras_espera(tmp_path, qapp):
+    """Lo que congelaba a Voider: mientras el trabajo corre, Qt tiene que
+    seguir procesando eventos (si no, Hyprland ofrece 'terminar el programa')."""
+    import time
+    from PyQt6.QtCore import QTimer
+    app = _app(tmp_path)
+    vivo = []
+    QTimer.singleShot(0, lambda: vivo.append(True))
+    app._run_in_thread(lambda: time.sleep(0.3))
+    assert vivo, 'la interfaz no procesó eventos durante el trabajo'
+
+
+def test_run_in_thread_propaga_el_error(tmp_path, qapp):
+    app = _app(tmp_path)
+    def boom():
+        raise OSError('se desenchufó')
+    with pytest.raises(OSError, match='desenchufó'):
+        app._run_in_thread(boom)
+
+
+def test_run_in_thread_llama_al_tick_mientras_trabaja(tmp_path, qapp):
+    import time
+    app = _app(tmp_path)
+    ticks = []
+    app._run_in_thread(lambda: time.sleep(0.3), on_tick=lambda: ticks.append(1))
+    assert len(ticks) >= 2
+
+
+def test_entregar_avisa_el_avance_en_bytes(tmp_path):
+    app = _app(tmp_path)
+    origen = tmp_path / 'a.zip'
+    origen.write_bytes(b'x' * (3 * 1024 * 1024 + 5))
+    destino = tmp_path / 'a-copia.zip'
+    visto = []
+    ok = app._backup_deliver(str(origen), str(destino),
+                             on_progress=lambda hecho, total: visto.append((hecho, total)) or True)
+    assert ok is True
+    assert visto[-1] == (3 * 1024 * 1024 + 5, 3 * 1024 * 1024 + 5)
+    assert [h for h, _ in visto] == sorted(h for h, _ in visto)
+    assert destino.read_bytes() == origen.read_bytes()
+
+
+def test_cancelar_la_entrega_borra_la_copia_a_medias(tmp_path):
+    app = _app(tmp_path)
+    origen = tmp_path / 'a.zip'
+    origen.write_bytes(b'x' * (3 * 1024 * 1024))
+    destino = tmp_path / 'a-copia.zip'
+    ok = app._backup_deliver(str(origen), str(destino),
+                             on_progress=lambda hecho, total: hecho < 1024 * 1024)
+    assert ok is False
+    assert app._backup_cancelled is True
+    assert not destino.exists(), 'quedó una copia a medias que parece buena'
+
+
+def test_la_etiqueta_de_la_barra_no_crece_con_nombres_largos(tmp_path):
+    """La barra se veía cortada: el texto cambiaba de ancho en cada archivo."""
+    app = _app(tmp_path)
+    largo = 'I/' + 'una frase larguísima de título de capítulo ' * 5 + '.txt'
+    etiqueta = app._progress_label('Armando el zip', 3, 938, largo)
+    assert all(len(linea) <= 60 for linea in etiqueta.splitlines())
+    assert '3 de 938' in etiqueta
+    assert etiqueta.splitlines()[1].endswith('.txt'), 'se perdió el final del nombre'
+
