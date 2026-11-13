@@ -1,4 +1,4 @@
-"""Ctrl+B: copiar el void entero a un pendrive, CON el historial de git.
+"""Ctrl+B: copiar el texto del void (sólo .txt) a un pendrive o al teléfono.
 
 El _backup_vault viejo abría un diálogo de carpeta y copiaba sólo los .txt, así
 que perdía el .git — es decir, todo el historial. Esto es lo que roadmap/
@@ -40,14 +40,6 @@ def _write(path, text=''):
 
 # ── el plan: qué se copiaría, sin escribir nada ───────────────────────────────
 
-def test_el_historial_de_git_viaja(tmp_path):
-    """La razón entera por la que esto se reescribe."""
-    app = _app(tmp_path)
-    _write(os.path.join(app.void_dir, 'I', 'a.txt'), 'hola')
-    _write(os.path.join(app.void_dir, '.git', 'HEAD'), 'ref: refs/heads/main')
-    files, total, skipped = app._backup_plan(app.void_dir)
-    rels = [f[0] for f in files]
-    assert any(r.startswith('.git') for r in rels), f'se perdió el historial: {rels}'
 
 
 def test_los_txt_tambien_obviamente(tmp_path):
@@ -114,7 +106,7 @@ def test_dos_backups_el_mismo_dia_no_se_pisan(tmp_path):
 
 # ── la copia ──────────────────────────────────────────────────────────────────
 
-def test_la_copia_reproduce_el_arbol_con_el_git(tmp_path):
+def test_la_copia_reproduce_el_arbol(tmp_path):
     app = _app(tmp_path)
     _write(os.path.join(app.void_dir, 'I', 'a.txt'), 'hola')
     _write(os.path.join(app.void_dir, 'I', 'sub', 'b.txt'), 'chau')
@@ -125,12 +117,12 @@ def test_la_copia_reproduce_el_arbol_con_el_git(tmp_path):
     files, _, _ = app._backup_plan(app.void_dir)
     copiados = app._backup_copy(app.void_dir, str(destino / 'dest'), files)
 
-    assert copiados == 3
+    assert copiados == 2
     with open(destino / 'dest' / 'I' / 'a.txt', encoding='utf-8') as f:
         assert f.read() == 'hola'
     with open(destino / 'dest' / 'I' / 'sub' / 'b.txt', encoding='utf-8') as f:
         assert f.read() == 'chau'
-    assert (destino / 'dest' / '.git' / 'HEAD').exists(), 'el historial no llegó'
+    assert not (destino / 'dest' / '.git').exists(), 'viajó el historial'
 
 
 def test_copiar_no_toca_el_void_original(tmp_path):
@@ -216,23 +208,8 @@ def test_un_archivo_que_se_llama_tts_no_se_confunde_con_la_carpeta(tmp_path):
 
 # ââ el telÃ©fono (MTP): sÃ³lo los .txt, en Download/Void Backup âââââââââââââââââ
 
-def test_el_plan_solo_txt_deja_afuera_el_git(tmp_path):
-    app = _app(tmp_path)
-    _write(os.path.join(app.void_dir, 'I', 'a.txt'), 'hola')
-    _write(os.path.join(app.void_dir, '0.txt'), 'x')
-    _write(os.path.join(app.void_dir, '.git', 'HEAD'), 'ref: x')
-    _write(os.path.join(app.void_dir, 'I', 'nota.png'), 'img')
-    files, total, _ = app._backup_plan(app.void_dir, only_txt=True)
-    rels = sorted(f[0] for f in files)
-    assert rels == ['0.txt', os.path.join('I', 'a.txt')]
-    assert total == len('hola') + len('x')
 
 
-def test_el_plan_por_defecto_sigue_llevando_el_git(tmp_path):
-    app = _app(tmp_path)
-    _write(os.path.join(app.void_dir, '.git', 'HEAD'), 'ref: x')
-    files, _, _ = app._backup_plan(app.void_dir)
-    assert any(f[0].startswith('.git') for f in files)
 
 
 def test_parse_de_jmtpfs_list(tmp_path):
@@ -329,14 +306,6 @@ def test_el_zip_trae_los_archivos_dentro_de_una_carpeta_con_el_nombre_del_backup
     }
 
 
-def test_el_zip_lleva_el_git_si_el_plan_lo_trae(tmp_path):
-    app = _app(tmp_path)
-    _write(os.path.join(app.void_dir, 'I', 'a.txt'), 'hola')
-    _write(os.path.join(app.void_dir, '.git', 'HEAD'), 'ref: x')
-    files, _, _ = app._backup_plan(app.void_dir)
-    destino = str(tmp_path / 'x.zip')
-    app._backup_zip(app.void_dir, destino, files, 'b')
-    assert 'b/.git/HEAD' in _leer_zip(destino)
 
 
 def test_el_zip_respeta_los_nombres_con_signos_de_pregunta(tmp_path):
@@ -500,7 +469,7 @@ def test_con_programa_el_zip_trae_void_programa_e_instalador(tmp_path):
     app._backup_zip_entries(destino, entries)
     z = _leer_zip(destino)
     assert z['b/void/I/a.txt'] == 'hola'
-    assert 'b/void/.git/HEAD' in z, 'el backup con programa perdió el historial'
+    assert not any('/.git/' in k for k in z), 'viajó el historial'
     assert z['b/programa/voider.py'] == 'print(1)'
     assert 'b/programa/fonts/EBGaramond.ttf' in z
     assert 'b/programa/python-3.10.11-amd64.exe' in z
@@ -616,3 +585,20 @@ def test_la_etiqueta_de_la_barra_no_crece_con_nombres_largos(tmp_path):
     assert '3 de 938' in etiqueta
     assert etiqueta.splitlines()[1].endswith('.txt'), 'se perdió el final del nombre'
 
+
+# ── sólo el texto: nada de modelos, imágenes, historial ni restos ─────────────
+
+def test_el_backup_por_defecto_es_solo_texto(tmp_path):
+    app = _app(tmp_path)
+    _write(os.path.join(app.void_dir, 'I', 'a.txt'), 'hola')
+    _write(os.path.join(app.void_dir, '0.txt'), 'x')
+    _write(os.path.join(app.void_dir, '_0txt_versions', 'v1.txt'), 'v')
+    for basura in ('.git/HEAD', 'stt/models/blob', 'carousel/c.png',
+                   'screenshots/s.png', 'I/a.txt.bak', 'I/a.lock',
+                   'I/a.rescue', 'covers/c.png'):
+        _write(os.path.join(app.void_dir, basura), 'z' * 50)
+    files, total, _ = app._backup_plan(app.void_dir)
+    rels = sorted(f[0] for f in files)
+    assert rels == sorted(['0.txt', os.path.join('I', 'a.txt'),
+                           os.path.join('_0txt_versions', 'v1.txt')])
+    assert total == len('hola') + len('x') + len('v')

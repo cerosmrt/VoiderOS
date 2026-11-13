@@ -1438,17 +1438,17 @@ class IoMixin:
         except OSError:
             pass
 
-    def _backup_plan(self, src_dir, only_txt=False):
+    def _backup_plan(self, src_dir):
         """Qué se copiaría, SIN escribir nada.
 
         Devuelve (archivos, bytes, enlaces_salteados), donde archivos es una
         lista de (ruta_relativa, bytes).
 
-        Dos reglas que importan:
-          * el .git viaja — es la razón de existir de esta versión;
-          * los enlaces a directorios se anotan pero NO se siguen. O/ apunta a
-            /mnt/data; seguirlo convertiría un backup del texto en una copia de
-            76 mil libros del corpus.
+        Sólo texto: los .txt, con sus carpetas. Nada de .git (el historial ya
+        está en esta máquina), ni modelos (stt/), imágenes, .bak, .lock...
+        Y los enlaces a directorios se anotan pero NO se siguen:
+        O/ apunta a /mnt/data; seguirlo convertiría un backup del texto en una
+        copia de 76 mil libros del corpus.
         """
         files, total, skipped = [], 0, []
         for dirpath, dirnames, filenames in os.walk(src_dir, followlinks=False):
@@ -1465,11 +1465,11 @@ class IoMixin:
                 if os.path.islink(full):
                     dirnames.remove(d)
                     skipped.append(os.path.relpath(full, src_dir))
-            if only_txt and os.path.abspath(dirpath) == os.path.abspath(src_dir):
+            if os.path.abspath(dirpath) == os.path.abspath(src_dir):
                 if '.git' in dirnames:
                     dirnames.remove('.git')
             for fname in filenames:
-                if only_txt and not fname.lower().endswith('.txt'):
+                if not fname.lower().endswith('.txt'):
                     continue
                 full = os.path.join(dirpath, fname)
                 if os.path.islink(full):
@@ -1610,8 +1610,7 @@ class IoMixin:
 
         resultado = None
         try:
-            resultado = self._backup_to(dest_root, only_txt=(kind == 'phone'),
-                                        offer_program=(kind == 'drive'))
+            resultado = self._backup_to(dest_root, offer_program=(kind == 'drive'))
         finally:
             if mp is not None:
                 # Por MTP, desmontar es lo que termina de escribir: el "listo"
@@ -1951,7 +1950,7 @@ exit /b 1
             pass
         return False
 
-    def _backup_to(self, dest_root, only_txt=False, offer_program=False):
+    def _backup_to(self, dest_root, offer_program=False):
         """Confirmar, commitear, armar el zip y entregarlo a dest_root.
 
         Devuelve (archivos, bytes_del_zip, ruta_destino, cancelado, ok) o None."""
@@ -1960,7 +1959,7 @@ exit /b 1
         from PyQt6.QtCore import Qt
 
         files, total, skipped = self._run_in_thread(
-            self._backup_plan, self.void_dir, only_txt=only_txt,
+            self._backup_plan, self.void_dir,
             wait_text='Revisando el void…')
         if not files:
             QMessageBox.information(self, 'Backup', 'No hay nada que copiar.')
@@ -1972,8 +1971,6 @@ exit /b 1
         # El paso de confirmación: mostrar qué y a dónde ANTES de escribir nada.
         detalle = (f'{len(files)} archivos · {self._human_bytes(total)}\n\n'
                    f'{dest_zip}')
-        if only_txt:
-            detalle += '\n\n(sólo .txt, sin historial)'
         if skipped:
             detalle += f'\n\n(sin seguir: {", ".join(skipped)})'
         caja = QMessageBox(QMessageBox.Icon.Question, 'Backup', detalle,
@@ -1999,10 +1996,9 @@ exit /b 1
 
         # Commitear primero, para que no quede nada sin registrar afuera.
         self.commit_void()
-        # Volver a planificar: el commit acaba de cambiar el .git, y ese
-        # historial es justamente el punto.
+        # Volver a planificar después del commit (por si cambió algo).
         files, total, _ = self._run_in_thread(
-            self._backup_plan, self.void_dir, only_txt=only_txt)
+            self._backup_plan, self.void_dir)
 
         # El zip se arma en el disco local y se entrega de una sola vez, todo
         # en un hilo. La barra se alimenta de `estado`, que el hilo escribe y
