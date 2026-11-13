@@ -1438,17 +1438,17 @@ class IoMixin:
         except OSError:
             pass
 
-    def _backup_plan(self, src_dir, only_txt=False):
+    def _backup_plan(self, src_dir):
         """Qué se copiaría, SIN escribir nada.
 
         Devuelve (archivos, bytes, enlaces_salteados), donde archivos es una
         lista de (ruta_relativa, bytes).
 
-        Dos reglas que importan:
-          * el .git viaja — es la razón de existir de esta versión;
-          * los enlaces a directorios se anotan pero NO se siguen. O/ apunta a
-            /mnt/data; seguirlo convertiría un backup del texto en una copia de
-            76 mil libros del corpus.
+        Sólo texto: los .txt, con sus carpetas. Nada de .git (el historial ya
+        está en esta máquina), ni modelos (stt/), imágenes, .bak, .lock...
+        Y los enlaces a directorios se anotan pero NO se siguen:
+        O/ apunta a /mnt/data; seguirlo convertiría un backup del texto en una
+        copia de 76 mil libros del corpus.
         """
         files, total, skipped = [], 0, []
         for dirpath, dirnames, filenames in os.walk(src_dir, followlinks=False):
@@ -1465,11 +1465,11 @@ class IoMixin:
                 if os.path.islink(full):
                     dirnames.remove(d)
                     skipped.append(os.path.relpath(full, src_dir))
-            if only_txt and os.path.abspath(dirpath) == os.path.abspath(src_dir):
+            if os.path.abspath(dirpath) == os.path.abspath(src_dir):
                 if '.git' in dirnames:
                     dirnames.remove('.git')
             for fname in filenames:
-                if only_txt and not fname.lower().endswith('.txt'):
+                if not fname.lower().endswith('.txt'):
                     continue
                 full = os.path.join(dirpath, fname)
                 if os.path.islink(full):
@@ -1565,13 +1565,18 @@ class IoMixin:
 
     def _backup_vault(self):
         """Ctrl+B: el void a un pendrive (con su historial) o al teléfono
-        (sólo los .txt, por MTP)."""
+        (sólo los .txt, por MTP). Todo lo lento corre en un hilo
+        (_run_in_thread): la interfaz no se congela en ningún paso."""
         from PyQt6.QtWidgets import QMessageBox
 
-        # Destinos: (etiqueta, tipo, dato). Pendrives primero, teléfonos después.
-        destinos = [(d, 'drive', d) for d in self._detect_drives()]
-        for bus, dev, nombre in self._detect_phones():
-            destinos.append((f'📱 {nombre}', 'phone', (bus, dev)))
+        # Buscar destinos fuera del hilo de la interfaz: `jmtpfs -l` abre el
+        # USB del teléfono y puede tardar segundos.
+        def buscar():
+            ds = [(d, 'drive', d) for d in self._detect_drives()]
+            for bus, dev, nombre in self._detect_phones():
+                ds.append((f'📱 {nombre}', 'phone', (bus, dev)))
+            return ds
+        destinos = self._run_in_thread(buscar, wait_text='Buscando pendrive o teléfono…')
         if not destinos:
             QMessageBox.information(self, 'Backup',
                                     'No hay ningún pendrive ni teléfono conectado.')
@@ -1591,7 +1596,8 @@ class IoMixin:
         _label, kind, dato = elegido
         mp = None
         if kind == 'phone':
-            mp = self._mount_phone(*dato)
+            mp = self._run_in_thread(self._mount_phone, *dato,
+                                     wait_text='Abriendo el teléfono…')
             if mp is None:
                 QMessageBox.warning(
                     self, 'Backup',
@@ -1604,17 +1610,14 @@ class IoMixin:
 
         resultado = None
         try:
-            resultado = self._backup_to(dest_root, only_txt=(kind == 'phone'),
-                                        offer_program=(kind == 'drive'))
+            resultado = self._backup_to(dest_root, offer_program=(kind == 'drive'))
         finally:
             if mp is not None:
-                # Por MTP, desmontar es lo que termina de escribir: mostrarlo,
-                # porque el "listo" sólo es verdad después de esto.
-                espera = self._backup_wait_dialog(
-                    'Terminando de escribir en el teléfono…\n\nNo lo desenchufes.')
-                self._unmount_phone(mp)
-                if espera is not None:
-                    espera.close()
+                # Por MTP, desmontar es lo que termina de escribir: el "listo"
+                # sólo es verdad después de esto.
+                self._run_in_thread(
+                    self._unmount_phone, mp,
+                    wait_text='Terminando de escribir en el teléfono…\n\nNo lo desenchufes.')
         if resultado is None:
             return
         archivos, zip_bytes, dest_zip, cancelado, ok = resultado
@@ -1628,14 +1631,18 @@ class IoMixin:
                 'El backup NO se completó: el zip no llegó entero al destino.\n'
                 'Mirá la consola para el detalle.')
             return
-        aviso = '\n\nYa podés desenchufar.' if mp is not None else ''
+        aviso = '\n\nYa podés desenchufar.'
         QMessageBox.information(
             self, 'Backup',
             f'Listo: {archivos} archivos · {self._human_bytes(zip_bytes)}'
             f'\n\n{dest_zip}{aviso}')
 
+    # Ancho fijo de los carteles del backup. La barra se veía cortada: cambiaba
+    # de ancho con cada nombre de archivo y el compositor no la acompañaba.
+    _BACKUP_DIALOG_WIDTH = 520
+
     def _backup_wait_dialog(self, texto):
-        """Un cartel sin botones que se ve mientras algo bloquea la interfaz."""
+        """Un cartel sin botones mientras algo trabaja en otro hilo."""
         try:
             from PyQt6.QtWidgets import QProgressDialog, QApplication
             from PyQt6.QtCore import Qt
@@ -1643,12 +1650,78 @@ class IoMixin:
             d.setWindowTitle('Backup')
             d.setWindowModality(Qt.WindowModality.WindowModal)
             d.setMinimumDuration(0)
+            d.setFixedWidth(self._BACKUP_DIALOG_WIDTH)
             d.show()
             QApplication.processEvents()
             return d
         except Exception as e:
             print(f'⚠️ cartel de espera: {e}')
             return None
+
+    def _run_in_thread(self, fn, *args, on_tick=None, wait_text=None, **kwargs):
+        """Correr fn(*args, **kwargs) en un hilo y esperar SIN congelar la
+        interfaz: mientras tanto corre un QEventLoop local, así Qt sigue
+        dibujando y Hyprland no ofrece "terminar el programa".
+
+        on_tick() se llama cada 50 ms desde el hilo de la interfaz (para
+        actualizar una barra). Con wait_text, si tarda más de 300 ms aparece
+        un cartel. Devuelve lo que devuelva fn; si fn lanza, se relanza acá.
+        fn NO debe tocar widgets: corre fuera del hilo de Qt."""
+        import threading
+        import time
+        from PyQt6.QtCore import QCoreApplication, QEventLoop, QTimer
+
+        box = {}
+
+        def work():
+            try:
+                box['value'] = fn(*args, **kwargs)
+            except BaseException as e:  # se relanza en el hilo de la interfaz
+                box['error'] = e
+
+        hilo = threading.Thread(target=work, daemon=True)
+        hilo.start()
+        if QCoreApplication.instance() is None:
+            # Sin aplicación Qt no hay loop que correr (un QEventLoop sin app
+            # espera para siempre): esperar el hilo y listo.
+            hilo.join()
+            if 'error' in box:
+                raise box['error']
+            return box.get('value')
+        loop = QEventLoop()
+        timer = QTimer()
+        timer.setInterval(50)
+        inicio = time.monotonic()
+        cartel = [None]
+
+        def check():
+            if on_tick is not None:
+                on_tick()
+            if (wait_text and cartel[0] is None and hilo.is_alive()
+                    and time.monotonic() - inicio > 0.3):
+                cartel[0] = self._backup_wait_dialog(wait_text)
+            if not hilo.is_alive():
+                loop.quit()
+
+        timer.timeout.connect(check)
+        timer.start()
+        if hilo.is_alive():
+            loop.exec()
+        timer.stop()
+        hilo.join()
+        if cartel[0] is not None:
+            cartel[0].close()
+        if 'error' in box:
+            raise box['error']
+        return box.get('value')
+
+    def _progress_label(self, etapa, i, n, rel, ancho=56):
+        """Dos líneas de largo acotado; un nombre largo se recorta al medio,
+        conservando el final (la extensión)."""
+        if len(rel) > ancho:
+            mitad = ancho // 2
+            rel = rel[:mitad - 1] + '…' + rel[-(ancho - mitad):]
+        return f'{etapa} · {i} de {n}\n{rel}'
 
     def _backup_zip(self, src_dir, zip_path, files, top, on_progress=None):
         """Armar UN zip local con los archivos del plan, dentro de la carpeta
@@ -1835,15 +1908,40 @@ exit /b 1
                     pass
         return total
 
-    def _backup_deliver(self, src_zip, dst_zip):
+    def _copy_chunks(self, src, dst, on_progress=None, chunk=1024 * 1024):
+        """Copiar en bloques de 1 MB avisando el avance. on_progress(hecho,
+        total) devolviendo False corta la copia (devuelve False). Termina con
+        fsync: 'Listo' tiene que querer decir que está escrito en el pendrive."""
+        total = os.path.getsize(src)
+        hecho = 0
+        with open(src, 'rb') as fi, open(dst, 'wb') as fo:
+            while True:
+                bloque = fi.read(chunk)
+                if not bloque:
+                    break
+                fo.write(bloque)
+                hecho += len(bloque)
+                if on_progress is not None and on_progress(hecho, total) is False:
+                    return False
+            fo.flush()
+            try:
+                os.fsync(fo.fileno())
+            except OSError:
+                pass  # MTP (fuse) puede no soportarlo; ahí manda el desmontaje
+        return True
+
+    def _backup_deliver(self, src_zip, dst_zip, on_progress=None):
         """Copiar el zip al destino y comprobar que llegó entero (mismo tamaño).
-        Una copia cortada a la mitad se borra: no puede parecer un backup."""
+        Una copia cortada o cancelada se borra: no puede parecer un backup."""
+        self._backup_cancelled = False
         try:
-            shutil.copyfile(src_zip, dst_zip)
-            if os.path.getsize(dst_zip) == os.path.getsize(src_zip):
+            if self._copy_chunks(src_zip, dst_zip, on_progress) is False:
+                self._backup_cancelled = True
+            elif os.path.getsize(dst_zip) == os.path.getsize(src_zip):
                 return True
-            print(f"⚠️ Copia incompleta: {os.path.getsize(dst_zip)} de "
-                  f"{os.path.getsize(src_zip)} bytes")
+            else:
+                print(f"⚠️ Copia incompleta: {os.path.getsize(dst_zip)} de "
+                      f"{os.path.getsize(src_zip)} bytes")
         except OSError as e:
             print(f"⚠️ No se pudo copiar el zip: {e}")
         try:
@@ -1852,15 +1950,17 @@ exit /b 1
             pass
         return False
 
-    def _backup_to(self, dest_root, only_txt=False, offer_program=False):
+    def _backup_to(self, dest_root, offer_program=False):
         """Confirmar, commitear, armar el zip y entregarlo a dest_root.
 
         Devuelve (archivos, bytes_del_zip, ruta_destino, cancelado, ok) o None."""
         import tempfile
-        from PyQt6.QtWidgets import QMessageBox, QProgressDialog, QApplication
+        from PyQt6.QtWidgets import QMessageBox, QProgressDialog
         from PyQt6.QtCore import Qt
 
-        files, total, skipped = self._backup_plan(self.void_dir, only_txt=only_txt)
+        files, total, skipped = self._run_in_thread(
+            self._backup_plan, self.void_dir,
+            wait_text='Revisando el void…')
         if not files:
             QMessageBox.information(self, 'Backup', 'No hay nada que copiar.')
             return None
@@ -1871,8 +1971,6 @@ exit /b 1
         # El paso de confirmación: mostrar qué y a dónde ANTES de escribir nada.
         detalle = (f'{len(files)} archivos · {self._human_bytes(total)}\n\n'
                    f'{dest_zip}')
-        if only_txt:
-            detalle += '\n\n(sólo .txt, sin historial)'
         if skipped:
             detalle += f'\n\n(sin seguir: {", ".join(skipped)})'
         caja = QMessageBox(QMessageBox.Icon.Question, 'Backup', detalle,
@@ -1898,50 +1996,65 @@ exit /b 1
 
         # Commitear primero, para que no quede nada sin registrar afuera.
         self.commit_void()
-        # Volver a planificar: el commit acaba de cambiar el .git, y ese
-        # historial es justamente el punto.
-        files, total, _ = self._backup_plan(self.void_dir, only_txt=only_txt)
+        # Volver a planificar después del commit (por si cambió algo).
+        files, total, _ = self._run_in_thread(
+            self._backup_plan, self.void_dir)
 
-        # 1) El zip se arma en el disco local (rápido). 2) Se entrega de una
-        # sola vez: por MTP cada archivo suelto cuesta un viaje de ida y vuelta,
-        # y 900 viajes tardaban una eternidad.
+        # El zip se arma en el disco local y se entrega de una sola vez, todo
+        # en un hilo. La barra se alimenta de `estado`, que el hilo escribe y
+        # el tick (en el hilo de la interfaz) lee: el hilo nunca toca widgets.
         tmpdir = tempfile.mkdtemp(prefix='voider-backup-')
         local_zip = os.path.join(tmpdir, nombre + '.zip')
-        barra = QProgressDialog('Armando el zip…', 'Cancelar', 0, len(files), self)
+        estado = {'etapa': 'Armando el zip', 'i': 0, 'n': 1, 'rel': '',
+                  'cancel': False}
+
+        barra = QProgressDialog('Armando el zip…', 'Cancelar', 0, 1000, self)
         barra.setWindowTitle('Backup')
         barra.setWindowModality(Qt.WindowModality.WindowModal)
         barra.setMinimumDuration(0)
         barra.setAutoClose(False)
         barra.setAutoReset(False)
+        barra.setFixedWidth(self._BACKUP_DIALOG_WIDTH)
 
-        def avance(i, n, rel):
-            barra.setValue(i - 1)
-            barra.setLabelText(f'Armando el zip · {i} de {n}\n{rel}')
-            QApplication.processEvents()
-            return not barra.wasCanceled()
+        def avance_zip(i, n, rel):
+            estado.update(i=i, n=n, rel=rel)
+            return not estado['cancel']
 
-        try:
+        def avance_copia(hecho, total_bytes):
+            estado.update(etapa='Copiando', i=hecho, n=total_bytes)
+            return not estado['cancel']
+
+        def tick():
+            if barra.wasCanceled():
+                estado['cancel'] = True
+            barra.setValue(int(1000 * estado['i'] / max(estado['n'], 1)))
+            if estado['etapa'] == 'Copiando':
+                barra.setLabelText(
+                    f"Copiando el zip · {self._human_bytes(estado['i'])} de "
+                    f"{self._human_bytes(estado['n'])}\n"
+                    'No desenchufes hasta el "Listo".')
+            else:
+                barra.setLabelText(self._progress_label(
+                    estado['etapa'], estado['i'], estado['n'], estado['rel']))
+
+        def trabajo():
             if con_programa:
                 entries = self._backup_entries(
                     files, nombre, program_src=self._program_source_dir(),
                     bundle_cache=self._windows_bundle_cache())
             else:
                 entries = self._backup_entries(files, nombre)
-            barra.setMaximum(len(entries))
-            armado = self._backup_zip_entries(local_zip, entries, on_progress=avance)
-            barra.close()
-            if not armado:
+            if not self._backup_zip_entries(local_zip, entries, on_progress=avance_zip):
                 return (0, 0, dest_zip, self._backup_cancelled, False)
-
             zip_bytes = os.path.getsize(local_zip)
-            espera = self._backup_wait_dialog(
-                f'Copiando el zip ({self._human_bytes(zip_bytes)})…\n\n'
-                'No desenchufes hasta el "Listo".')
-            ok = self._backup_deliver(local_zip, dest_zip)
-            if espera is not None:
-                espera.close()
-            return (len(files), zip_bytes, dest_zip, False, ok)
+            ok = self._backup_deliver(local_zip, dest_zip, on_progress=avance_copia)
+            return (len(files), zip_bytes, dest_zip, self._backup_cancelled, ok)
+
+        try:
+            barra.show()
+            return self._run_in_thread(trabajo, on_tick=tick)
         finally:
+            barra.close()
             shutil.rmtree(tmpdir, ignore_errors=True)
 
     def take_screenshot(self):
