@@ -1658,6 +1658,22 @@ class IoMixin:
             print(f'⚠️ cartel de espera: {e}')
             return None
 
+    def _backup_checkbox(self, texto, enabled=True):
+        """Casilla visible sobre el fondo negro que heredan los diálogos (sin
+        estilo propio, el recuadro quedaba negro sobre negro): un círculo de
+        borde blanco que, tildado, se rellena de blanco."""
+        from PyQt6.QtWidgets import QCheckBox
+        c = QCheckBox(texto)
+        c.setStyleSheet(
+            'QCheckBox { color: white; spacing: 10px; }'
+            'QCheckBox::indicator { width: 14px; height: 14px;'
+            ' border: 2px solid white; border-radius: 9px; background: transparent; }'
+            'QCheckBox::indicator:checked { background: white; }'
+            'QCheckBox::indicator:disabled { border: 2px solid #555; }'
+            'QCheckBox:disabled { color: #777; }')
+        c.setEnabled(enabled)
+        return c
+
     def _run_in_thread(self, fn, *args, on_tick=None, wait_text=None, **kwargs):
         """Correr fn(*args, **kwargs) en un hilo y esperar SIN congelar la
         interfaz: mientras tanto corre un QEventLoop local, así Qt sigue
@@ -1979,15 +1995,15 @@ exit /b 1
         caja.setDefaultButton(QMessageBox.StandardButton.Ok)
         casilla = None
         if offer_program:
-            from PyQt6.QtWidgets import QCheckBox
             cache = self._windows_bundle_cache()
             listo, motivo = self._windows_bundle_ready(cache)
             if listo:
                 peso = self._human_bytes(self._dir_bytes(cache))
-                casilla = QCheckBox(f'Incluir el programa (instalador para Windows, ≈{peso})')
+                casilla = self._backup_checkbox(
+                    f'Incluir el programa (instalador para Windows, ≈{peso})')
             else:
-                casilla = QCheckBox(f'Incluir el programa — no disponible: {motivo}')
-                casilla.setEnabled(False)
+                casilla = self._backup_checkbox(
+                    f'Incluir el programa — no disponible: {motivo}', enabled=False)
             caja.setCheckBox(casilla)
         if caja.exec() != QMessageBox.StandardButton.Ok:
             print('↩ Backup cancelado')
