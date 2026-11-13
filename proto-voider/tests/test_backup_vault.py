@@ -19,7 +19,8 @@ BACKUP_METHODS = ('_detect_drives', '_backup_plan', '_backup_folder_name',
                   '_copy_file', '_backup_zip', '_backup_deliver',
                   '_program_plan', '_windows_bundle_ready', '_backup_zip_entries',
                   '_backup_entries', '_installer_bat', '_requirements_txt', '_arc',
-                  '_run_in_thread', '_copy_chunks', '_progress_label')
+                  '_run_in_thread', '_copy_chunks', '_progress_label',
+                  '_backup_checkbox')
 
 
 def _app(tmp_path):
@@ -602,3 +603,23 @@ def test_el_backup_por_defecto_es_solo_texto(tmp_path):
     assert rels == sorted(['0.txt', os.path.join('I', 'a.txt'),
                            os.path.join('_0txt_versions', 'v1.txt')])
     assert total == len('hola') + len('x') + len('v')
+
+
+# ── la casilla del programa tiene que verse (fondo negro heredado) ────────────
+
+def test_la_casilla_es_un_circulo_blanco_que_se_rellena(tmp_path, qapp):
+    app = _app(tmp_path)
+    c = app._backup_checkbox('Incluir el programa', enabled=True)
+    css = c.styleSheet().replace(' ', '')
+    assert 'QCheckBox::indicator' in css
+    assert 'border-radius' in css, 'tiene que ser un círculo'
+    assert 'border:2pxsolidwhite' in css, 'sin borde blanco no se ve sobre negro'
+    assert 'QCheckBox::indicator:checked{background:white' in css, 'tildada = rellena'
+    assert c.isEnabled() and not c.isChecked()
+
+
+def test_la_casilla_no_disponible_se_ve_apagada(tmp_path, qapp):
+    app = _app(tmp_path)
+    c = app._backup_checkbox('no disponible', enabled=False)
+    assert not c.isEnabled()
+    assert 'QCheckBox::indicator:disabled' in c.styleSheet().replace(' ', '')
