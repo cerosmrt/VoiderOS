@@ -25,10 +25,12 @@ ACTIVE — ready to implement next
      títulos no coinciden. Dejar como mejora posterior.
   Falta que Federico confirme 1 o 2.
 
-- LA BARRA DE MENÚ (la que aparece al mover el mouse) NO RESPONDE: ningún
-  botón se puede clickear (2026-11-11). NO tiene que ver con Ctrl+B — es un
-  bug aparte, sin investigar todavía. Federico (2026-11-13): "deberían
-  funcionar, no entiendo qué hacen ahí si no hacen nada".
+- BARRA DE MENÚ: ARREGLADA Y COMPLETADA (2026-11-17, 0b1194f..6f3efa0). Causa:
+  _menu_trigger llamaba self.keyPressEvent, que con la herencia
+  (QMainWindow antes que KeyRouterMixin) es la versión de C++ y ignora la
+  tecla. Ahora llama al router. Nuevo menú Edición + botones que faltaban;
+  test que exige botón o excepción (NOT_IN_MENU) para cada acción nueva.
+  Verificado clickeando en una ventana real (Xvfb). SIN VERIFICAR en Hyprland.
 
 - F12 (take_screenshot, io_mixin.py) PROBABLEMENTE ESTÁ IGUAL DE ROTO QUE
   ESTABA Shift+F12 (2026-09-24, hallado de rebote, no tocado). Shift+F12
