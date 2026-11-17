@@ -1856,37 +1856,71 @@ set "ROOT=%~dp0"
 set "PROG=%ROOT%programa"
 set "WORK=%LOCALAPPDATA%\VoiderBuild"
 set "PY=%LOCALAPPDATA%\Programs\Python\Python310\python.exe"
+set "LOG=%ROOT%INSTALAR-log.txt"
+
+echo VOIDER - log del instalador > "%LOG%"
+date /t >> "%LOG%"
+time /t >> "%LOG%"
+ver >> "%LOG%"
+echo ROOT=%ROOT% >> "%LOG%"
+echo PROG=%PROG% >> "%LOG%"
+echo PY=%PY% >> "%LOG%"
+echo. >> "%LOG%"
+dir /b "%PROG%" >> "%LOG%" 2>&1
+echo. >> "%LOG%"
 
 echo.
 echo   VOIDER - instalador, sin internet
+echo   Todo lo que pasa se anota en: %LOG%
 echo.
 
 if exist "%PY%" goto tiene_python
 echo [1/4] Instalando Python 3.10 - solo para este usuario...
-for %%I in ("%PROG%\python-*.exe") do "%%~fI" /quiet InstallAllUsers=0 PrependPath=0 Include_launcher=0 Include_test=0 Shortcuts=0
-if not exist "%PY%" goto fallo
+echo === 1/4 instalar Python === >> "%LOG%"
+for %%I in ("%PROG%\python-*.exe") do (
+  echo instalador: %%~fI >> "%LOG%"
+  "%%~fI" /quiet InstallAllUsers=0 PrependPath=0 Include_launcher=0 Include_test=0 Shortcuts=0 >> "%LOG%" 2>&1
+  echo errorlevel instalador de Python: %errorlevel% >> "%LOG%"
+)
+if not exist "%PY%" (
+  echo No aparecio %PY% despues de instalar Python >> "%LOG%"
+  goto fallo
+)
 :tiene_python
 echo [1/4] Python: %PY%
+echo Python listo: %PY% >> "%LOG%"
+"%PY%" --version >> "%LOG%" 2>&1
 
 echo [2/4] Preparando el entorno...
-if not exist "%WORK%\venv\Scripts\python.exe" "%PY%" -m venv "%WORK%\venv"
+echo === 2/4 entorno virtual === >> "%LOG%"
+if not exist "%WORK%\venv\Scripts\python.exe" "%PY%" -m venv "%WORK%\venv" >> "%LOG%" 2>&1
+echo errorlevel venv: %errorlevel% >> "%LOG%"
 if errorlevel 1 goto fallo
 set "VPY=%WORK%\venv\Scripts\python.exe"
 
 echo [3/4] Instalando dependencias desde el pendrive...
-"%VPY%" -m pip install --no-index --find-links "%PROG%\wheels" -r "%PROG%\requirements.txt"
+echo === 3/4 dependencias === >> "%LOG%"
+"%VPY%" -m pip install --no-index --find-links "%PROG%\wheels" -r "%PROG%\requirements.txt" >> "%LOG%" 2>&1
+echo errorlevel pip: %errorlevel% >> "%LOG%"
 if errorlevel 1 goto fallo
-"%VPY%" -m pip install --no-index --find-links "%PROG%\wheels" pyaudio >nul 2>&1
+"%VPY%" -m pip install --no-index --find-links "%PROG%\wheels" pyaudio >> "%LOG%" 2>&1
+echo errorlevel pyaudio: %errorlevel% >> "%LOG%"
 if errorlevel 1 echo       - pyaudio no se instalo: Voider anda igual, sin dictado
 
 echo [4/4] Compilando voider.exe - tarda unos minutos...
+echo === 4/4 PyInstaller === >> "%LOG%"
 pushd "%PROG%"
-"%VPY%" -m PyInstaller --noconfirm --clean --distpath "%ROOT:~0,-1%" --workpath "%WORK%\build" voider.spec
+"%VPY%" -m PyInstaller --noconfirm --clean --distpath "%ROOT:~0,-1%" --workpath "%WORK%\build" voider.spec >> "%LOG%" 2>&1
 set "RC=%errorlevel%"
+echo errorlevel PyInstaller: %RC% >> "%LOG%"
 popd
 if not "%RC%"=="0" goto fallo
-if not exist "%ROOT%voider.exe" goto fallo
+if not exist "%ROOT%voider.exe" (
+  echo No aparecio %ROOT%voider.exe >> "%LOG%"
+  goto fallo
+)
 
+echo === LISTO === >> "%LOG%"
 echo.
 echo   Listo: voider.exe quedo al lado de la carpeta void.
 echo   Abrilo con doble clic.
@@ -1895,8 +1929,15 @@ pause
 exit /b 0
 
 :fallo
+echo === FALLO === >> "%LOG%"
 echo.
-echo   ALGO FALLO. Saca una foto de esta ventana.
+echo   ALGO FALLO. Ultimas lineas:
+echo.
+powershell -NoProfile -Command "Get-Content -Tail 25 -LiteralPath '%LOG%'" 2>nul
+echo.
+echo   El log completo esta en:
+echo   %LOG%
+echo   Abrilo, copia todo y pasaselo a Claude.
 echo.
 pause
 exit /b 1
