@@ -85,15 +85,24 @@ def test_non_font_setting_only_saves(tmp_path, monkeypatch):
 # ── menú clicable ────────────────────────────────────────────────────────────
 
 def test_menu_trigger_presses_the_actions_key(tmp_path, monkeypatch):
-    import new_interface
+    """El menú tiene que llegar al ROUTER de teclas (KeyRouterMixin), no a
+    self.keyPressEvent: FullscreenCircleApp hereda de QMainWindow ANTES que del
+    mixin, así que self.keyPressEvent resuelve a la versión de C++, que ignora
+    la tecla. Qt, al entregar teclas reales, sí encuentra la del mixin — por eso
+    el teclado andaba y los botones del menú no hacían nada."""
     from new_interface import FullscreenCircleApp
+    from key_router_mixin import KeyRouterMixin
     app = _app(tmp_path, monkeypatch)
     app._menu_trigger = types.MethodType(FullscreenCircleApp._menu_trigger, app)
     app._refocus_active_editor = MagicMock()
     pressed = []
-    app.keyPressEvent = lambda ev: pressed.append((ev.key(), ev.modifiers()))
+    monkeypatch.setattr(KeyRouterMixin, 'keyPressEvent',
+                        lambda self_, ev: pressed.append((ev.key(), ev.modifiers())))
+    # Si el menú usara self.keyPressEvent, esto quedaría sin llamar al router.
+    app.keyPressEvent = MagicMock(name='QMainWindow.keyPressEvent (C++)')
     app._menu_trigger('export_doc')                         # Ctrl+S
     assert pressed == [(Qt.Key.Key_S, Qt.KeyboardModifier.ControlModifier)]
+    app.keyPressEvent.assert_not_called()
     app._refocus_active_editor.assert_called()
 
 
@@ -102,9 +111,12 @@ def test_menu_trigger_ignores_unbound_actions(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch)
     app._menu_trigger = types.MethodType(FullscreenCircleApp._menu_trigger, app)
     app._refocus_active_editor = MagicMock()
-    app.keyPressEvent = MagicMock()
+    from key_router_mixin import KeyRouterMixin
+    llamado = []
+    monkeypatch.setattr(KeyRouterMixin, 'keyPressEvent',
+                        lambda self_, ev: llamado.append(ev))
     app._menu_trigger('does_not_exist')
-    app.keyPressEvent.assert_not_called()
+    assert llamado == []
 
 
 def test_remap_updates_the_menu_hints(tmp_path, monkeypatch):

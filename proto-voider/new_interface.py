@@ -525,7 +525,11 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         if pressed is None:
             return
         key, mods = pressed
-        self.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, key, mods))
+        # Al ROUTER, no a self.keyPressEvent: la clase hereda de QMainWindow antes
+        # que de KeyRouterMixin, y self.keyPressEvent resuelve a la versión de C++
+        # (que ignora la tecla). Qt sólo encuentra la del mixin al entregar
+        # teclas reales — por eso el teclado andaba y el menú no.
+        KeyRouterMixin.keyPressEvent(self, QKeyEvent(QEvent.Type.KeyPress, key, mods))
         self._refocus_active_editor()
 
     def _on_keys_remapped(self, overrides):
