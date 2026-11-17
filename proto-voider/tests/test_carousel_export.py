@@ -55,7 +55,7 @@ def _app(tmp_path, library, book_index):
     app.config = {}
     for nm in ('_reading_sections', '_reading_file_lines', '_carousel_dimensions',
                '_carousel_out_name', '_write_carousel_chapters',
-               'export_carousel'):
+               '_with_book_title', 'export_carousel'):
         setattr(app, nm, types.MethodType(getattr(FullscreenCircleApp, nm), app))
     return app
 
@@ -74,13 +74,15 @@ def test_single_highlighted_chapter_writes_its_own_title_and_body(qapp, tmp_path
     assert not (tmp_path / 'carousel' / 'B').exists()
 
 
-def test_whole_book_prompts_for_a_folder_name(qapp, tmp_path):
+def test_whole_book_prompts_for_the_title(qapp, tmp_path):
     app = _app(tmp_path, ['.', 'A', 'B'], book_index=0)   # highlight the '.'
-    with patch('PyQt6.QtWidgets.QInputDialog.getText', return_value=('MiLibro', True)):
+    with patch('PyQt6.QtWidgets.QInputDialog.getText',
+               return_value=('MiLibro', True)) as pedido:
         app.export_carousel()
+    assert 'Título' in pedido.call_args.args[2], 'tiene que pedir el Título'
     slides = _slides(tmp_path, 'MiLibro')
-    assert '1_titulo.png' in slides                        # A's title
-    assert any(s.endswith('_titulo.png') for s in slides if s != '1_titulo.png')  # B's title
+    assert '1_titulo.png' in slides                        # el título del libro
+    assert len([s for s in slides if s.endswith('_titulo.png')]) == 3   # libro, A, B
 
 
 def test_whole_book_cancelled_dialog_writes_nothing(qapp, tmp_path):
@@ -102,8 +104,16 @@ def test_whole_book_numbers_slides_continuously_across_chapters(qapp, tmp_path):
     with patch('PyQt6.QtWidgets.QInputDialog.getText', return_value=('MiLibro', True)):
         app.export_carousel()
     slides = _slides(tmp_path, 'MiLibro')
-    # A's title (1), A's body (2), B's title (3), B's body (4) — no gaps, no reuse
-    assert slides == ['1_titulo.png', '2.png', '3_titulo.png', '4.png']
+    # título del libro (1), título de A (2), cuerpo de A (3), título de B (4),
+    # cuerpo de B (5) — sin huecos, sin reuso y SIN diapositiva en blanco.
+    assert slides == ['1_titulo.png', '2_titulo.png', '3.png', '4_titulo.png', '5.png']
+
+
+def test_the_book_title_slide_has_no_body_slide_after_it(qapp, tmp_path):
+    app = _app(tmp_path, ['.', 'A'], book_index=0)
+    # un solo capítulo bajo el punto = un solo capítulo: sin título de libro
+    app.export_carousel()
+    assert _slides(tmp_path, 'A') == ['1_titulo.png', '2.png']
 
 
 def test_uses_the_configured_preset(qapp, tmp_path):
@@ -147,7 +157,7 @@ def test_a_long_chapter_produces_several_body_slides(qapp, tmp_path):
     app.config = {}
     for nm in ('_reading_sections', '_reading_file_lines', '_carousel_dimensions',
                '_carousel_out_name', '_write_carousel_chapters',
-               'export_carousel'):
+               '_with_book_title', 'export_carousel'):
         setattr(app, nm, types.MethodType(getattr(FullscreenCircleApp, nm), app))
     app.export_carousel()
     slides = _slides(tmp_path, 'Largo')

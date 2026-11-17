@@ -62,7 +62,8 @@ def _app(tmp_path, library, book_index):
     open(app.current_file_path, 'w').close()
     app.config = {'sale_bundle_dir_es': '', 'sale_bundle_dir_en': ''}
     for nm in ('_reading_sections', '_reading_file_lines', '_carousel_out_name',
-               '_sections_as_txt', '_sale_bundle_dir', 'export_sale_bundle'):
+               '_sections_as_txt', '_sale_bundle_dir', '_with_book_title',
+               'export_sale_bundle'):
         setattr(app, nm, types.MethodType(getattr(FullscreenCircleApp, nm), app))
     return app
 
@@ -139,16 +140,6 @@ class TestExportSaleBundle:
         assert (d / 'MiLibro.epub').is_file()
         assert (d / 'MiLibro.txt').is_file()
 
-    def test_whole_book_txt_skips_title_chapter_text(self, qapp, tmp_path):
-        app = _app(tmp_path, ['.', 'A', 'B'], book_index=0)
-        with _dialogs(name_result=('MiLibro', True)):
-            app.export_sale_bundle()
-        content = (_bundle_dir(tmp_path, 'MiLibro') / 'MiLibro.txt').read_text(
-            encoding='utf-8')
-        # A is the book's title/source: its text is never read
-        assert 'Contenido real de A' not in content
-        assert 'Contenido real de B' in content
-
     def test_cancelled_name_dialog_writes_nothing(self, qapp, tmp_path):
         app = _app(tmp_path, ['.', 'A', 'B'], book_index=0)
         with _dialogs(name_result=('', False)):
@@ -199,3 +190,62 @@ class TestLanguageAndDestination:
         with _dialogs(lang_result=('Español', True)):
             app.export_sale_bundle()
         assert (_bundle_dir(tmp_path, 'A') / 'A.pdf').is_file()
+
+
+def _pdf_pages(path):
+    import re
+    return len(re.findall(rb'/Type\s*/Page(?!s)', path.read_bytes()))
+
+
+class TestBookTitle:
+
+    def test_whole_book_asks_for_the_title(self, qapp, tmp_path):
+        app = _app(tmp_path, ['.', 'A', 'B'], book_index=0)
+        with patch('PyQt6.QtWidgets.QInputDialog.getText',
+                   return_value=('MiLibro', True)) as pedido, \
+             patch('PyQt6.QtWidgets.QInputDialog.getItem',
+                   return_value=('Español', True)):
+            app.export_sale_bundle()
+        assert 'Título' in pedido.call_args.args[2]
+
+    def test_whole_book_pdf_has_a_page_of_its_own_for_the_title(self, qapp, tmp_path):
+        app = _app(tmp_path, ['.', 'A', 'B'], book_index=0)
+        with _dialogs(name_result=('MiLibro', True)):
+            app.export_sale_bundle()
+        # título (1) + capítulo A (1) + capítulo B (1)
+        assert _pdf_pages(_bundle_dir(tmp_path, 'MiLibro') / 'MiLibro.pdf') == 3
+
+    def test_single_chapter_pdf_has_no_extra_title_page(self, qapp, tmp_path):
+        app = _app(tmp_path, ['.', 'A', 'B'], book_index=1)
+        with _dialogs():
+            app.export_sale_bundle()
+        assert _pdf_pages(_bundle_dir(tmp_path, 'A') / 'A.pdf') == 1
+
+    def test_the_first_chapter_of_a_book_keeps_its_text_in_the_txt(self, qapp, tmp_path):
+        app = _app(tmp_path, ['.', 'A', 'B'], book_index=0)
+        with _dialogs(name_result=('MiLibro', True)):
+            app.export_sale_bundle()
+        txt = (_bundle_dir(tmp_path, 'MiLibro') / 'MiLibro.txt').read_text(encoding='utf-8')
+        assert 'Contenido real de A' in txt and 'Contenido real de B' in txt
+
+    def test_epub_title_is_the_typed_title(self, qapp, tmp_path):
+        import zipfile
+        app = _app(tmp_path, ['.', 'A', 'B'], book_index=0)
+        with _dialogs(name_result=('MiLibro', True)):
+            app.export_sale_bundle()
+        z = zipfile.ZipFile(_bundle_dir(tmp_path, 'MiLibro') / 'MiLibro.epub')
+        opf = [n for n in z.namelist() if n.endswith('.opf')][0]
+        assert '<dc:title>MiLibro</dc:title>' in z.read(opf).decode('utf-8')
+
+
+class TestWithBookTitle:
+
+    def test_a_whole_book_gets_a_title_only_section_first(self, tmp_path):
+        app = _app(tmp_path, ['.', 'A', 'B'], book_index=0)
+        secs = [('A', ['a']), ('B', ['b'])]
+        assert app._with_book_title(secs, 'MiLibro') == [('MiLibro', [])] + secs
+
+    def test_a_single_chapter_is_left_alone(self, tmp_path):
+        app = _app(tmp_path, ['.', 'A'], book_index=1)
+        secs = [('A', ['a'])]
+        assert app._with_book_title(secs, 'A') == secs

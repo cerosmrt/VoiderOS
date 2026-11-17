@@ -61,11 +61,11 @@ class F4Mixin:
                 if fn != '0.txt':                      # skip scratch portals
                     fpath = self._library_path_cache.get(fn)
                     if fpath and os.path.isfile(fpath):
-                        # The first chapter is the book's title/source: shown by
-                        # name, its text is never read.
-                        lines = ([] if not secs
-                                 else self._reading_file_lines(fpath))
-                        secs.append((os.path.splitext(fn)[0], lines))
+                        # Every file under the dot is a chapter, the first one
+                        # included. The book's own title is asked for when
+                        # exporting (_carousel_out_name / _with_book_title).
+                        secs.append((os.path.splitext(fn)[0],
+                                     self._reading_file_lines(fpath)))
                 i = (i + 1) % n
             if secs:
                 return secs, False
@@ -149,12 +149,20 @@ class F4Mixin:
             return sections[0][0] or 'capitulo'
         from PyQt6.QtWidgets import QInputDialog
         out_name, ok = QInputDialog.getText(
-            self, 'Carrusel', 'Nombre para la carpeta del libro:')
+            self, 'Título', 'Título del libro:')
         out_name = out_name.strip()
         if not ok or not out_name:
             print("✗ Carrusel cancelado (sin nombre).")
             return None
         return out_name
+
+    def _with_book_title(self, sections, title):
+        """A whole book (several chapters) opens with a page of its own that
+        bears the title the user typed: a title-only section in front. A single
+        chapter has no book title — its own title is already its heading."""
+        if len(sections) <= 1:
+            return sections
+        return [(title, [])] + list(sections)
 
     def _sections_as_txt(self, sections):
         """The TXT half of the sale bundle. A single chapter is just its own
@@ -218,8 +226,11 @@ class F4Mixin:
                              int(self.config.get('reading_size', 13)))
         ink = QColor('#111111')
 
+        # The PDF of a whole book opens with the title on a page of its own;
+        # the EPUB carries the title as metadata and the TXT is the chapters.
         doc, para_blocks, layout = build_reading_document(
-            sections, reading_font, page_pt=A5_PT,
+            self._with_book_title(sections, out_name), reading_font,
+            page_pt=A5_PT,
             hyphenate_lang=self.config.get('reading_hyphen_lang', 'auto'), ink=ink)
         offsets = compute_page_offsets(doc, layout.block_h, layout.title_blocks)
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
@@ -241,7 +252,7 @@ class F4Mixin:
         continuously from start_n. Returns (next_n, total_body_slides)."""
         from reading_page import (
             build_reading_document, compute_page_offsets,
-            render_carousel_page, render_title_slide,
+            render_carousel_page, render_title_slide, lines_to_paragraphs,
         )
         from PyQt6.QtWidgets import QApplication
         n = start_n
@@ -257,6 +268,8 @@ class F4Mixin:
             render_title_slide(title, reading_font, w_px, h_px).save(
                 os.path.join(out_dir, f'{n}_titulo.png'))
             n += 1
+            if not lines_to_paragraphs(lines):
+                continue          # title-only section (the book's title slide)
             for page in range(len(offsets)):
                 render_carousel_page(doc, layout, offsets, page, w_px, h_px).save(
                     os.path.join(out_dir, f'{n}.png'))
@@ -291,8 +304,10 @@ class F4Mixin:
         out_dir = os.path.join(self.void_dir, 'carousel', out_name)
         os.makedirs(out_dir, exist_ok=True)
 
+        # A whole book opens with a slide bearing the title the user typed.
         n, total_body = self._write_carousel_chapters(
-            sections, out_dir, w_px, h_px, reading_font, page_pt)
+            self._with_book_title(sections, out_name), out_dir, w_px, h_px,
+            reading_font, page_pt)
         print(f'🎠 Carrusel: {len(sections)} capítulo(s), {total_body} slides '
               f'+ títulos → {out_dir}')
 
