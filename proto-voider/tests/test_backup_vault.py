@@ -644,3 +644,37 @@ def test_al_cien_por_ciento_dice_que_esta_terminando_de_escribir(tmp_path):
     assert 'Terminando de escribir' in texto
     assert 'desenchuf' in texto
     assert len(texto.splitlines()) == 2, 'mismo alto que el resto: no se corta'
+
+
+# ── INSTALAR.bat deja un log que se pueda copiar y pasar ──────────────────────
+
+def test_el_instalador_escribe_un_log_al_lado_del_bat(tmp_path):
+    app = _app(tmp_path)
+    bat = app._installer_bat()
+    assert 'INSTALAR-log.txt' in bat
+    assert 'set "LOG=%ROOT%INSTALAR-log.txt"' in bat
+
+
+def test_cada_paso_pesado_vuelca_su_salida_y_su_codigo_al_log(tmp_path):
+    app = _app(tmp_path)
+    bat = app._installer_bat().replace('\r\n', '\n')
+    # Python, venv, pip y PyInstaller: todo con stdout+stderr al log.
+    for fragmento in ('-m venv', '-m pip install --no-index', '-m PyInstaller'):
+        lineas = [l for l in bat.split('\n') if fragmento in l]
+        assert lineas, fragmento
+        assert all('>> "%LOG%" 2>&1' in l for l in lineas), f'{fragmento} no va al log'
+    assert bat.count('errorlevel') >= 4, 'cada paso tiene que dejar su código'
+
+
+def test_el_log_arranca_con_datos_del_entorno(tmp_path):
+    app = _app(tmp_path)
+    bat = app._installer_bat()
+    assert 'ver >> "%LOG%"' in bat
+    assert 'date /t' in bat
+
+
+def test_al_fallar_dice_donde_esta_el_log_y_la_ventana_queda_abierta(tmp_path):
+    app = _app(tmp_path)
+    bat = app._installer_bat().replace('\r\n', '\n')
+    fallo = bat[bat.index(':fallo'):]
+    assert '%LOG%' in fallo and 'pause' in fallo.lower()
