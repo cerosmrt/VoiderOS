@@ -38,6 +38,7 @@ SETTING_DEFS = (
                choices=('es', 'en', 'auto')),
     SettingDef('dictation_model', 'dictation model', 'choice',
                choices=('tiny', 'base', 'small')),
+    SettingDef('gravitor_books', 'gravitor books (O/)', 'int', lo=1, hi=20000),
 )
 _DEF_BY_KEY = {d.key: d for d in SETTING_DEFS}
 _HEX = re.compile(r'^#[0-9a-fA-F]{6}$')

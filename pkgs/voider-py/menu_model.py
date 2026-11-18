@@ -41,6 +41,7 @@ MENUS = (
         ('Repartir párrafos (F2)', 'dispatch'),
         ('Cortar capítulo (F2 / F3)', 'split_chapter'),
         ('Unir libro (F3)', 'merge_book'),
+        ('Gravitor: oraciones con palabras (F3)', 'gravitor'),
     )),
     ('Exportar', (
         ('Carrusel', 'export_carousel'),
