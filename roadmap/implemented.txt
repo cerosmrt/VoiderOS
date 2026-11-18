@@ -577,3 +577,31 @@ SESSION 2026-06-25
   superposición (ya existía medio escrito como fallback para otro caso, y
   resulta que arregla también este) — colapsa la lógica de dos pasos en
   una sola condición. Suite completa: 1028 passed.
+
+SESSION 2026-11-05 → 2026-11-18
+-------------------------------
+- Ctrl+B rediseñado (reemplaza el diseño viejo "pendrive con .git"): el backup
+  es UN zip con sólo los .txt del void (≈29 MB; sin .git, stt/, carousel/,
+  imágenes, .bak, .lock). Destinos: pendrive o teléfono (Xiaomi por MTP con
+  jmtpfs, regla udev 70-phone-mtp.rules). Nombre {fecha}({n})_void.zip. Todo
+  lento corre en un hilo (_run_in_thread): no congela la interfaz; barra con
+  Cancelar, copia en bloques con fsync, "Listo / ya podés desenchufar" sólo
+  después de desmontar; casilla visible (círculo blanco que se rellena).
+- Backup portable con el programa (casilla "Incluir el programa", sólo a
+  pendrive): el zip suma programa/ (código, Python 3.10, dependencias de
+  Windows) e INSTALAR.bat, que compila voider.exe con PyInstaller SIN
+  internet y deja INSTALAR-log.txt. Caché armada por prepare_windows_bundle.sh.
+  Compiló y anda en el Windows de Federico (2026-11-18).
+- Ctrl+T lee el libro entero (F3 + Enter en un punto → vista 9): renglón por
+  renglón, salta puntos y títulos, se calla al final.
+- F4 desde un punto: el primer archivo ya no es "el título del libro", es un
+  capítulo más. Al exportar un libro entero (PDF/EPUB/TXT, carrusel) se pide
+  el Título: página propia al principio del PDF, primera diapositiva del
+  carrusel, título del EPUB. El carrusel ya no genera una diapositiva en blanco.
+- Barra de menú arreglada: _menu_trigger llamaba self.keyPressEvent (versión de
+  C++ por el orden de herencia); ahora llama al router. Menú Edición nuevo y
+  botones que faltaban (guardar versión, carpeta de libros, tacho, vista previa
+  del carrusel, captura del círculo, carpeta de capturas, leer en voz alta).
+  Un test exige botón o excepción (NOT_IN_MENU) por cada acción de teclado.
+- F5 D3 (mandar un párrafo a un capítulo con '>' → F3 → Enter): hecho, commit
+  4033375 (pasó de pending).

@@ -5,14 +5,11 @@ state what's about to be done and get confirmation before touching files.
 
 ACTIVE — ready to implement next
 ---------------------------------
-- CTRL+B: RESUELTO (2026-11-13, commits 7a09e91..2ebcbce). Sólo texto (29 MB),
-  no congela la interfaz, casilla visible, cartel sin cortes y que explica el
-  100% (fsync). Federico: "todo re bien". Queda:
-  * INSTALAR.bat NO COMPILÓ en su Windows. Falta el error (foto de la ventana).
-  * A definir: ¿agrupar por carpetas dentro del backup?
-- F3 + ENTER EN UN PUNTO + Ctrl+T: HECHO (2026-11-13, bbf173b / e4531fa).
-  Lee el libro entero, salta puntos y títulos, se calla al final.
-  Pendiente de decidir: ¿que anuncie los títulos de capítulo?
+- BACKUP (Ctrl+B): duda de diseño sin decidir — ¿agrupar por carpetas dentro
+  del zip? Federico: "todo suelto me resulta medio raro".
+
+- Ctrl+T EN EL LIBRO ENTERO (F3 + Enter en un punto): ¿que anuncie los títulos
+  de capítulo? Hoy los saltea, igual que la navegación.
 
 - F3 → F9: si en F3 estoy parado en un punto (o entré al libro desde un
   punto), F9 debería mostrar el libro completo (2026-11-13). SIN EMPEZAR.
@@ -25,12 +22,8 @@ ACTIVE — ready to implement next
      títulos no coinciden. Dejar como mejora posterior.
   Falta que Federico confirme 1 o 2.
 
-- BARRA DE MENÚ: ARREGLADA Y COMPLETADA (2026-11-17, 0b1194f..6f3efa0). Causa:
-  _menu_trigger llamaba self.keyPressEvent, que con la herencia
-  (QMainWindow antes que KeyRouterMixin) es la versión de C++ y ignora la
-  tecla. Ahora llama al router. Nuevo menú Edición + botones que faltaban;
-  test que exige botón o excepción (NOT_IN_MENU) para cada acción nueva.
-  Verificado clickeando en una ventana real (Xvfb). SIN VERIFICAR en Hyprland.
+- BARRA DE MENÚ: verificar en Hyprland después del rebuild (el arreglo y los
+  botones nuevos se probaron clickeando en Xvfb, no en el escritorio real).
 
 - INSTALADOR PARA MAC Y ANDROID — IDEA, SIN EMPEZAR, "POR AHORA NO ME INTERESA"
   (2026-11-18). El de Windows (INSTALAR.bat, caché offline) COMPILÓ Y ANDA
@@ -548,16 +541,6 @@ VIEWS
 
 F5 / REORDER
 ------------
-- D3 — DONE (commit 4033375): F5 '>' → Right → F3 send mode → Enter moves the
-  paragraph to the chosen chapter, back to F5 on the next one.
-- D3 (original note) — direct "send paragraph to chapter X": in F5 (linear paragraph reorder
-  over a merged book), instead of only Alt+Up/Down one-swap-at-a-time across the
-  visible '/name' fences, let the user pick a target chapter fence and move the
-  current paragraph straight into it (non-adjacent move). Complements the swap.
-  Design sketch: a key opens a fence picker (the '/name' markers of the current
-  merged doc); choosing one relocates the current paragraph just above/below that
-  fence, cursor follows, autosave + undo as usual. Reuses the F5 token model
-  (paragraphs + fixed fences) already in f5_reorder_mixin.py.
 
 DATABASE / O/ READER
 --------------------
@@ -581,23 +564,6 @@ SYSTEM / NIX
 
 SAFETY / GIT
 ------------
-- Ctrl+B "BACKUP" → pendrive (rework of _backup_vault): today Ctrl+B opens a
-  folder dialog and copies ONLY the .txt files (loses .git history, O/, tts).
-  Wanted: plug a pendrive, hit BACKUP, and get the whole /void onto it —
-  faithful mirror WITH git history. Design (build later, test-first):
-    1. git commit /void first so nothing uncommitted is left behind.
-    2. Auto-detect the mounted pendrive (scan /run/media/$USER/*; if several,
-       ask which).
-    2b. CONFIRM step: show the detected pendrive and let the user ACCEPT it
-        before copying (por las dudas — avoid writing to the wrong drive).
-    3. Copy /void EXACTLY AS-IS (rsync-style: .txt + .git history + O/ + tts) to
-       the pendrive. Faithful copy (option 1), so it's readable directly AND
-       carries the full version history via the copied .git.
-    4. Report on screen (files/size copied, destination).
-  Pairs with the auto-commit item below: git = version history on the internal
-  disk; Ctrl+B = physical off-machine copy (with history) to external media.
-
-
 - SUBIR EL LIBRO A GOOGLE DRIVE (rclone) — decidido: SUBIR, no sincronizar.
   Es el mismo Ctrl+B del pendrive, con Drive como destino en vez de un USB:
   una copia que sale de la maquina, no una carpeta espejada.
@@ -643,30 +609,6 @@ SAFETY / GIT
   a la que se llego sin pensar. Si molesta, la misma forma sirve contra un git
   remote privado, que para un repo git ademas encaja mejor: subiria solo los
   cambios en vez de 78 MB cada vez.
-- PORTABLE BACKUP (extends the Ctrl+B pendrive item above) — one key that drops
-  a self-contained, portable bundle onto a pendrive: the book + the app, so you
-  can work revisions on another (Windows) machine and later reconcile them back
-  here in F9 (replace the text). Fallback if VoiderOS never gets installed.
-  Decided contents:
-    * /void WITH .git history, EXCLUDING O/ (corpus, huge) and tts/ (generated).
-    * proto-voider SOURCE at HEAD (always current; runs on Windows with Python).
-    * A run.bat / build.bat + build_exe.py so the .exe can be regenerated in one
-      click ON the Windows machine.
-    * The newest existing voider*.exe (from /mnt/data/Downloads) as a no-Python
-      fallback that runs immediately (frozen at its last Windows build).
-  HARD CONSTRAINT — the .exe cannot be built here:
-    * PyInstaller does NOT cross-compile Linux→Windows. A fresh Windows .exe only
-      comes from running build_exe.py ON Windows (or a fragile/slow Wine +
-      Windows-Python + PyQt6 + PyInstaller setup — likely breaks with PyQt6, not
-      "fast"; explore only if the bundled-exe + rebuild-on-Windows path is
-      insufficient).
-    * So "build the exe at backup time" is not feasible from NixOS. The bundle
-      ships current SOURCE (up to date) + newest existing EXE (fallback) + a
-      one-click Windows rebuild path. Fresh exe = user rebuilds on Windows.
-  Open when picked up: reconciliation flow (pendrive void ↔ main void) — how
-  edits made on the portable copy come back without clobbering (manual F9
-  replace was the stated intent; consider a diff/merge helper later).
-
 - Data-integrity audit follow-ups (item 1 DONE: atomic I.txt writes, commit
   d85f94e). Remaining, ranked:
     * (HIGH) Cross-instance I.txt sync: _save_library now notifies via IPC
@@ -941,53 +883,7 @@ LONG-TERM / DEFERRED
   commit b5b6098): voider-rs.exe, 4.9MB, portable, sin instalar nada. Le
   faltan PDF/voz/sync entre instancias (limitaciones de la plataforma
   Windows, no del cross-compile). NO publicar/compilar para godplaystheartist
-  hasta que el mirror esté más cerca de paridad — ver también la nota de
-  compilar-en-Windows más abajo.
-
-- BUILD DE WINDOWS (PYTHON) SALIÓ BUGUEADO — DIAGNÓSTICO Y PLAN (2026-10-05).
-  El .exe hecho con PyInstaller desde Windows (spec en
-  /mnt/data/programming/proto-voider-source/voider.spec) salió con la
-  interfaz rota, distinta a como se ve en NixOS. Revisado el spec y el código:
-  1. Pasar de PyInstaller a NUITKA (menos hidden-imports/plugins de Qt
-     faltantes que PyInstaller). Mientras tanto, el spec actual es mínimo:
-     onefile + upx=True (UPX es fuente conocida de exes raros) + datas=[]
-     (nada embebido) — sacar upx como primer paso barato.
-  2. FUENTES (causa más probable de los problemas de interfaz): el default es
-     "Consolas" (config font_family, reorder_view, circular_view, etc.) y la
-     lectura usa "EB Garamond" (f4_mixin, io_mixin). En NixOS Consolas NO
-     existe, así que Qt caía en otra monoespaciada; en Windows sí existe y
-     las métricas cambian, moviendo todo layout calculado desde la fuente.
-     EB Garamond probablemente no está instalada en Windows y cae en otra.
-     Solución: embeber las fuentes (QFontDatabase.addApplicationFont desde
-     un directorio de fuentes empaquetado) y usar el MISMO default en ambas
-     plataformas en vez de depender de las del sistema.
-  3. RUTAS HARDCODEADAS de Linux: /tmp/voider-fx y /tmp/voider-fx-panel
-     (fx_panel, new_interface), ~/void/tts/*.onnx (tts_mixin),
-     ~/void/library.txt (io_mixin). Centralizar detrás de una config /
-     función única (tempfile.gettempdir(), raíz del void configurable).
-     config.json/state.json ya manejan sys.frozen bien (app_config.py).
-  Nota: Rust (voider-rs) evita por diseño el punto 1 y buena parte del 2
-  (binario único, fuentes embebidas, render propio), pero NO el 3 si las
-  rutas se portan tal cual.
-  HECHO EN CÓDIGO (2026-10-06, commits ba9146c y aafd8ed): fuentes
-  empaquetadas en proto-voider/fonts (+ licencia OFL) y registradas en Qt
-  antes de crear la ventana (resources.py); default font_family = EB Garamond;
-  rutas fuera de Linux (platform_paths.py: tempfile.gettempdir() y
-  <void>/tts); voider.spec nuevo en proto-voider/ (upx=False; datas con las
-  fuentes y los datos de pyphen y langdetect, que fallan EN SILENCIO si
-  faltan); build_windows_nuitka.bat y BUILD-WINDOWS.md. Promovido a
-  pkgs/voider-py. SIN PROBAR: nada de esto se pudo compilar desde NixOS —
-  hay que correr el build en Windows y mirar el .exe una vez (letras EB
-  Garamond, hifenado de F4). Ojo: el spec de /mnt/data/programming/
-  proto-voider-source/voider.spec sigue siendo el viejo; copiar el nuevo.
-
-- COMPILAR PYTHON A .EXE DESDE UNA VM DE WINDOWS (2026-09-28). PyInstaller no
-  cross-compila desde Linux (necesita correr EN el target) — el camino real
-  es una VM de Windows acá mismo (QEMU/virt-manager en NixOS) con Python +
-  PyQt6 + PyInstaller instalados adentro, compilando nativo. Evita toda la
-  fricción que tuvo el cross-compile de Rust (conseguir la std, el nombre de
-  libpthread.a) porque no cruza nada — es compilación normal dentro de la VM.
-  No arrancado: hace falta una ISO de Windows y configurar la VM primero.
+  hasta que el mirror esté más cerca de paridad.
 
 - Void scanner: on startup, scan /void recursively, index all .txt files.
   F3 shows chapters across entire void. Source files never modified.
