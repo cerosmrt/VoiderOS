@@ -32,6 +32,20 @@ ACTIVE — ready to implement next
   test que exige botón o excepción (NOT_IN_MENU) para cada acción nueva.
   Verificado clickeando en una ventana real (Xvfb). SIN VERIFICAR en Hyprland.
 
+- INSTALADOR PARA MAC Y ANDROID — IDEA, SIN EMPEZAR, "POR AHORA NO ME INTERESA"
+  (2026-11-18). El de Windows (INSTALAR.bat, caché offline) COMPILÓ Y ANDA
+  (Federico, 2026-11-18). Qué costaría lo mismo en otras plataformas:
+  * MAC: mismo camino (PyInstaller compila en el destino): INSTALAR.command con
+    dependencias de macOS ya bajadas + instalador de Python. Diferencias: wheels
+    distintas para Apple Silicon e Intel; el .pkg de Python pide contraseña de
+    administrador; la app sale sin firmar (Gatekeeper: clic derecho > Abrir).
+    El código tiene partes de Linux (hyprctl, aplay, pam) a revisar; sonido y
+    dictado seguro dan trabajo. Hace falta un Mac para la primera prueba.
+  * ANDROID: NO es lo mismo. PyQt6 no corre en Android (habría que pasar la UI
+    a PySide6) y Voider asume teclado físico. Más realista: una versión simple
+    de leer/escribir texto con voider-rs (Rust, egui) o una página web que abra
+    los .txt. Hoy el texto ya viaja al teléfono en el zip de Ctrl+B (MTP).
+
 - F12 (take_screenshot, io_mixin.py) PROBABLEMENTE ESTÁ IGUAL DE ROTO QUE
   ESTABA Shift+F12 (2026-09-24, hallado de rebote, no tocado). Shift+F12
   usaba QScreen.grabWindow(0) y devolvía un pixmap vacío en este
