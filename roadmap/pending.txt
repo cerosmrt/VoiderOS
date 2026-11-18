@@ -11,6 +11,16 @@ ACTIVE — ready to implement next
 - Ctrl+T EN EL LIBRO ENTERO (F3 + Enter en un punto): ¿que anuncie los títulos
   de capítulo? Hoy los saltea, igual que la navegación.
 
+- F8 (ORÁCULO DE O/): Federico no lo quiere borrar — "ya le vamos a encontrar
+  una función" (2026-11-18). Sigue como está (una línea al azar de O/).
+
+- GRAVITOR, MEJORAS POSIBLES (2026-11-18, la v1 está hecha): (a) buscar en TODO
+  O/ en segundo plano, con barra y relleno progresivo (hoy sólo muestra al azar
+  de n libros; 300 libros ~5 s, todo O/ serían minutos); (b) los archivos que
+  genera quedan en I/ a pedido de Federico: Tab en F1/F2 puede reciclar frases
+  de O/ como si fueran suyas — si molesta, moverlos a I/gravitor/ y que Tab
+  los ignore; (c) sin probar en Hyprland ni con el Voider del sistema.
+
 - F3 → F9: si en F3 estoy parado en un punto (o entré al libro desde un
   punto), F9 debería mostrar el libro completo (2026-11-13). SIN EMPEZAR.
   Hoy F9 (vista 8, new_interface.py ~930) es el editor de prosa de UN archivo

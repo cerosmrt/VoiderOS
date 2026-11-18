@@ -605,3 +605,16 @@ SESSION 2026-11-05 → 2026-11-18
   Un test exige botón o excepción (NOT_IN_MENU) por cada acción de teclado.
 - F5 D3 (mandar un párrafo a un capítulo con '>' → F3 → Enter): hecho, commit
   4033375 (pasó de pending).
+- F7 ya no se olvida de los libros (2026-11-18, 3ab3178): closeEvent guardaba
+  el conjunto sin haberlo cargado y lo pisaba con []; con /mnt/data sin montar
+  la carga descartaba todo. Ahora no guarda si no cargó, no descarta con el
+  corpus ausente, deja .working_set.json.bak (última versión con libros) y
+  escribe atómico.
+- Gravitor, Ctrl+G en F3 (2026-11-18, 20361b7 / e33078c): oraciones con tal o
+  tales palabras -> I/<lo escrito>.txt, un capítulo más de F3 debajo de la fila
+  marcada. Espacio = todas, coma = cualquiera, grav* / *grav / *grav*, sin
+  mayúsculas ni acentos. Fuente: mis textos (I/), corpus (muestra al azar de n
+  libros de O/, n en F10, 300 por defecto) o los dos; recuerda la última.
+  Oraciones como en F6; separa sólo los párrafos que pueden coincidir (300
+  libros ~5 s). Tope 2000, cancelable, nunca pisa, no se busca a sí mismo
+  (.gravitor.json), dice dónde buscó. Botón en el menú Edición.
