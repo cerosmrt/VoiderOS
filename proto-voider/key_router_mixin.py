@@ -349,6 +349,8 @@ class KeyRouterMixin:
             self._book_duplicate(1); event.accept(); return
         if mods == Qt.KeyboardModifier.ControlModifier and key == Qt.Key.Key_F:
             self._open_f3_search(); event.accept(); return
+        if self._matches(key, mods, 'gravitor'):
+            self._gravitor_open(); event.accept(); return
         if self._matches(key, mods, 'merge_book'):
             self._book_merge_prompt(); event.accept(); return
         if self._matches(key, mods, 'split_chapter'):

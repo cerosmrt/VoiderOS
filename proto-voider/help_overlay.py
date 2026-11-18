@@ -45,6 +45,7 @@ HELP = [
     ("Alt+←/→  (F2 dot)", "Send this paragraph to a chapter (panel opens that side)"),
     ("Alt+Shift+←/→ (F2)","Same, from anywhere — line or paragraph"),
     ("Ctrl+B",            "Backup vault to folder"),
+    ("Ctrl+G  (F3)",     "Gravitor — sentences with these words → a new chapter"),
     ("Ctrl+S",            "Export / save as PDF"),
     ("Ctrl+P",            "Print"),
     ("Ctrl+Shift+V (F4)", "Toggle carousel preview (F10 ratio, title + slides)"),

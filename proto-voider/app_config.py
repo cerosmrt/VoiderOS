@@ -50,6 +50,10 @@ DEFAULT_CONFIG = {
     "dictation_language": "es",        # es | en | auto
     "dictation_model": "small",        # tiny | base | small | medium (must be downloaded)
     "working_set_size": 100,
+    # Gravitor (Ctrl+G en F3): dónde busca por defecto (i = tus textos, o = corpus,
+    # both = los dos; recuerda lo último) y cuántos libros de O/ por búsqueda.
+    "gravitor_source": "i",
+    "gravitor_books": 300,
     "keybindings": {
         "view_f1": "F1",
         "view_f2": "F2",
@@ -100,7 +104,8 @@ DEFAULT_CONFIG = {
         "collapse_paragraphs": "Ctrl+Shift+Delete",
         "typewriter_toggle": "Ctrl+Shift+W",
         "dictation_toggle": "Ctrl+Shift+Space",
-        "backup": "Ctrl+B"
+        "backup": "Ctrl+B",
+        "gravitor": "Ctrl+G"
     }
 }
 
