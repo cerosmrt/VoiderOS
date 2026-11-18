@@ -22,6 +22,7 @@ WS_METHODS = (
     '_save_working_set', '_ws_slot_display', '_ws_cur_slot',
     '_ws_build_browser_ring', '_ws_refresh_browser', '_ws_tab_randomize',
     '_ws_add_slot', '_ws_remove_slot', '_o_browser_open',
+    '_ws_save_position', '_ws_corpus_available', '_ws_backup_previous',
 )
 
 
@@ -180,6 +181,7 @@ def test_loaded_book_remains_after_deleting_others(tmp_path):
 
 def test_empty_slots_not_persisted(tmp_path):
     app, o_dir = _ws_app(tmp_path)
+    app._ws_loaded = True
     app._ws_books = [{'path': 'a.txt', 'position': 0},
                      {'path': '', 'position': 0}]
     app._save_working_set()
@@ -189,6 +191,7 @@ def test_empty_slots_not_persisted(tmp_path):
 
 def test_roundtrip_through_disk(tmp_path):
     app, _ = _ws_app(tmp_path)
+    app._ws_loaded = True
     app._ws_books = [{'path': 'a.txt', 'position': 5},
                      {'path': 'c.txt', 'position': 0}]
     app._save_working_set()
@@ -220,3 +223,108 @@ def test_empty_slot_shows_marker(tmp_path):
     app._ws_books = [{'path': '', 'position': 0}]
     app._ws_build_browser_ring(slot=0)
     assert app.o_browser_ring.current() == app._WS_EMPTY
+
+
+# ── F7 se olvidaba los libros: el cierre pisaba el archivo con una lista vacía ─
+#
+# closeEvent siempre guardaba el conjunto; en una sesión sin pasar por F7 el
+# conjunto nunca se había cargado, y lo que se guardaba era el [] del arranque.
+
+SAVED = [{'path': 'a.txt', 'position': 3}, {'path': 'b.txt', 'position': 0}]
+
+
+def _on_disk(o_dir):
+    return json.loads((o_dir / '.working_set.json').read_text())['books']
+
+
+def test_saving_before_loading_never_touches_the_file(tmp_path):
+    app, o_dir = _ws_app(tmp_path, saved_books=SAVED)
+    assert app._ws_loaded is False
+    app._save_working_set()                       # lo que hace closeEvent
+    assert _on_disk(o_dir) == SAVED
+
+
+def test_closing_without_visiting_f7_keeps_the_set(tmp_path):
+    """La secuencia exacta de closeEvent: _ws_save_position + _save_working_set."""
+    app, o_dir = _ws_app(tmp_path, saved_books=SAVED)
+    app._ws_save_position()
+    app._save_working_set()
+    assert _on_disk(o_dir) == SAVED
+
+
+def test_leaving_f6_without_f7_keeps_the_set_and_saves_the_position(tmp_path):
+    app, o_dir = _ws_app(tmp_path, saved_books=SAVED)
+    app.o_reader_file = str(o_dir / 'a.txt')
+    app.o_reader_ring = LineRing(['x'] * 10)
+    app.o_reader_ring.index = 7
+    app._ws_save_position()
+    assert _on_disk(o_dir) == [{'path': 'a.txt', 'position': 7},
+                               {'path': 'b.txt', 'position': 0}]
+
+
+def test_unavailable_corpus_keeps_the_books_instead_of_dropping_them(tmp_path):
+    """/mnt/data sin montar: O/ existe pero está vacío. Descartar todo y guardar
+    después dejaba el archivo en []."""
+    app, o_dir = _ws_app(tmp_path, o_files=(), saved_books=SAVED)
+    assert app._ws_corpus_available() is False
+    app._load_working_set()
+    assert [e['path'] for e in app._ws_books] == ['a.txt', 'b.txt']
+    app._save_working_set()
+    assert _on_disk(o_dir) == SAVED
+
+
+def test_missing_o_dir_is_unavailable_not_a_crash(tmp_path):
+    app, _ = _ws_app(tmp_path)
+    app.o_dir = str(tmp_path / 'no-existe')
+    assert app._ws_corpus_available() is False
+
+
+def test_hidden_files_do_not_count_as_a_corpus(tmp_path):
+    app, o_dir = _ws_app(tmp_path, o_files=(), saved_books=SAVED)
+    (o_dir / '.o_files_cache.txt').write_text('x')
+    assert app._ws_corpus_available() is False
+
+
+def test_deleted_books_are_still_dropped_when_the_corpus_is_there(tmp_path):
+    app, _ = _ws_app(tmp_path, o_files=('b.txt',),
+                     saved_books=[{'path': 'gone.txt', 'position': 0},
+                                  {'path': 'b.txt', 'position': 0}])
+    app._load_working_set()
+    assert [e['path'] for e in app._ws_books] == ['b.txt']
+
+
+def test_the_previous_version_is_kept_as_a_bak(tmp_path):
+    app, o_dir = _ws_app(tmp_path, saved_books=SAVED)
+    app._load_working_set()
+    app._ws_books.append({'path': 'c.txt', 'position': 0})
+    app._save_working_set()
+    bak = json.loads((o_dir / '.working_set.json.bak').read_text())
+    assert bak['books'] == SAVED
+    assert len(_on_disk(o_dir)) == 3
+
+
+def test_the_bak_keeps_the_last_non_empty_version(tmp_path):
+    """Si algo deja el conjunto vacío, el .bak sigue teniendo lo último bueno."""
+    app, o_dir = _ws_app(tmp_path, saved_books=SAVED)
+    app._load_working_set()
+    app._ws_books = [{'path': '', 'position': 0}]
+    app._save_working_set()                       # queda vacío en disco
+    assert _on_disk(o_dir) == []
+    app._save_working_set()                       # otro guardado vacío
+    bak = json.loads((o_dir / '.working_set.json.bak').read_text())
+    assert bak['books'] == SAVED, 'el vacío pisó la copia buena'
+
+
+def test_an_unchanged_save_does_not_rewrite_the_bak(tmp_path):
+    app, o_dir = _ws_app(tmp_path, saved_books=SAVED)
+    app._load_working_set()
+    app._save_working_set()
+    assert not (o_dir / '.working_set.json.bak').exists()
+
+
+def test_the_write_is_atomic_no_tmp_left_behind(tmp_path):
+    app, o_dir = _ws_app(tmp_path, saved_books=SAVED)
+    app._load_working_set()
+    app._ws_books.append({'path': 'c.txt', 'position': 0})
+    app._save_working_set()
+    assert not [n for n in os.listdir(o_dir) if n.endswith('.tmp')]

@@ -1,11 +1,21 @@
 # f5678_mixin.py — O/ reader + working set + oracle methods
 import os
 import json
+import shutil
 import random
 import threading
 
 from line_ring import LineRing
 from app_config import _clean_book_title
+
+
+def _ws_books_in(text):
+    """The books listed in a .working_set.json text ([] if it isn't valid)."""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return []
+    return data.get('books') or (data.get('locked', []) + data.get('unlocked', []))
 
 
 class F5678Mixin:
@@ -156,10 +166,15 @@ class F5678Mixin:
                     books = data['books']
                 else:
                     books = data.get('locked', []) + data.get('unlocked', [])
-                # Keep only slots whose file still exists (empty slots aren't saved).
+                # Keep only slots whose file still exists (empty slots aren't saved)
+                # — BUT only when the corpus itself is there. With /mnt/data
+                # unmounted, O/ is empty: every book "doesn't exist", and dropping
+                # them all (then saving) wiped the user's set.
+                available = self._ws_corpus_available()
                 books = [e for e in books
                          if e.get('path')
-                         and os.path.exists(os.path.join(self.o_dir, e['path']))]
+                         and (not available
+                              or os.path.exists(os.path.join(self.o_dir, e['path'])))]
                 self._ws_browser_index = data.get('browser_index', 1)
             except Exception:
                 pass
@@ -168,21 +183,63 @@ class F5678Mixin:
         self._ws_books = books
         self._ws_loaded = True
 
+    def _ws_corpus_available(self):
+        """True when O/ has real content (dotfiles like .working_set.json don't
+        count). An unmounted /mnt/data leaves O/ resolving to an empty folder."""
+        try:
+            with os.scandir(self.o_dir) as it:
+                return any(not e.name.startswith('.') for e in it)
+        except OSError:
+            return False
+
+    def _ws_backup_previous(self, path, new_text):
+        """Before overwriting, keep the old file as .bak — but only if it held
+        books and differs from what's about to be written, so the .bak is
+        always the last GOOD version (an empty save never overwrites it)."""
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                old_text = f.read()
+        except OSError:
+            return
+        try:
+            same = json.loads(old_text) == json.loads(new_text)
+        except ValueError:
+            same = False
+        if not same and _ws_books_in(old_text):
+            try:
+                shutil.copy2(path, path + '.bak')
+            except OSError as e:
+                print(f"⚠️ Could not back up the working set: {e}")
+
     def _save_working_set(self):
+        # Never write a set that was never read: _ws_books starts as [] and
+        # closeEvent saves unconditionally, so a session that never opened F7
+        # overwrote the user's saved books with an empty list.
+        if not getattr(self, '_ws_loaded', False):
+            return
         try:
             # Persist only filled slots — empty slots are transient.
             saved = [e for e in self._ws_books if not self._ws_slot_is_empty(e)]
-            with open(self._ws_json_path(), 'w', encoding='utf-8') as f:
-                json.dump({
-                    'books': saved,
-                    'browser_index': self._ws_browser_index,
-                }, f, indent=2)
+            text = json.dumps({
+                'books': saved,
+                'browser_index': self._ws_browser_index,
+            }, indent=2)
+            path = self._ws_json_path()
+            self._ws_backup_previous(path, text)
+            tmp = path + '.tmp'
+            with open(tmp, 'w', encoding='utf-8') as f:
+                f.write(text)
+            os.replace(tmp, path)
         except Exception as e:
             print(f"⚠️ Could not save working set: {e}")
 
     def _ws_save_position(self):
         if not self.o_reader_file:
             return
+        # Leaving F6 without ever opening F7: load the saved set first, so the
+        # position is recorded INTO it instead of over an empty one.
+        if not getattr(self, '_ws_loaded', False):
+            self._load_working_set()
         fname = os.path.basename(self.o_reader_file)
         idx = self.o_reader_ring.index
         for e in self._ws_books:
