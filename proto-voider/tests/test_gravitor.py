@@ -455,3 +455,85 @@ def test_search_i_does_not_fold_sentence_by_sentence_in_files_that_cannot_match(
     monkeypatch.setattr(q, 'matches', lambda s: llamadas.append(s) or original(s), raising=False)
     r = g.search_i(d, q)
     assert r.sentences == [] and llamadas == []
+
+
+# ── I/ también tiene párrafos de una sola línea (prosa, no el modelo de puntos) ─
+#
+# Un archivo como "Escrito experimento 2.txt" guarda cada párrafo en UNA línea
+# con varias oraciones. Buscar "vision" devolvía el párrafo entero, y después
+# aparecían oraciones sin la palabra. Una oración, no una línea.
+
+PROSA = ('\r\n\r\nSi te invitan a una casa, primero miras la casa. A las reglas me adapto. '
+         'Ahi actuo a su vision del mundo. Todo a partir de lo que me dicen.\r\n\r\n'
+         'Otro parrafo sin nada.\r\n')
+
+
+def _prosa(tmp_path):
+    d = str(tmp_path / 'I')
+    _w(os.path.join(d, 'prosa.txt'), PROSA)
+    return d
+
+
+def test_a_prose_paragraph_gives_only_the_sentence_with_the_word(tmp_path):
+    r = g.search_i(_prosa(tmp_path), g.parse_query('vision'), to_sentences=_split)
+    assert r.sentences == ['Ahi actuo a su vision del mundo.']
+
+
+def test_no_result_has_a_sentence_without_the_word(tmp_path):
+    q = g.parse_query('vision')
+    r = g.search_i(_prosa(tmp_path), q, to_sentences=_split)
+    assert r.sentences and all(q.matches(s) for s in r.sentences)
+
+
+def test_crlf_and_blank_lines_are_not_a_problem(tmp_path):
+    r = g.search_i(_prosa(tmp_path), g.parse_query('vision'), to_sentences=_split)
+    assert all('\r' not in s and s for s in r.sentences)
+
+
+def test_two_matching_sentences_in_one_line_come_out_separately(tmp_path):
+    d = str(tmp_path / 'I')
+    _w(os.path.join(d, 'a.txt'), 'Una vision. Nada. Otra vision mas.\n')
+    r = g.search_i(d, g.parse_query('vision'), to_sentences=_split)
+    assert r.sentences == ['Una vision.', 'Otra vision mas.']
+
+
+def test_the_splitter_only_runs_on_lines_that_could_match(tmp_path):
+    """El separador es lo caro: sólo corre donde la palabra puede estar."""
+    d = _prosa(tmp_path)
+    vistos = []
+
+    def espia(raw):
+        vistos.append(raw)
+        return _split(raw)
+    g.search_i(d, g.parse_query('vision'), to_sentences=espia)
+    assert len(vistos) == 1 and 'vision' in vistos[0]
+
+
+def test_a_dot_model_file_gives_the_same_result_with_or_without_the_splitter(tmp_path):
+    d = _i(tmp_path)
+    q = g.parse_query('luz')
+    a = g.search_i(d, q)
+    b = g.search_i(d, q, to_sentences=_split)
+    assert sorted(a.sentences) == sorted(b.sentences)
+
+
+def test_a_part_that_is_only_a_dot_is_never_a_result(tmp_path):
+    d = _prosa(tmp_path)
+    r = g.search_i(d, g.parse_query('vision'),
+                   to_sentences=lambda raw: ['.'] + _split(raw))
+    assert '.' not in r.sentences
+
+
+def test_search_passes_the_splitter_to_the_i_source(tmp_path):
+    d = _prosa(tmp_path)
+    r = g.search('i', g.parse_query('vision'), i_dir=d, o_dir=str(tmp_path / 'no'),
+                 n_books=1, to_sentences=_split)
+    assert r.sentences == ['Ahi actuo a su vision del mundo.']
+
+
+def test_a_word_that_is_only_part_of_another_does_not_pull_the_paragraph(tmp_path):
+    """'division' contiene 'vision': pasa la prueba barata pero no coincide."""
+    d = str(tmp_path / 'I')
+    _w(os.path.join(d, 'a.txt'), 'La division de todo. Nada mas aqui.\n')
+    r = g.search_i(d, g.parse_query('vision'), to_sentences=_split)
+    assert r.sentences == []

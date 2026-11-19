@@ -293,3 +293,34 @@ def test_gravitor_open_is_ignored_while_a_new_entry_is_being_typed(tmp_path):
     app._gravitor_dialog = MagicMock()
     FullscreenCircleApp._gravitor_open(app)
     app._gravitor_dialog.assert_not_called()
+
+
+# ── el caso real: un archivo de I/ en prosa (una línea = un párrafo), con CRLF ─
+
+def test_your_prose_files_give_sentences_not_whole_paragraphs(tmp_path):
+    app = _app(tmp_path, library=('A',))
+    _w(str(tmp_path / 'I' / 'Prosa.txt'),
+       '\r\nSi te invitan a una casa, primero miras la casa. A las reglas me adapto. '
+       'Ahi actuo a su vision del mundo. Todo a partir de lo que me dicen.\r\n')
+    app._library_lines.append('Prosa.txt')
+    res, fname = app._gravitor_make_entry('vision', 'i')
+    assert res.sentences == ['Ahi actuo a su vision del mundo.']
+    lines = (tmp_path / 'I' / fname).read_text(encoding='utf-8').splitlines()
+    assert lines == ['.', 'Ahi actuo a su vision del mundo.', '.']
+
+
+def test_every_line_of_the_file_has_the_word_with_the_real_splitter(tmp_path):
+    """Con el separador de F6 de verdad (no el de los tests)."""
+    from new_interface import FullscreenCircleApp
+    app = _app(tmp_path, library=('A',))
+    app._reformat_raw_to_lines = types.MethodType(
+        FullscreenCircleApp._reformat_raw_to_lines, app)
+    _w(str(tmp_path / 'I' / 'Prosa.txt'),
+       'Aca esta lo que decia de la division que se produjo. Nada de eso aqui. '
+       'Una vision clara de las cosas. Y nada mas que decir.\n')
+    app._library_lines.append('Prosa.txt')
+    res, fname = app._gravitor_make_entry('vision', 'i')
+    assert res.sentences == ['Una vision clara de las cosas.']
+    body = [l for l in (tmp_path / 'I' / fname).read_text(encoding='utf-8').splitlines()
+            if l != '.']
+    assert all('vision' in l.lower() for l in body)
