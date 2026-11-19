@@ -164,8 +164,22 @@ def _i_files(i_dir, skip):
     return out
 
 
-def search_i(i_dir, query, skip=(), cap=CAP, on_progress=None):
-    """Tus textos: todos los .txt de I/ (menos 0.txt y lo que Gravitor ya generó)."""
+def _sentences_of(line, to_sentences):
+    """Las oraciones de UNA línea de I/. Un archivo en el modelo de puntos ya trae
+    una oración por línea, pero la prosa (por ejemplo un texto pegado) guarda un
+    párrafo entero en una línea: sin separarlo, una oración con la palabra
+    arrastraba todas las demás."""
+    if to_sentences is None:
+        return [line]
+    parts = [p.strip() for p in to_sentences(line)]
+    return [p for p in parts if p and p != '.']
+
+
+def search_i(i_dir, query, skip=(), cap=CAP, on_progress=None, to_sentences=None):
+    """Tus textos: todos los .txt de I/ (menos 0.txt y lo que Gravitor ya generó).
+
+    to_sentences(línea) → oraciones. Sólo corre sobre las líneas que pueden
+    coincidir, así que es barato. Sin él, cada línea cuenta como una oración."""
     res = Result()
     files = _i_files(i_dir, set(skip))
     seen = set()
@@ -183,13 +197,16 @@ def search_i(i_dir, query, skip=(), cap=CAP, on_progress=None):
         # mirar oración por oración.
         if not query.might_match(fold('\n'.join(lines))):
             continue
-        for s in sentences_from_lines(lines):
-            if s not in seen and query.matches(s):
-                seen.add(s)
-                res.sentences.append(s)
-                if len(res.sentences) >= cap:
-                    res.capped = True
-                    return res
+        for line in sentences_from_lines(lines):
+            if not query.might_match(fold(line)):
+                continue
+            for sent in _sentences_of(line, to_sentences):
+                if sent not in seen and query.matches(sent):
+                    seen.add(sent)
+                    res.sentences.append(sent)
+                    if len(res.sentences) >= cap:
+                        res.capped = True
+                        return res
     return res
 
 
@@ -241,7 +258,8 @@ def search(source, query, i_dir, o_dir, n_books, to_sentences, cap=CAP,
     """source: 'i' (tus textos), 'o' (corpus) o 'both' (primero I/, después O/)."""
     total = Result()
     if source in ('i', 'both'):
-        r = search_i(i_dir, query, skip=skip, cap=cap, on_progress=on_progress)
+        r = search_i(i_dir, query, skip=skip, cap=cap, on_progress=on_progress,
+                     to_sentences=to_sentences)
         total.sentences += r.sentences
         total.files = r.files
         total.capped = r.capped
