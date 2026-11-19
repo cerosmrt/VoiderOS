@@ -290,3 +290,150 @@ def test_the_command_methods_only_call_things_that_exist():
 def test_the_help_screen_mentions_it():
     from help_overlay import HELP
     assert any(k.startswith('!rem') for k, d in HELP)
+
+
+# ── !sinpuntos: quitar los puntos separadores de un archivo ──────────────────
+#
+# Lo que hacía Ctrl+Shift+Delete (que nunca anduvo bien por la tecla), ahora como
+# comando: todos los separadores de adentro se van y queda UN solo párrafo, con un
+# punto al principio y otro al final (como Voider espera un archivo). Con eso Tab
+# mezcla las líneas de todo el archivo de una vez.
+
+def test_every_inner_separator_goes_and_one_paragraph_remains():
+    out = c.remove_separators(['.', 'Uno.', 'Dos.', '.', 'Tres.', '.', 'Cuatro.', '.'])
+    assert out.lines == ['.', 'Uno.', 'Dos.', 'Tres.', 'Cuatro.', '.']
+
+
+def test_it_reports_how_many_separators_it_took_out():
+    out = c.remove_separators(['.', 'Uno.', '.', 'Dos.', '.', 'Tres.', '.'])
+    assert out.removed == 2 and out.kept == 3        # 4 puntos → quedan 2
+
+
+def test_no_line_is_lost_or_reordered():
+    lines = ['.', 'a', 'b', '.', 'c', '.', '.', 'd', '.']
+    out = c.remove_separators(lines)
+    assert [l for l in out.lines if l != '.'] == ['a', 'b', 'c', 'd']
+
+
+def test_a_file_without_dots_gets_the_two_framing_dots():
+    out = c.remove_separators(['Uno.', 'Dos.'])
+    assert out.lines == ['.', 'Uno.', 'Dos.', '.'] and out.removed == 0
+
+
+def test_blank_lines_and_carriage_returns_are_dropped_here_too():
+    out = c.remove_separators(['', 'Uno.\r', '', '.\r', 'Dos.\r'])
+    assert out.lines == ['.', 'Uno.', 'Dos.', '.']
+
+
+def test_a_file_with_only_dots_or_nothing_has_nothing_to_write():
+    assert c.remove_separators([]) is None
+    assert c.remove_separators(['.', '.', '']) is None
+
+
+def test_a_file_that_is_already_one_paragraph_is_reported_as_unchanged():
+    lines = ['.', 'Uno.', 'Dos.', '.']
+    out = c.remove_separators(lines)
+    assert out.lines == lines and out.removed == 0
+
+
+def _app2(tmp_path, content):
+    app, path = _app(tmp_path, content)
+    from new_interface import FullscreenCircleApp
+    for nm in ('_cmd_sinpuntos_apply', '_cmd_sinpuntos'):
+        setattr(app, nm, types.MethodType(getattr(FullscreenCircleApp, nm), app))
+    return app, path
+
+
+def test_sinpuntos_rewrites_the_file_f2_has_open(tmp_path):
+    app, path = _app2(tmp_path, '.\nUno.\n.\nDos.\n.\nTres.\n.\n')
+    assert app._cmd_sinpuntos_apply() == ('ok', 2, 3)
+    assert _read(path) == ['.', 'Uno.', 'Dos.', 'Tres.', '.']
+
+
+def test_sinpuntos_leaves_a_bak(tmp_path):
+    app, path = _app2(tmp_path, '.\nUno.\n.\nDos.\n.\n')
+    app._cmd_sinpuntos_apply()
+    assert _read(path + '.bak') == ['.', 'Uno.', '.', 'Dos.', '.']
+
+
+def test_sinpuntos_does_not_write_when_nothing_changes(tmp_path):
+    app, path = _app2(tmp_path, '.\nUno.\nDos.\n.\n')
+    assert app._cmd_sinpuntos_apply()[0] == 'same'
+    assert not os.path.exists(path + '.bak')
+
+
+def test_sinpuntos_on_an_empty_or_missing_file_does_nothing(tmp_path):
+    app, path = _app2(tmp_path, '.\n.\n')
+    assert app._cmd_sinpuntos_apply()[0] == 'empty'
+    os.remove(path)
+    assert app._cmd_sinpuntos_apply()[0] == 'missing'
+    assert not os.path.exists(path)
+
+
+def test_sinpuntos_is_one_undo_step(tmp_path):
+    app, path = _app2(tmp_path, '.\nUno.\n.\nDos.\n.\n')
+    pasos = []
+    app._undo = MagicMock()
+    app._undo.record_transaction = lambda txn, key=None: pasos.append(key)
+    app._undo_capture = lambda p, lines: app._undo_txn.append((p, lines))
+    app._cmd_sinpuntos_apply()
+    assert len(pasos) == 1 and pasos[0][0] == 'sinpuntos'
+
+
+def test_sinpuntos_reloads_f2s_ring_only_for_the_active_file(tmp_path):
+    app, path = _app2(tmp_path, '.\nUno.\n.\nDos.\n.\n')
+    app._cmd_sinpuntos_apply()
+    app.load_doc_lines.assert_not_called()
+    app.current_file_path = path
+    app._cmd_sinpuntos_apply()                    # ya está en un párrafo
+    app.load_doc_lines.assert_not_called()
+
+
+def test_the_dispatcher_runs_sinpuntos(tmp_path):
+    app, _ = _app2(tmp_path, '.\nUno.\n.\n')
+    app._cmd_sinpuntos = MagicMock()
+    app._f1_command('sinpuntos', '')
+    app._cmd_sinpuntos.assert_called_once()
+
+
+def test_the_unknown_command_hint_lists_both(tmp_path):
+    import inspect
+    from new_interface import FullscreenCircleApp
+    fuente = inspect.getsource(FullscreenCircleApp._cmd_unknown)
+    assert '!rem' in fuente and '!sinpuntos' in fuente
+
+
+def test_sinpuntos_methods_only_call_things_that_exist():
+    import inspect
+    import re
+    from new_interface import FullscreenCircleApp
+    for nombre in ('_cmd_sinpuntos', '_cmd_sinpuntos_apply'):
+        fuente = inspect.getsource(getattr(FullscreenCircleApp, nombre))
+        llamados = set(re.findall(r'self\.(_?[a-zA-Z_][a-zA-Z0-9_]*)\(', fuente))
+        faltan = [n for n in sorted(llamados) if not hasattr(FullscreenCircleApp, n)]
+        assert not faltan, f'{nombre} llama a métodos inexistentes: {faltan}'
+
+
+def test_the_help_screen_mentions_sinpuntos():
+    from help_overlay import HELP
+    assert any(k.startswith('!sinpuntos') for k, d in HELP)
+
+
+def test_the_periods_ending_sentences_are_never_touched():
+    """Se quitan los SEPARADORES (una línea que es sólo un punto), no los puntos
+    al final de cada oración."""
+    lines = ['.', 'Una oración.', 'Otra más...', 'Y una con 3.5 y U.S.A.', '.',
+             'Fin.', '.']
+    out = c.remove_separators(lines)
+    assert out.lines == ['.', 'Una oración.', 'Otra más...', 'Y una con 3.5 y U.S.A.',
+                         'Fin.', '.']
+
+
+def test_a_separator_with_spaces_around_it_still_counts_as_a_separator():
+    out = c.remove_separators(['.', 'Uno.', ' . ', 'Dos.', '.'])
+    assert out.lines == ['.', 'Uno.', 'Dos.', '.']
+
+
+def test_two_dots_in_a_row_inside_a_line_are_text_not_a_separator():
+    out = c.remove_separators(['.', 'Uno.', '..', 'Dos.', '.'])
+    assert '..' in out.lines

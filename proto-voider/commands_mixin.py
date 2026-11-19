@@ -14,11 +14,14 @@ class CommandsMixin:
         if name == 'rem':
             self._cmd_rem(args)
             return
+        if name == 'sinpuntos':
+            self._cmd_sinpuntos()
+            return
         self._cmd_unknown(name)
 
     def _cmd_unknown(self, name):
         self._cmd_message(f'No conozco el comando !{name}.\n\n'
-                          'El que existe: !rem <palabras>', warn=True)
+                          'Los que existen:\n  !rem <palabras>\n  !sinpuntos', warn=True)
 
     def _cmd_rem_apply(self, args):
         """`!rem <palabras>`: del archivo de F2, borrar las líneas que NO tienen las
@@ -58,6 +61,44 @@ class CommandsMixin:
             'error': f'No se pudo escribir {name}.',
         }[status]
         self._cmd_message(text, warn=(status != 'ok'))
+
+    def _cmd_sinpuntos_apply(self):
+        """`!sinpuntos`: del archivo de F2, quitar los separadores (las líneas que son
+        sólo un punto); queda un solo párrafo. → (estado, separadores quitados,
+        líneas); estado: 'ok', 'same' (ya era un párrafo), 'empty', 'missing' o
+        'error'. Sin Qt: se prueba solo."""
+        path = self.f2_file
+        try:
+            with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                lines = [l.rstrip('\n') for l in f]
+        except OSError:
+            return ('missing', 0, 0)
+        out = f1_commands.remove_separators(lines)
+        if out is None:
+            return ('empty', 0, 0)
+        if out.lines == [l.strip() for l in lines if l.strip()]:
+            return ('same', 0, out.kept)
+        self._undo_begin()
+        ok = self._atomic_write_lines(path, out.lines, backup=True)
+        self._undo_commit(key=('sinpuntos', path))
+        if not ok:
+            return ('error', 0, out.kept)
+        if os.path.abspath(self.current_file_path) == os.path.abspath(path):
+            self.load_doc_lines()
+        return ('ok', out.removed, out.kept)
+
+    def _cmd_sinpuntos(self):
+        status, removed, kept = self._cmd_sinpuntos_apply()
+        name = os.path.basename(self.f2_file)
+        text = {
+            'ok': f'Quité {removed} separadores de {name}: '
+                  f'{kept} líneas en un solo párrafo.',
+            'same': f'{name} ya es un solo párrafo.',
+            'empty': f'{name} no tiene líneas.',
+            'missing': f'No encuentro {name}.',
+            'error': f'No se pudo escribir {name}.',
+        }[status]
+        self._cmd_message(text, warn=(status in ('missing', 'error')))
 
     def _cmd_message(self, text, warn=False):
         from PyQt6.QtWidgets import QMessageBox
