@@ -14,7 +14,7 @@ ACTIVE — ready to implement next
 - F8 (ORÁCULO DE O/): Federico no lo quiere borrar — "ya le vamos a encontrar
   una función" (2026-11-18). Sigue como está (una línea al azar de O/).
 
-- COMANDOS DE F1 (!): SOLO EXISTE !rem (2026-11-19). Federico los fue tanteando
+- COMANDOS DE F1 (!): EXISTEN !rem y !sinpuntos (2026-11-19). Federico los fue tanteando
   ("!sacapalabras", "!pone palabras") pero pidió sólo !rem por ahora; cada
   comando nuevo se decide aparte. Limitación: en el modo "espacio suelta la
   línea" (void_key = espacio, o Caps Lock) el espacio dispara el volcado a

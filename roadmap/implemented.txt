@@ -624,3 +624,8 @@ SESSION 2026-11-05 → 2026-11-18
   F2 las líneas SIN la palabra (reglas de Gravitor). Un paso de deshacer, .bak,
   puntos acomodados, no hace nada si ninguna línea coincide. Un renglón que
   empieza con ! y una letra es comando y no se escribe.
+- Comando !sinpuntos en F1 (2026-11-19): quita los SEPARADORES (líneas que son
+  sólo un punto) del archivo de F2 y deja un párrafo con un punto al principio y
+  uno al final; no toca los puntos al final de cada oración. Un paso de
+  deshacer, .bak. Reemplaza en la práctica a Ctrl+Shift+Delete (collapse_
+  paragraphs), que nunca anduvo por la tecla y sigue en pending como bug.
