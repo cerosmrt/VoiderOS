@@ -61,3 +61,31 @@ def remove_lines_without(lines, query):
     if out[-1] != '.':
         out.append('.')
     return RemResult(out, kept, total)
+
+
+@dataclass
+class SepResult:
+    lines: list      # el archivo nuevo
+    removed: int     # separadores que se fueron
+    kept: int        # líneas de texto (no cambian)
+
+
+def remove_separators(lines):
+    """Quita los SEPARADORES: las líneas que son sólo un punto. Los puntos al
+    final de cada oración no se tocan. Queda UN párrafo con un punto al principio
+    y otro al final, que es como Voider espera un archivo.
+
+    Las líneas vacías y el \\r de un CRLF se descartan. Devuelve None si no hay
+    ninguna línea de texto."""
+    text, dots = [], 0
+    for raw in lines:
+        s = raw.strip()
+        if not s:
+            continue
+        if s == '.':
+            dots += 1
+        else:
+            text.append(s)
+    if not text:
+        return None
+    return SepResult(['.'] + text + ['.'], max(0, dots - 2), len(text))
