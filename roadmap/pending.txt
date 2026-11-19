@@ -14,6 +14,13 @@ ACTIVE — ready to implement next
 - F8 (ORÁCULO DE O/): Federico no lo quiere borrar — "ya le vamos a encontrar
   una función" (2026-11-18). Sigue como está (una línea al azar de O/).
 
+- COMANDOS DE F1 (!): SOLO EXISTE !rem (2026-11-19). Federico los fue tanteando
+  ("!sacapalabras", "!pone palabras") pero pidió sólo !rem por ahora; cada
+  comando nuevo se decide aparte. Limitación: en el modo "espacio suelta la
+  línea" (void_key = espacio, o Caps Lock) el espacio dispara el volcado a
+  mitad de "!rem vision", así que los comandos sólo andan con Enter. !rem
+  no parte oraciones: una línea en prosa se queda o se va entera.
+
 - GRAVITOR, MEJORAS POSIBLES (2026-11-18, la v1 está hecha): (a) buscar en TODO
   O/ en segundo plano, con barra y relleno progresivo (hoy sólo muestra al azar
   de n libros; 300 libros ~5 s, todo O/ serían minutos); (b) los archivos que

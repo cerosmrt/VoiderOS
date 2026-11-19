@@ -618,3 +618,9 @@ SESSION 2026-11-05 → 2026-11-18
   Oraciones como en F6; separa sólo los párrafos que pueden coincidir (300
   libros ~5 s). Tope 2000, cancelable, nunca pisa, no se busca a sí mismo
   (.gravitor.json), dice dónde buscó. Botón en el menú Edición.
+- Gravitor devuelve oraciones también de I/ (2026-11-19, 1e901a1): un texto en
+  prosa (un párrafo en una línea, CRLF) arrastraba oraciones sin la palabra.
+- Comando !rem en F1 (2026-11-19, 619d6f7): "!rem vision" borra del archivo de
+  F2 las líneas SIN la palabra (reglas de Gravitor). Un paso de deshacer, .bak,
+  puntos acomodados, no hace nada si ninguna línea coincide. Un renglón que
+  empieza con ! y una letra es comando y no se escribe.
