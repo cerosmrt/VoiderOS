@@ -45,6 +45,7 @@ HELP = [
     ("Alt+←/→  (F2 dot)", "Send this paragraph to a chapter (panel opens that side)"),
     ("Alt+Shift+←/→ (F2)","Same, from anywhere — line or paragraph"),
     ("Ctrl+B",            "Backup vault to folder"),
+    ("!rem <words>  (F1)", "Command: delete from F2's file every line WITHOUT the words"),
     ("Ctrl+G  (F3)",     "Gravitor — sentences with these words → a new chapter"),
     ("Ctrl+S",            "Export / save as PDF"),
     ("Ctrl+P",            "Print"),
