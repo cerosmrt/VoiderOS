@@ -26,6 +26,8 @@ def _save_config(config):
     _save_config_to(CONFIG_PATH, config)
 from io_mixin import IoMixin
 from gravitor_mixin import GravitorMixin
+from commands_mixin import CommandsMixin
+import f1_commands
 from f1_mixin import F1Mixin
 from f2_mixin import F2Mixin
 from f3_mixin import F3Mixin
@@ -87,7 +89,7 @@ def _zodiac_sign(month, day):
 
 class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                           F4Mixin, F5ReorderMixin, F5678Mixin, TtsMixin, KeyRouterMixin,
-                          GravitorMixin):
+                          GravitorMixin, CommandsMixin):
     """
     F1: center entry — write/navigate active file
     F2: circular view — edit/swap active file lines
@@ -1481,6 +1483,14 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         # /0 is the one command: jump to the scratch (moving its portal above the
         # current chapter). Everything else is normal focus writing: commit the
         # line into the active file and open a blank line below to keep going.
+        # `!rem vision` (letra tras el !): un comando para el texto de F2, no se
+        # suelta al archivo. Un nombre desconocido avisa y tampoco se escribe.
+        cmd = f1_commands.parse_command(self.entry.text())
+        if cmd is not None:
+            self._f1_command(*cmd)
+            self.entry.clear()
+            self.entry.setCursorPosition(0)
+            return
         if self.entry.text().strip() == '/0':
             self._f1_scratch_jump()
             self.entry.clear()
