@@ -33,6 +33,30 @@ ACTIVE — ready to implement next
   columna de teclas de QFontMetrics (y que haga scroll si no entra, que además
   ya estaba anotado: "Help overlay: no scroll").
 
+- REDISEÑO DE F8 Y CURSOR DE F3 (2026-11-23, Federico, SIN EMPEZAR — hablarlo antes):
+  1. F8 quedó "muy rebuscada, mucho click". Debe parecerse a F3: un anillo, sin el
+     cuadro grande de botones (el cuadro actual, book_packer_dialog.py, es la v1).
+  2. F8 DENTRO DE UN LIBRO = EL ESQUELETO, con placeholders que se llenan o quedan
+     vacíos, en este orden:
+        Portada · Título · Prólogo · Dedicatoria · Cap 1 · 2 · 3 … (tantos como
+        haga falta, se agregan) · Epílogo · Referencia al software (link a la
+        página) · .
+     Dudas a cerrar: cuáles son texto generado (Portada, Título, Referencia) y cuáles
+     capítulos de I/ (Prólogo, Dedicatoria, Epílogo); qué link va en la referencia;
+     qué pasa con un placeholder vacío al imprimir (¿se saltea?).
+  3. EL "BOOKBINDER" (imposición: hojas por cuadernillo, tabla de páginas en blanco,
+     hoja de prueba, doble cara / manual) pasa a ser OTRO paso: un ajuste previo a la
+     impresión, aparte del armado del libro. Hoy está todo junto en el cuadro.
+  4. CURSOR DE F3: no debe verse al navegar con ↑/↓; sólo al ir hacia los costados.
+        ↑/↓            = moverse entre filas, SIN cursor
+        Enter          = entrar al capítulo directamente
+        ←/→            = aparece el cursor y se edita el nombre del título
+     Hoy el editor de la fila siempre se ve y Enter depende de dónde esté el cursor
+     (al principio del nombre abre el capítulo, al final crea una fila nueva). Cambia
+     cómo se comportan Enter y las flechas en F3: revisar qué más cuelga de eso
+     (renombrar al navegar, Shift+Enter, Ctrl+Enter, la búsqueda Ctrl+F).
+     La misma lógica serviría para F8.
+
 - EMPAQUETADOR DE LIBROS (F8): LO QUE FALTA (2026-11-23). La v1 anda de punta a
   punta en una ventana real (Xvfb) pero NADA se imprimió todavía:
   * PROBAR IMPRIMIENDO: primero la "hoja de prueba" (comprueba cómo da vuelta la
