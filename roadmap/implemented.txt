@@ -629,3 +629,19 @@ SESSION 2026-11-05 → 2026-11-18
   uno al final; no toca los puntos al final de cada oración. Un paso de
   deshacer, .bak. Reemplaza en la práctica a Ctrl+Shift+Delete (collapse_
   paragraphs), que nunca anduvo por la tecla y sigue en pending como bug.
+- F8 = EMPAQUETADOR DE LIBROS, v1 (2026-11-23, 7fc027c..): reemplaza al oráculo de O/.
+  Un libro es una lista de capítulos de I/ por NOMBRE (el mismo capítulo en varios
+  libros, un single en varios álbumes), en <void>/books.json (books.py). F8 muestra
+  el anillo de libros; Enter abre el cuadro (book_packer_dialog.py): título, autor,
+  capítulos en orden (agregar, quitar, mover, "los de F3"), hojas por cuadernillo
+  con la TABLA EN VIVO de páginas en blanco (★ = la que menos deja), y los PDF en
+  <void>/book_packer/<título>/: doble cara automático (A4 apaisado, 2 páginas A5
+  por cara, voltear por el borde corto), manual (caras y dorsos), hoja de prueba y
+  lectura. Shift+Enter libro nuevo, Ctrl+Delete lo borra (los capítulos no se tocan).
+  Maquetación (book_plan.py + book_render.py): título, índice con puntos guía,
+  cada capítulo a la derecha, número de página, colofón y notas en lo que sobra.
+  Imposición (imposition.py): verificada contra el estándar de 8 y 16 páginas y por
+  propiedades. Marcas de pliegue y de compaginación (C3/10 · H2/4) en el lomo.
+  F3 le avisa a los libros si un capítulo se renombra, se borra o se une. books.json
+  viaja en el backup. De paso: reading_page cortaba la página pegada a la línea
+  siguiente y se asomaban las puntas de sus letras (ahora corta 1,2 pt antes).

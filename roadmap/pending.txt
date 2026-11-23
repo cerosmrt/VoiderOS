@@ -33,8 +33,27 @@ ACTIVE — ready to implement next
   columna de teclas de QFontMetrics (y que haga scroll si no entra, que además
   ya estaba anotado: "Help overlay: no scroll").
 
-- F8 (ORÁCULO DE O/): Federico no lo quiere borrar — "ya le vamos a encontrar
-  una función" (2026-11-18). Sigue como está (una línea al azar de O/).
+- EMPAQUETADOR DE LIBROS (F8): LO QUE FALTA (2026-11-23). La v1 anda de punta a
+  punta en una ventana real (Xvfb) pero NADA se imprimió todavía:
+  * PROBAR IMPRIMIENDO: primero la "hoja de prueba" (comprueba cómo da vuelta la
+    impresora, voltear por el borde corto), después un libro corto. Falta ver el
+    PDF en papel: márgenes, el corte de las páginas, las marcas del pliegue.
+  * Más maquetación, de a una y mirando el papel: portadilla, página de derechos,
+    título corriente (libro a la izquierda / capítulo a la derecha), capitular.
+    Margen interior (lomo) distinto del exterior (hoy 20 mm los dos), y el
+    "creep" (las hojas de adentro sobresalen al cortar) si hacen falta cuadernillos
+    gruesos.
+  * Alt+→ / Alt+← en F3: panel lateral con los libros ("agregar este capítulo a un
+    libro" y "¿en qué libros está?"). Ya existe books.books_containing. Ojo: en F2 el
+    editor usa Alt+←/→ para intercambiar palabras; confirmar que en F3 no estén.
+  * F4 como anillo de libros (F1 Voider / F2 líneas / F3 capítulos / F4 libros): el
+    lector actual entraría adentro (Enter sobre un libro). Por ahora vive en F8.
+  * Deshacer en F3 (Ctrl+Z) NO revierte los libros: si deshacés un renombre, los
+    libros quedan con el nombre nuevo y el capítulo aparece como "falta" (⚠).
+  * Un libro puede tener un capítulo sólo, pero no repetido; tampoco hay variantes
+    por libro (se hacen duplicando el capítulo en F3).
+  * Comando !libros en F1, cuando se haga la refactorización a comandos.
+  * El oráculo de O/ se fue. _pick_oracle_line se quedó (la usa otro código).
 
 - COMANDOS DE F1 (!): EXISTEN !rem y !sinpuntos (2026-11-19). Federico los fue tanteando
   ("!sacapalabras", "!pone palabras") pero pidió sólo !rem por ahora; cada
