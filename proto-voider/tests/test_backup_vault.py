@@ -678,3 +678,26 @@ def test_al_fallar_dice_donde_esta_el_log_y_la_ventana_queda_abierta(tmp_path):
     bat = app._installer_bat().replace('\r\n', '\n')
     fallo = bat[bat.index(':fallo'):]
     assert '%LOG%' in fallo and 'pause' in fallo.lower()
+
+
+# ── books.json es tuyo: los libros armados tienen que viajar ─────────────────
+
+def test_el_catalogo_de_libros_viaja_en_el_backup(tmp_path):
+    """El backup lleva sólo texto, pero books.json (los libros que armaste) es dato tuyo
+    y no está en ningún otro lado."""
+    app = _app(tmp_path)
+    _write(os.path.join(app.void_dir, 'I', 'a.txt'), 'hola')
+    _write(os.path.join(app.void_dir, 'books.json'), '{"libros": []}')
+    _write(os.path.join(app.void_dir, 'books.json.bak'), '{}')
+    _write(os.path.join(app.void_dir, 'book_packer', 'L', 'x.pdf'), 'pdf')
+    files, total, _ = app._backup_plan(app.void_dir)
+    rels = sorted(f[0] for f in files)
+    assert rels == sorted(['books.json', os.path.join('I', 'a.txt')])
+    assert total == len('hola') + len('{"libros": []}')
+
+
+def test_sin_catalogo_el_backup_sigue_igual(tmp_path):
+    app = _app(tmp_path)
+    _write(os.path.join(app.void_dir, 'I', 'a.txt'), 'hola')
+    files, _, _ = app._backup_plan(app.void_dir)
+    assert [f[0] for f in files] == [os.path.join('I', 'a.txt')]

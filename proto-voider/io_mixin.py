@@ -1480,6 +1480,13 @@ class IoMixin:
                     continue
                 files.append((os.path.relpath(full, src_dir), size))
                 total += size
+        # El backup lleva sólo texto, pero los libros que armaste en F8 viven en
+        # books.json y no están en ningún otro lado: viaja también.
+        catalogo = os.path.join(src_dir, 'books.json')
+        if os.path.isfile(catalogo) and not os.path.islink(catalogo):
+            size = os.path.getsize(catalogo)
+            files.append(('books.json', size))
+            total += size
         files.sort()
         skipped.sort()
         return files, total, skipped
