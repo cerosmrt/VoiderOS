@@ -27,7 +27,7 @@ MENUS = (
         ('F5  Párrafos', 'view_f5'),
         ('F6  Lector', 'view_f6'),
         ('F7  Corpus', 'view_f7'),
-        ('F8  Oráculo', 'view_f8'),
+        ('F8  Libros', 'view_f8'),
         ('F9  Prosa', 'view_f9'),
     )),
     ('Edición', (

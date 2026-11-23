@@ -60,7 +60,7 @@ def test_setting_change_is_saved_and_font_applied_without_leaving_f10(tmp_path, 
     editor_view = MagicMock()
     app.circular_view = editor_view
     app.book_view = app.o_reader_view = app.o_browser_view = None
-    app.oracle_o_view = app.metronome_view = app.book_concat_view = app.scratch_view = None
+    app.books_view = app.metronome_view = app.book_concat_view = app.scratch_view = None
     app.entry = MagicMock()
     app.switch_to_view = MagicMock()
     app.config.update({'font_family': 'Georgia', 'font_size': 12})

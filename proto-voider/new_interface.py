@@ -246,7 +246,9 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self.o_reader_ring = LineRing(['.'])
         self.o_reader_file = None   # currently open O/ book path
         self.o_reader_line_idx = 0  # line index forked into F5
-        self.oracle_o_ring = LineRing(['.', '...'])
+        self.books = None           # F8: el catálogo de libros (books.json), al entrar
+        self.books_ring = LineRing(['.'])
+        self._books_ids = []
         # Working set: 100-book window, persisted across sessions
         self._ws_loaded = False
         self._ws_books = []  # [{"path": str, "position": int}, ...]
@@ -309,7 +311,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self._f5_pick_match_idx = 0   # highlighted match in the picker
         self.o_reader_view = None   # F6: Reader — circular view of O/ book
         self.o_browser_view = None  # F7: Book browser for O/
-        self.oracle_o_view = None   # F8: Oracle from O/
+        self.books_view = None      # F8: el anillo de libros (empaquetador)
         self.metronome_view = None  # F9: Metronome/tempo (retired)
         self.editor_view = None     # F9: normal prose editor (QPlainTextEdit)
         self._help_overlay = None   # F11: Help/instructions
@@ -572,7 +574,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         sz = int(settings['font_size'])
         self._app_font = QFont(fam, sz)
         for view in [self.circular_view, self.book_view, self.o_reader_view,
-                     self.o_browser_view, self.oracle_o_view, self.metronome_view,
+                     self.o_browser_view, self.books_view, self.metronome_view,
                      self.book_concat_view, self.scratch_view]:
             if view:
                 view.setFont(self._app_font)
@@ -918,23 +920,8 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
             self.o_browser_view.update()
             self._o_browser_show_editor()
 
-        elif view_index == 7:  # F8 — oracle from O/ (lazy)
-            self._refresh_oracle_o()
-            if not self.oracle_o_view:
-                self.oracle_o_view = CircularView(self.oracle_o_ring, self)
-                self.oracle_o_view.setFont(self._app_font)
-                self.oracle_o_view.editor.returnPressed.disconnect()
-                self.oracle_o_view.editor.returnPressed.connect(self._oracle_o_confirm)
-                self.oracle_o_view.editor.upPressed.connect(lambda: self._oracle_o_navigate(-1))
-                self.oracle_o_view.editor.downPressed.connect(lambda: self._oracle_o_navigate(1))
-                self.stack.addWidget(self.oracle_o_view)
-            else:
-                self.oracle_o_view.ring = self.oracle_o_ring
-                self.oracle_o_view._offset = 0.0
-            self.stack.setCurrentWidget(self.oracle_o_view)
-            self.entry.hide()
-            self.oracle_o_view.update()
-            self._oracle_o_show_editor()
+        elif view_index == 7:  # F8 — el empaquetador: anillo de libros
+            self._books_show()
 
         elif view_index == 8:  # F9 — normal prose editor of the active file
             from PyQt6.QtWidgets import QPlainTextEdit

@@ -246,3 +246,20 @@ def test_the_file_is_readable_utf8_with_accents(tmp_path):
     b.new_book(d, 'La visión', ['Él.txt'])
     b.save(str(p), d)
     assert 'visión' in p.read_text(encoding='utf-8')     # sin \u escapes
+
+
+# ── el grupo de F3 donde está el cursor ──────────────────────────────────────
+
+@pytest.mark.parametrize('lines,index,want', [
+    (['.', 'A', 'B', '.', 'C'], 2, ['A', 'B']),          # parado en un capítulo del grupo
+    (['.', 'A', 'B', '.', 'C'], 1, ['A', 'B']),
+    (['.', 'A', 'B', '.', 'C'], 0, ['A', 'B']),          # parado en el punto que lo abre
+    (['.', 'A', 'B', '.', 'C'], 3, ['C']),               # en el punto del grupo siguiente
+    (['.', 'A', 'B', '.', 'C'], 4, ['C']),
+    (['A', 'B', '.', 'C'], 1, ['A', 'B']),               # sin punto al principio
+    (['.', 'A', '0.txt', 'B', '.'], 3, ['A', 'B']),      # el portal no es capítulo
+    (['.'], 0, []),
+    ([], 0, []),
+])
+def test_group_at_returns_the_chapters_of_the_f3_book_under_the_cursor(lines, index, want):
+    assert b.group_at(lines, index) == want

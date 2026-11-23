@@ -146,8 +146,6 @@ class TtsMixin:
                 self._tts_speak(cur)
             self._tts_timer.start()
         # F4 (reading view) has no TTS — it's a visual prose render
-        elif view_index == 7:                        # F8 — oracle O/
-            self._tts_speak(self.oracle_o_ring.current())
         elif view_index == 9:                        # libro entero (F3 + Enter en un punto)
             self._tts_speak(self.book_concat_ring.current())
             self._tts_timer.start()

@@ -26,7 +26,7 @@ def _settings_app():
     app.book_view = _editor_view()
     app.o_reader_view = None
     app.o_browser_view = None
-    app.oracle_o_view = None
+    app.books_view = None
     app.metronome_view = None
     app.book_concat_view = None
     app.scratch_view = None
