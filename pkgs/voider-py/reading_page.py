@@ -35,6 +35,9 @@ A5_PT = (mm_to_pt(148), mm_to_pt(210))
 # Book margins in mm: (top, bottom, inner, outer). Equal top/bottom.
 BOOK_MARGINS_MM = (21.0, 21.0, 20.0, 20.0)
 
+# Cuánto antes de la próxima línea corta una página (ver draw_reading_page).
+CLIP_GUARD_PT = 1.2
+
 # Sink: blank space above a chapter title at the top of its page.
 TITLE_SINK_MM = 24.0
 
@@ -319,22 +322,35 @@ def print_reading_document(doc, layout, offsets, printer, ink=QColor('#111111'))
     for page in range(len(offsets)):
         if page > 0:
             printer.newPage()
-        top = offsets[page]
-        if page + 1 < len(offsets):
-            clip_h = min(offsets[page + 1] - top, layout.block_h)
-        else:
-            clip_h = layout.block_h
         painter.save()
         painter.scale(scale, scale)
-        painter.translate(layout.m_inner, layout.m_top)
-        painter.translate(0, -top)
-        painter.setClipRect(QRectF(0, top, layout.block_w, clip_h))
-        ctx = QAbstractTextDocumentLayout.PaintContext()
-        ctx.palette.setColor(QPalette.ColorRole.Text, ink)
-        ctx.clip = QRectF(0, top, layout.block_w, clip_h)
-        doc.documentLayout().draw(painter, ctx)
+        draw_reading_page(painter, doc, layout, offsets, page, ink)
         painter.restore()
     painter.end()
+
+
+def draw_reading_page(painter, doc, layout, offsets, page, ink=QColor('#111111')):
+    """Dibuja UNA página de un documento ya paginado, con el painter en puntos de
+    página (esquina superior izquierda de la página en 0,0). Es lo que usan el PDF
+    de F4 y el empaquetador de libros: así lo que se lee es lo que se encuaderna."""
+    top = offsets[page]
+    if page + 1 < len(offsets):
+        # La página corta en el borde de la próxima línea, y las puntas de sus
+        # letras rozan esa fila (medido: tinta a 0,4 pt del corte con EB Garamond
+        # y 132% de interlineado). Se corta un poco antes; el interlineado de la
+        # línea de abajo sobra de lejos.
+        clip_h = max(0.0, min(offsets[page + 1] - top, layout.block_h) - CLIP_GUARD_PT)
+    else:
+        clip_h = layout.block_h
+    painter.save()
+    painter.translate(layout.m_inner, layout.m_top)
+    painter.translate(0, -top)
+    painter.setClipRect(QRectF(0, top, layout.block_w, clip_h))
+    ctx = QAbstractTextDocumentLayout.PaintContext()
+    ctx.palette.setColor(QPalette.ColorRole.Text, ink)
+    ctx.clip = QRectF(0, top, layout.block_w, clip_h)
+    doc.documentLayout().draw(painter, ctx)
+    painter.restore()
 
 
 def render_carousel_page(doc, layout, offsets, page, w_px, h_px,
