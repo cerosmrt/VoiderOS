@@ -122,6 +122,29 @@ def from_f3_group(data, titulo, lines):
     return new_book(data, titulo, names)
 
 
+def group_at(lines, index):
+    """Los capítulos del libro de F3 donde está el cursor. `lines` es la biblioteca
+    (con los '.' que separan libros); parado en un capítulo o en el punto que abre
+    el grupo, es ese grupo. Los portales ('0.txt') no son capítulos."""
+    n = len(lines)
+    if not n:
+        return []
+    i = max(0, min(index, n - 1))
+    if lines[i] == '.':
+        start = i + 1
+    else:
+        j = i
+        while j >= 0 and lines[j] != '.':
+            j -= 1
+        start = j + 1
+    out, k = [], start
+    while k < n and lines[k] != '.':
+        if lines[k] and lines[k] != '0.txt':
+            out.append(lines[k])
+        k += 1
+    return out
+
+
 # ── capítulos de un libro ────────────────────────────────────────────────────
 
 def add_chapter(book, fname, at=None):

@@ -81,62 +81,6 @@ class F5678Mixin:
         view.editor.setFocus()
         print(f"✅ Oracle→Doc[{insert_pos}]: '{new_text}'")
 
-    # ── F8: Oracle from O/ ────────────────────────────────────────────────────
-
-    def _refresh_oracle_o(self):
-        line = self._pick_oracle_line(self.o_dir)
-        self.oracle_o_ring = LineRing(['.', line])
-        self.oracle_o_ring.index = 1
-        if self.oracle_o_view:
-            self.oracle_o_view.ring = self.oracle_o_ring
-            self.oracle_o_view._offset = 0.0
-        print(f"🔮 Oracle O/: '{line[:80]}'")
-
-    def _oracle_o_show_editor(self):
-        view = self.oracle_o_view
-        view.edit_mode = True
-        center_y = view.height() // 2
-        editor_width = view.width() - 100
-        view.editor.setFixedWidth(editor_width)
-        view.editor.move((view.width() - editor_width) // 2,
-                         center_y - view.editor.sizeHint().height() // 2)
-        view.editor.setText(self.oracle_o_ring.current())
-        view.editor.show()
-        view.editor.setFocus()
-        view.editor.setCursorPosition(0)
-        view.update()
-
-    def _oracle_o_navigate(self, delta):
-        self._tts_cut()
-        self._refresh_oracle_o()
-        self.oracle_o_view._offset = 0.0
-        self.oracle_o_view.editor.setText(self.oracle_o_ring.current())
-        self.oracle_o_view.editor.setCursorPosition(0)
-        self.oracle_o_view.update()
-
-    def _oracle_o_confirm(self):
-        """Enter en F8: quedarse con la línea (como la hayas editado). Entra en el
-        documento activo debajo de donde estabas, y sale otra tirada.
-
-        Antes reemplazaba el anillo del lector de F6 por ['.', línea] sin soltar
-        el libro abierto y saltaba a F5: el próximo guardado en F6 escribía esas
-        dos líneas encima del libro de O/, que no tiene git. El lector no se toca.
-        """
-        new_text = self.oracle_o_view.editor.text().strip()
-        if not new_text:
-            return
-        insert_pos = self.line_ring.index + 1
-        self.line_ring.lines.insert(insert_pos, new_text)
-        self.line_ring.index = insert_pos
-        self.auto_save_circular()
-        self._refresh_oracle_o()
-        view = self.oracle_o_view
-        view._offset = 0.0
-        view.editor.setText(self.oracle_o_ring.current())
-        view.editor.setCursorPosition(0)
-        view.update()
-        print(f"✅ Oráculo → documento [{insert_pos}]: '{new_text[:60]}'")
-
     # ── F7: O/ book browser — working set ────────────────────────────────────
 
     _WS_FILE = '.working_set.json'

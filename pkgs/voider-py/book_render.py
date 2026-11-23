@@ -55,6 +55,15 @@ class BookRenderer:
             self.titulo, [(t, self.chapter_pages(i)) for i, t in enumerate(self.titles)],
             sheets=sheets, toc=self.toc, colophon=self.colophon)
 
+    @property
+    def content_pages(self):
+        return self.plan.content_pages
+
+    @property
+    def blank(self):
+        """Páginas en blanco que sobran con las hojas por cuadernillo actuales."""
+        return self.plan.blank
+
     def signature_table(self, options=range(2, 9)):
         """La tabla de páginas en blanco, calculada con el largo REAL del libro."""
         return imposition.signature_table(self.plan.content_pages, options)
