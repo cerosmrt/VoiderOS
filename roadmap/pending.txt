@@ -11,6 +11,28 @@ ACTIVE — ready to implement next
 - Ctrl+T EN EL LIBRO ENTERO (F3 + Enter en un punto): ¿que anuncie los títulos
   de capítulo? Hoy los saltea, igual que la navegación.
 
+- VERSIÓN COMPILADA DE WINDOWS: DOS COSAS QUE NO ANDAN (2026-11-23, Federico):
+  1. Ctrl++ / Ctrl+- (opacidad del fondo) no hacen nada. Causa probable:
+     _apply_opacity (new_interface.py ~1311) pinta el alpha a mano y depende de
+     una ventana translúcida + de hyprctl (setprop alpha/noblur) para que el
+     compositor no vuelva a multiplicar. En Windows no hay hyprctl, y el alpha
+     por píxel sólo llega a pantalla con una ventana sin marco (frameless) y
+     WA_TranslucentBackground. Además el .exe no tiene consola (console=False):
+     el "◐ Fondo X%" no se ve. A probar: ventana frameless en Windows, o un
+     fallback con setWindowOpacity(valor) (atenúa todo, texto incluido).
+  2. Scriptio continua no funciona: _capslock_on (f1_mixin.py:14) lee el LED en
+     /sys/class/leds/*capslock*/brightness, que sólo existe en Linux. En Windows
+     el glob no encuentra nada, Caps nunca se detecta, y ni neutralize_caps ni
+     el "espacio suelta la línea" se activan. Arreglo probable: en Windows leer
+     GetKeyState(VK_CAPITAL) por ctypes (user32), sin /sys.
+
+- F11 (AYUDA): SE PISAN LAS LÍNEAS AL AGRANDAR LA FUENTE (2026-11-23, Federico).
+  help_overlay.py tiene la altura de fila fija (_ROW_H = 22, _KEY_W = 200) y el
+  tamaño de la letra viene de la configuración: con font_size grande las filas
+  se superponen. Arreglo probable: sacar la altura de fila y el ancho de la
+  columna de teclas de QFontMetrics (y que haga scroll si no entra, que además
+  ya estaba anotado: "Help overlay: no scroll").
+
 - F8 (ORÁCULO DE O/): Federico no lo quiere borrar — "ya le vamos a encontrar
   una función" (2026-11-18). Sigue como está (una línea al azar de O/).
 
