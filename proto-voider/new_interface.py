@@ -27,6 +27,7 @@ def _save_config(config):
 from io_mixin import IoMixin
 from gravitor_mixin import GravitorMixin
 from commands_mixin import CommandsMixin
+from books_mixin import BooksMixin
 import f1_commands
 from f1_mixin import F1Mixin
 from f2_mixin import F2Mixin
@@ -89,7 +90,7 @@ def _zodiac_sign(month, day):
 
 class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                           F4Mixin, F5ReorderMixin, F5678Mixin, TtsMixin, KeyRouterMixin,
-                          GravitorMixin, CommandsMixin):
+                          GravitorMixin, CommandsMixin, BooksMixin):
     """
     F1: center entry — write/navigate active file
     F2: circular view — edit/swap active file lines

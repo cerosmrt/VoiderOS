@@ -9,6 +9,15 @@ from app_config import _save_config
 from line_ring import LineRing
 
 
+def _books_follow(app, kind, a, b=None):
+    """Avisarle a los libros de F8 que un capítulo cambió ('renamed') o se fue
+    ('deleted'). Si el empaquetador no está (o en un test), no pasa nada. Es una
+    función del módulo y no un método para no depender de qué métodos tenga `app`."""
+    notify = getattr(app, '_books_notify', None)
+    if notify:
+        notify(kind, a, b)
+
+
 class F3Mixin:
 
     def _book_is_portal(self, idx=None):
@@ -221,6 +230,7 @@ class F3Mixin:
             self._library_path_cache[new_fname] = new_path
             self._save_library()
             self._f3_undo_commit('rename')
+            _books_follow(self, 'renamed', fname, new_fname)
             print(f"📝 Renamed: {fname} → {new_fname}")
         except Exception as e:
             self._f3_txn = None
@@ -485,6 +495,7 @@ class F3Mixin:
         except Exception as e:
             print(f"⚠️ Cannot delete {fpath}: {e}")
             return
+        _books_follow(self, 'deleted', fname)
         idx = self.book_ring.index
         self.book_ring.lines.pop(idx)
         self._library_lines.pop(idx)
@@ -949,6 +960,7 @@ class F3Mixin:
                     os.remove(p)
                 except OSError:
                     pass
+            _books_follow(self, 'deleted', fn)
 
         self._book_pending_merge = False
         self.book_ring.index = ph
