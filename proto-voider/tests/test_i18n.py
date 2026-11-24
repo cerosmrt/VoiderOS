@@ -159,3 +159,16 @@ def test_changing_the_language_in_f10_applies_it_at_once(tmp_path, monkeypatch):
     app._on_setting_changed('language', 'en')
     assert i18n.language() == 'en'
     app._language_changed.assert_called_once()
+
+
+def test_gravitor_texts_exist_in_both_languages():
+    import i18n
+    for key in ('gravitor.words_help', 'gravitor.search_in', 'gravitor.source.i',
+                'gravitor.source.o', 'gravitor.source.both', 'gravitor.searching',
+                'gravitor.cancel', 'gravitor.cancelled', 'gravitor.no_corpus'):
+        for lang in ('es', 'en'):
+            assert key in i18n.CATALOGS[lang], (lang, key)
+    i18n.set_language('en')
+    assert i18n.t('gravitor.nothing_found', summary='x') == 'Found nothing: x.'
+    i18n.set_language('es')
+    assert i18n.t('gravitor.nothing_found', summary='x') == 'No encontró nada: x.'

@@ -54,4 +54,19 @@ STRINGS = {
     'menu.item.tts_toggle': 'Leer en voz alta',
     'menu.item.typewriter_toggle': 'Máquina de escribir',
     'menu.item.dictation_toggle': 'Dictado (hablar para escribir)',
+    # --- Gravitor ---
+    'gravitor.title': 'Gravitor',
+    'gravitor.words_help': ('Palabras  (espacio = todas · coma = cualquiera ·\n'
+                            'grav*  *grav  *grav* = empieza · termina · contiene)'),
+    'gravitor.search_in': 'Buscar en',
+    'gravitor.source.i': 'Mis textos',
+    'gravitor.source.o': 'Corpus',
+    'gravitor.source.both': 'Los dos',
+    'gravitor.searching': 'Buscando…',
+    'gravitor.searching_word': 'Buscando',
+    'gravitor.cancel': 'Cancelar',
+    'gravitor.cancelled': 'Cancelada. No se creó nada.',
+    'gravitor.no_corpus': 'El corpus no está disponible (¿/mnt/data sin montar?).',
+    'gravitor.nothing_found': 'No encontró nada: {summary}.',
+    'gravitor.created': 'Creado: {name}\n\n{summary}.',
 }
