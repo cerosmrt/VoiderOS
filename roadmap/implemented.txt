@@ -645,3 +645,18 @@ SESSION 2026-11-05 → 2026-11-18
   F3 le avisa a los libros si un capítulo se renombra, se borra o se une. books.json
   viaja en el backup. De paso: reading_page cortaba la página pegada a la línea
   siguiente y se asomaban las puntas de sus letras (ahora corta 1,2 pt antes).
+- F3 SIN CURSOR AL NAVEGAR + F8 COMO F3 (2026-11-24, eed4c46..a2504d8).
+  F3: ↑/↓ sin cursor, Enter entra directo al capítulo, ←/→ (o escribir, o un clic)
+  muestran el cursor y editan el título; navegar guarda el renombre. Modo navegar
+  = sólo lectura (un QLineEdit en sólo lectura no dibuja el cursor); lo de F3
+  (puntos, portal) se guarda aparte. F2 y demás vistas no cambian.
+  F8: anillo de libros con el mismo modo navegar. Enter entra al ESQUELETO del libro:
+  Portada · Título · Autor · Prólogo · Dedicatoria · Cap 1…n · Epílogo · Referencia
+  al software · .  (6 capítulos siempre y uno vacío más al final). Enter llena la
+  fila (selector de capítulos de teclado, interruptores, cuadros de título/autor),
+  Ctrl+Delete la vacía, Esc vuelve, Shift+Enter crea libro, Alt+Shift+↑/↓ duplica.
+  Ctrl+P / Ctrl+S = BOOKBINDER, aparte del armado: hojas por cuadernillo con la tabla
+  de páginas en blanco, colofón y los PDF. La portada (página 1) y la referencia
+  (una página al final) salen en el libro impreso. Se fue el cuadro grande de la v1.
+- ebooklib, langdetect y pyphen en los Python de Voider (1ddcd4d): al sistema le
+  faltaban los tres (EPUB y hifenado).
