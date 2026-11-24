@@ -237,28 +237,59 @@ def test_without_a_catalog_file_f3_does_not_create_one(tmp_path):
 
 # ── el esqueleto llega al libro impreso ──────────────────────────────────────
 
-def test_the_printed_book_follows_prologue_dedication_chapters_epilogue(qapp, tmp_path):
+def test_the_printed_book_follows_prologue_chapters_epilogue(qapp, tmp_path):
     app = _app(tmp_path)
     bk = b.new_book(app.books, 'Mitad Humana', ['A.txt'])
     b.assign(bk, 'epilogo', 'C.txt')
     b.assign(bk, 'prologo', 'B.txt')
     r, missing = app._books_renderer(bk)
-    assert r.titles == ['B', 'A', 'C'] and missing == []
+    assert r.titles == ['Prólogo', 'A', 'Epílogo'] and missing == []
 
 
-def test_an_empty_role_is_not_printed(qapp, tmp_path):
+def test_the_prologue_and_epilogue_print_without_their_file_title(qapp, tmp_path):
+    """Federico: prólogo y epílogo sin título impreso. El índice sí los nombra."""
+    app = _app(tmp_path)
+    bk = b.new_book(app.books, 'Mitad Humana', ['A.txt'])
+    b.assign(bk, 'prologo', 'B.txt')
+    r, _ = app._books_renderer(bk)
+    assert r.show_title == [False, True]
+
+
+def test_the_dedication_is_its_own_page_not_a_chapter(qapp, tmp_path):
+    app = _app(tmp_path)
+    bk = b.new_book(app.books, 'Mitad Humana', ['A.txt'])
+    b.assign(bk, 'dedicatoria', 'B.txt')
+    r, _ = app._books_renderer(bk)
+    assert r.titles == ['A']                                # no es un capítulo
+    assert any(p.kind == 'dedication' for p in r.plan.pages)
+    assert 'B' in r.dedication or 'B.txt' in r.dedication or r.dedication
+
+
+def test_the_dedication_text_is_the_files_lines_without_separators(qapp, tmp_path):
+    app = _app(tmp_path)
+    (tmp_path / 'I' / 'Dedic.txt').write_text('.\nPara mi madre,\n.\nque me enseñó a leer.\n.\n',
+                                              encoding='utf-8')
+    app._library_path_cache['Dedic.txt'] = str(tmp_path / 'I' / 'Dedic.txt')
+    bk = b.new_book(app.books, 'Mitad Humana', ['A.txt'])
+    b.assign(bk, 'dedicatoria', 'Dedic.txt')
+    r, _ = app._books_renderer(bk)
+    assert r.dedication == 'Para mi madre,\nque me enseñó a leer.'
+
+
+def test_an_empty_dedication_role_has_no_dedication_page(qapp, tmp_path):
     app = _app(tmp_path)
     bk = b.new_book(app.books, 'Mitad Humana', ['A.txt'])
     r, _ = app._books_renderer(bk)
-    assert r.titles == ['A']
+    assert not any(p.kind == 'dedication' for p in r.plan.pages)
 
 
 def test_a_missing_role_file_is_reported(qapp, tmp_path):
     app = _app(tmp_path)
     bk = b.new_book(app.books, 'Mitad Humana', ['A.txt'])
     b.assign(bk, 'prologo', 'Fantasma.txt')
+    b.assign(bk, 'dedicatoria', 'OtroFantasma.txt')
     r, missing = app._books_renderer(bk)
-    assert missing == ['Fantasma.txt'] and r.titles == ['A']
+    assert sorted(missing) == ['Fantasma.txt', 'OtroFantasma.txt'] and r.titles == ['A']
 
 
 def test_the_cover_switch_reaches_the_renderer(qapp, tmp_path):

@@ -200,3 +200,35 @@ def test_a_book_without_chapters_with_cover_and_reference_still_works():
     plan = bp.plan_book('M', [], sheets=4, cover=True, reference=True)
     assert _kinds(plan)[:4] == ['cover', 'blank', 'title', 'blank']
     assert 'reference' in _kinds(plan) and len(plan.pages) % 16 == 0
+
+
+# ── la dedicatoria: una página sola, a la derecha, después de la portada ─────
+
+def test_a_dedication_comes_after_the_title_page_on_its_own_right_hand_page():
+    plan = bp.plan_book('M', CHAPS, sheets=4, dedication=True)
+    assert _kinds(plan)[:5] == ['title', 'blank', 'dedication', 'blank', 'toc']
+    assert plan.pages[2].number == 3                       # impar: a la derecha
+
+
+def test_with_a_cover_the_dedication_is_still_on_a_right_hand_page():
+    plan = bp.plan_book('M', CHAPS, sheets=4, cover=True, dedication=True)
+    assert _kinds(plan)[:7] == ['cover', 'blank', 'title', 'blank', 'dedication', 'blank', 'toc']
+    assert plan.pages[4].number % 2 == 1
+
+
+def test_a_dedication_pushes_the_chapters_two_pages_and_they_still_start_on_the_right():
+    sin = bp.plan_book('M', CHAPS, sheets=4)
+    con = bp.plan_book('M', CHAPS, sheets=4, dedication=True)
+    assert [p for _, p in con.toc] == [p + 2 for _, p in sin.toc]
+    assert all(p % 2 == 1 for _, p in con.toc)
+
+
+def test_without_a_dedication_nothing_changes():
+    assert _kinds(bp.plan_book('M', CHAPS, sheets=4)) == _kinds(
+        bp.plan_book('M', CHAPS, sheets=4, dedication=False))
+
+
+def test_content_page_count_knows_about_the_dedication():
+    for d in (False, True):
+        assert bp.content_page_count(CHAPS, dedication=d) == bp.plan_book(
+            'M', CHAPS, sheets=4, dedication=d).content_pages

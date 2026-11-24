@@ -23,7 +23,7 @@ VIEW_METHODS = (
     '_books_navigate', '_books_new', '_books_delete', '_books_open_skeleton',
     '_books_back', '_books_escape', '_books_enter', '_books_commit_edit',
     '_books_activate', '_books_pick_for', '_books_edit_meta', '_books_ctrl_delete',
-    '_books_clear_slot', '_books_duplicate', '_books_open_bookbinder',
+    '_books_clear_slot', '_books_duplicate', '_books_open_bookbinder', '_books_move',
     '_books_refresh_editor', '_books_f3_group')
 
 
@@ -500,7 +500,7 @@ def test_the_view_methods_only_call_things_that_exist():
                    '_books_open_bookbinder', '_books_navigate', '_books_show_editor',
                    '_books_commit_edit', '_books_ctrl_delete', '_books_clear_slot',
                    '_books_duplicate', '_books_escape', '_books_back',
-                   '_books_open_skeleton', '_books_rebuild_ring'):
+                   '_books_open_skeleton', '_books_rebuild_ring', '_books_move'):
         fuente = inspect.getsource(getattr(FullscreenCircleApp, nombre))
         llamados = set(re.findall(r'self\.(_?[a-zA-Z_][a-zA-Z0-9_]*)\(', fuente))
         faltan = [n for n in sorted(llamados) if not hasattr(FullscreenCircleApp, n)]
@@ -517,3 +517,58 @@ def test_with_no_chapters_to_offer_it_says_so_instead_of_doing_nothing(tmp_path)
         app._books_enter()
     aviso.assert_called_once()
     pick.assert_not_called()
+
+
+# ── reordenar: Alt+↑/↓ como en F3 ────────────────────────────────────────────
+
+def test_alt_arrows_reorder_the_books_in_the_list(tmp_path):
+    app = _app(tmp_path)
+    app.books_ring.index = 0
+    app._books_move(+1)
+    assert [x['titulo'] for x in app.books['libros']] == ['Dos', 'Uno', 'Tres']
+    assert app._books_current()['titulo'] == 'Uno'          # el cursor lo sigue
+    assert [x['titulo'] for x in _on_disk(tmp_path)] == ['Dos', 'Uno', 'Tres']
+
+
+def test_a_book_cannot_move_past_the_ends(tmp_path):
+    app = _app(tmp_path)
+    app._books_move(-1)
+    app.books_ring.index = 2
+    app._books_move(+1)
+    assert [x['titulo'] for x in app.books['libros']] == ['Uno', 'Dos', 'Tres']
+
+
+def test_alt_arrows_reorder_the_chapters_inside_a_book(tmp_path):
+    app = _app(tmp_path)
+    _enter_book(app, 1)                                    # 'Dos': B, C
+    _go_to(app, 'cap:1')
+    app._books_move(+1)
+    assert _on_disk(tmp_path)[1]['capitulos'] == ['C.txt', 'B.txt']
+    assert app._books_current_key() == 'cap:2'             # el cursor lo sigue
+    app._books_move(-1)
+    assert _on_disk(tmp_path)[1]['capitulos'] == ['B.txt', 'C.txt']
+    assert app._books_current_key() == 'cap:1'
+
+
+def test_the_last_filled_chapter_cannot_move_down_into_an_empty_slot(tmp_path):
+    app = _app(tmp_path)
+    _enter_book(app, 1)
+    _go_to(app, 'cap:2')
+    app._books_move(+1)
+    assert _on_disk(tmp_path)[1]['capitulos'] == ['B.txt', 'C.txt']
+
+
+def test_an_empty_slot_a_role_or_a_switch_do_not_move(tmp_path):
+    app = _app(tmp_path)
+    _enter_book(app, 1)
+    antes = (tmp_path / 'books.json').stat().st_mtime_ns
+    for key in ('cap:4', 'prologo', 'portada', 'epilogo', '.'):
+        _go_to(app, key)
+        app._books_move(+1)
+        app._books_move(-1)
+    assert (tmp_path / 'books.json').stat().st_mtime_ns == antes
+
+
+def test_moving_with_no_books_does_nothing(tmp_path):
+    app = _app(tmp_path, with_books=False)
+    app._books_move(+1)

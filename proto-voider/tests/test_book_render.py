@@ -322,3 +322,47 @@ def test_the_duplex_pdf_works_with_cover_and_reference(qapp, tmp_path):
     r = _renderer(cover=True, reference='Compuesto con VoiderOS')
     out = str(tmp_path / 'x.pdf')
     assert r.write_duplex_pdf(out) == 2 * len(r.sheets())
+
+
+# ── anteportada, dedicatoria y capítulos sin título ──────────────────────────
+
+def test_the_cover_is_a_half_title_just_the_title(qapp):
+    """La estándar: anteportada con el título solo, y recién la portada con el autor."""
+    r = _renderer(cover=True)
+    cover = _page_image(r, r.plan.pages[0])
+    title = _page_image(r, r.plan.pages[2])
+    assert _ink(cover) < _ink(title)                       # menos que la portada con autor
+
+
+def test_a_dedication_page_is_drawn_centered_without_a_title(qapp):
+    r = br.BookRenderer('T', CHAPS, QFont('Sans Serif', 11), dedication='Para mi madre',
+                        hyphenate_lang=None)
+    spec = next(p for p in r.plan.pages if p.kind == 'dedication')
+    img = _page_image(r, spec)
+    assert _ink(img) > 0
+    h = img.height()
+    assert _ink(img.copy(0, 0, img.width(), h // 5)) == 0  # nada arriba: no hay título
+    assert _ink(img.copy(0, int(h * 0.85), img.width(), h - int(h * 0.85))) == 0
+
+
+def test_no_dedication_text_means_no_dedication_page(qapp):
+    assert not any(p.kind == 'dedication' for p in _renderer().plan.pages)
+
+
+def test_a_chapter_can_hide_its_title_but_keep_its_label_in_the_index(qapp):
+    r = br.BookRenderer('T', [('Prólogo', _lines(3), False), ('Uno', _lines(3))],
+                        QFont('Sans Serif', 11), hyphenate_lang=None)
+    assert r.titles == ['Prólogo', 'Uno']                  # el índice los muestra
+    assert r.show_title == [False, True]
+    spec_pro = next(p for p in r.plan.pages if p.kind == 'chapter' and p.chapter == 0)
+    spec_uno = next(p for p in r.plan.pages if p.kind == 'chapter' and p.chapter == 1)
+    first_ink_row = lambda img: next(y for y in range(img.height())
+                                     if any(img.pixelColor(x, y).lightness() < 200
+                                            for x in range(0, img.width(), 2)))
+    # con título hay un "hundimiento" arriba: la primera línea de texto baja
+    assert first_ink_row(_page_image(r, spec_pro)) < first_ink_row(_page_image(r, spec_uno))
+
+
+def test_a_two_element_chapter_still_shows_its_title(qapp):
+    r = _renderer()
+    assert r.show_title == [True, True, True]
