@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QWidget, QLabel
-from PyQt6.QtGui import QPainter, QColor, QFont
+from PyQt6.QtGui import QPainter, QColor, QFont, QFontMetrics
 from PyQt6.QtCore import Qt, QRect
 
 
@@ -15,7 +15,7 @@ HELP = [
     ("F5",                "Fork — edit O/ line into I/"),
     ("F6",                "Read an O/ book — editable; Ctrl+Delete harvests"),
     ("F7",                "Working set — up to 8 O/ books"),
-    ("F8",                "Books — Enter opens a book's skeleton (cover, title, prologue… chapters… epilogue); Ctrl+P bookbinder"),
+    ("F8",                "Books — Enter opens the skeleton; Ctrl+P bookbinder"),
     ("",                  ""),
     ("OTHER",             None),
     ("F9",                "Metronome — type BPM, circle pulses"),
@@ -86,23 +86,63 @@ HELP = [
 ]
 
 
+HELP_MAX_PT = 14     # tope de la letra de la ayuda: con la letra de la app en 33 no entra nada
+
+
 class HelpOverlay(QWidget):
-    """F11 — full-screen shortcut reference. Any key closes."""
+    """F11 — referencia de atajos a pantalla completa. ↑/↓, PageUp/PageDown, Home/End y la
+    rueda desplazan cuando la lista no entra; cualquier otra tecla cierra.
+
+    Antes la altura de fila era fija (22 px) y la letra era la de la app: con letra grande
+    las líneas se pisaban. Ahora la fila sale de las métricas de la letra, la letra de la
+    ayuda tiene un tope, y si la lista no entra se desplaza."""
 
     _BG_ALPHA = 228
-    _ROW_H    = 22
-    _KEY_W    = 200
+    _PAD = 16            # margen arriba y abajo
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._scroll = 0
         self.hide()
+
+    # ── medidas ──────────────────────────────────────────────────────────────
+
+    def _metrics(self):
+        """→ (letra, letra de sección, letra del pie, alto de fila, ancho de teclas)."""
+        app = self.parentWidget()
+        base = app._app_font if hasattr(app, '_app_font') else QFont('Consolas', 11)
+        pt = max(8, min(base.pointSize() if base.pointSize() > 0 else 11, HELP_MAX_PT))
+        font = QFont(base.family(), pt)
+        section = QFont(base.family(), max(7, pt - 2))
+        hint = QFont(base.family(), max(7, pt - 3))
+        fm = QFontMetrics(font)
+        row_h = int(fm.height() * 1.35) + 2
+        longest = max(fm.horizontalAdvance(k) for k, _ in HELP)
+        key_w = min(longest + 24, int(self.width() * 0.45))
+        return font, section, hint, row_h, key_w
+
+    def _content_h(self):
+        return len(HELP) * self._metrics()[3]
+
+    def _footer_h(self):
+        return 32
+
+    def _max_scroll(self):
+        total = self._content_h() + 2 * self._PAD + self._footer_h()
+        return max(0, total - self.height())
+
+    def _scroll_by(self, delta):
+        self._scroll = max(0, min(self._max_scroll(), self._scroll + delta))
+
+    # ── abrir, cerrar, desplazar ─────────────────────────────────────────────
 
     def toggle(self) -> None:
         if self.isVisible():
             self._close()
         else:
+            self._scroll = 0
             self.show()
             self.raise_()
             self.setFocus()
@@ -115,8 +155,30 @@ class HelpOverlay(QWidget):
             app._refocus_active_editor()
 
     def keyPressEvent(self, event):
+        key = event.key()
+        row_h = self._metrics()[3]
+        page = max(row_h, self.height() - 2 * row_h)
+        moves = {Qt.Key.Key_Down: row_h * 2, Qt.Key.Key_Up: -row_h * 2,
+                 Qt.Key.Key_PageDown: page, Qt.Key.Key_PageUp: -page}
+        if self._max_scroll() > 0 and (key in moves or key in (Qt.Key.Key_Home, Qt.Key.Key_End)):
+            if key == Qt.Key.Key_Home:
+                self._scroll = 0
+            elif key == Qt.Key.Key_End:
+                self._scroll = self._max_scroll()
+            else:
+                self._scroll_by(moves[key])
+            self.update()
+            event.accept()
+            return
         self._close()
         event.accept()
+
+    def wheelEvent(self, event):
+        self._scroll_by(-event.angleDelta().y())
+        self.update()
+        event.accept()
+
+    # ── dibujo ───────────────────────────────────────────────────────────────
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -124,42 +186,37 @@ class HelpOverlay(QWidget):
             return
         W, H = self.width(), self.height()
         painter.fillRect(0, 0, W, H, QColor(0, 0, 0, self._BG_ALPHA))
+        font, section_font, hint_font, row_h, key_w = self._metrics()
 
-        app = self.parentWidget()
-        base_font = app._app_font if hasattr(app, '_app_font') else QFont('Consolas', 11)
-        section_font = QFont(base_font.family(), base_font.pointSize() - 2)
-        hint_font    = QFont(base_font.family(), base_font.pointSize() - 3)
-
-        total_rows = len(HELP)
-        total_h = total_rows * self._ROW_H
-        y0 = max(16, (H - total_h) // 2)
-
-        desc_x = (W - self._KEY_W - 24 - 340) // 2
-        key_x  = desc_x
-        val_x  = key_x + self._KEY_W + 24
+        scrolls = self._max_scroll() > 0
+        y0 = self._PAD if scrolls else max(self._PAD, (H - self._content_h()) // 2)
+        desc_x = max(self._PAD, (W - key_w - 24 - 340) // 2)
+        val_x = desc_x + key_w + 24
+        base = QFontMetrics(font).ascent()
 
         for i, (key, desc) in enumerate(HELP):
-            y = y0 + i * self._ROW_H + self._ROW_H - 5
+            top = y0 + i * row_h - self._scroll
+            if top + row_h < 0 or top > H - self._footer_h():
+                continue                      # fuera de la pantalla
+            y = top + base + (row_h - QFontMetrics(font).height()) // 2
             if desc is None:
                 painter.setFont(section_font)
-                painter.setPen(QColor(70, 70, 70))
-                painter.drawText(key_x, y, key)
+                painter.setPen(QColor(110, 110, 110))
+                painter.drawText(desc_x, y, key)
             elif key == "":
-                pass  # spacer row
+                pass                           # fila de aire
             else:
-                painter.setFont(base_font)
+                painter.setFont(font)
                 painter.setPen(QColor(185, 185, 185))
-                painter.drawText(key_x, y, key)
-                painter.setPen(QColor(95, 95, 95))
+                painter.drawText(desc_x, y, key)
+                painter.setPen(QColor(120, 120, 120))
                 painter.drawText(val_x, y, desc)
 
         painter.setFont(hint_font)
-        painter.setPen(QColor(40, 40, 40))
-        painter.drawText(
-            QRect(0, H - 28, W, 20),
-            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
-            'any key  close',
-        )
+        painter.setPen(QColor(90, 90, 90))
+        pie = 'any key  close' if not scrolls else '↑/↓ PgUp/PgDn  scroll   ·   any other key  close'
+        painter.drawText(QRect(0, H - 28, W, 20),
+                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter, pie)
         painter.end()
 
 
