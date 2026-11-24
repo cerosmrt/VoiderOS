@@ -44,6 +44,20 @@ ACTIVE — ready to implement next
     Es lo que hace Enter hoy (el esqueleto). Si hace falta más para "armar bien todo",
     falta decir qué.
 
+- F8 NO GUSTÓ — ALTERNATIVA: ARMAR LOS LIBROS DESDE F3 (2026-11-24, Federico, SIN EMPEZAR):
+  "No me gustó F8. ¿Y si en vez hacemos Alt+flecha a los costados en F3 para que se abra un
+  menú lateral parecido al que se abre en F2 cuando hago Alt+flecha a los costados, pero en
+  la barra lateral busco LIBROS en vez de capítulos? Así puedo ir ordenando los capítulos.
+  Tiene más gollete y me liberaría F8 para otra cosa."
+  Lo que ya existe y sirve: el panel lateral con filtro (draw_chapter_picker, el catálogo
+  de capítulos de F2/F5), books.books_containing ("¿en qué libros está este capítulo?"),
+  books.assign / move_chapter / rows, y todo el motor de impresión (book_plan, book_render,
+  imposition, bookbinder). Dudas a cerrar: Alt+→ = "mandar este capítulo a un libro" y
+  Alt+← = "¿en qué libros está?"; en qué lugar del libro cae (el próximo capítulo libre,
+  o elegir); cómo se reordenan los capítulos de un libro desde ahí; dónde se arman portada,
+  prólogo, dedicatoria, epílogo y referencia; y dónde viven el bookbinder y la impresión
+  si F8 se libera. Mientras no se decida, NO se traducen los textos de F8 (i18n).
+
 - EMPAQUETADOR DE LIBROS (F8): LO QUE FALTA (2026-11-23). La v1 anda de punta a
   punta en una ventana real (Xvfb) pero NADA se imprimió todavía:
   * PROBAR IMPRIMIENDO: primero la "hoja de prueba" (comprueba cómo da vuelta la
