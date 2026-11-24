@@ -1,0 +1,57 @@
+"""ENGLISH catalog. The same keys as i18n_es.py (a test enforces it)."""
+
+STRINGS = {
+    # ── menu bar ─────────────────────────────────────────────────────────────
+    'menu.file': 'File',
+    'menu.views': 'Views',
+    'menu.edit': 'Edit',
+    'menu.export': 'Export',
+    'menu.options': 'Options',
+
+    'menu.item.export_doc': 'Export / save',
+    'menu.item.print_doc': 'Print',
+    'menu.item.backup': 'Backup',
+    'menu.item.commit_void': 'Save a version of the void',
+    'menu.item.pick_active_file': 'Choose file',
+    'menu.item.pick_dir': 'Choose void folder',
+    'menu.item.pick_book_dir': 'Choose books folder',
+    'menu.item.open_trash': 'Trash',
+    'menu.item.quit_app': 'Quit',
+
+    'menu.item.view_f1': 'F1  Write',
+    'menu.item.view_f2': 'F2  Document',
+    'menu.item.view_f3': 'F3  Library',
+    'menu.item.view_f4': 'F4  Book',
+    'menu.item.view_f5': 'F5  Paragraphs',
+    'menu.item.view_f6': 'F6  Reader',
+    'menu.item.view_f7': 'F7  Corpus',
+    'menu.item.view_f8': 'F8  Books',
+    'menu.item.view_f9': 'F9  Prose',
+
+    'menu.item.scratch_toggle': 'Go to the notebook and back',
+    'menu.item.title_toggle': 'Pinned title',
+    'menu.item.rebase': 'Move to the start (F2)',
+    'menu.item.reformat_file': 'Reformat file (F2)',
+    'menu.item.split_spaces': 'Split on spaces (F2)',
+    'menu.item.shuffle_zero': 'Shuffle the notebook (F2)',
+    'menu.item.collapse_paragraphs': 'Merge into one paragraph (F2)',
+    'menu.item.dispatch': 'Dispatch paragraphs (F2)',
+    'menu.item.split_chapter': 'Split chapter (F2 / F3)',
+    'menu.item.merge_book': 'Merge book (F3)',
+    'menu.item.gravitor': 'Gravitor: sentences with words (F3)',
+
+    'menu.item.export_carousel': 'Carousel',
+    'menu.item.export_carousel_cover': 'Carousel cover',
+    'menu.item.carousel_view_toggle': 'Carousel preview (F4)',
+    'menu.item.export_sale_bundle': 'Sale bundle',
+    'menu.item.screenshot': 'Screenshot',
+    'menu.item.circle_screenshot': 'Circle screenshot',
+    'menu.item.open_screenshots': 'Screenshots folder',
+
+    'menu.item.view_f10': 'Settings and keys',
+    'menu.item.help': 'Help',
+    'menu.item.quit': 'Lock',
+    'menu.item.tts_toggle': 'Read aloud',
+    'menu.item.typewriter_toggle': 'Typewriter',
+    'menu.item.dictation_toggle': 'Dictation (speak to write)',
+}

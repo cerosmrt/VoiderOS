@@ -28,6 +28,7 @@ from io_mixin import IoMixin
 from gravitor_mixin import GravitorMixin
 from commands_mixin import CommandsMixin
 from books_mixin import BooksMixin
+import i18n
 import f1_commands
 from f1_mixin import F1Mixin
 from f2_mixin import F2Mixin
@@ -102,6 +103,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         super().__init__()
 
         self.config = _load_config()
+        i18n.use_config(self.config)      # idioma de la interfaz (F10: language)
         self._kb = {
             action: _parse_keybinding(ks)
             for action, ks in self.config.get('keybindings', {}).items()
@@ -527,6 +529,18 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         if mb is not None:
             mb.set_keybindings(self.config.get('keybindings', {}))
 
+    def _language_changed(self):
+        """Se cambió el idioma en F10: lo que ya está en pantalla se repinta en el nuevo.
+        La barra de menú lee sus textos del catálogo al pintar; lo demás se pide de nuevo
+        cuando se vuelve a abrir."""
+        mb = getattr(self, '_menu_bar', None)
+        if mb is not None:
+            mb.close_menu()
+            mb.update()
+        if getattr(self, 'books_view', None) is not None and self.books is not None:
+            self._books_rebuild_ring(select_key=self._books_current_key())
+            self._books_refresh_editor()
+
     def _menu_trigger(self, action):
         """A menu entry was clicked: press that action's key, exactly as the
         keyboard would, so every view keeps its own handling."""
@@ -560,7 +574,10 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         """A setting edited in the F10 list: save it and apply it, staying in F10."""
         self.config[key] = value
         _save_config(self.config)
-        if key in ('font_family', 'font_size'):
+        if key == 'language':
+            i18n.set_language(value)
+            self._language_changed()
+        elif key in ('font_family', 'font_size'):
             self._apply_font_settings(self.config)
         elif key.startswith('visualizer_'):
             self._apply_visualizer()

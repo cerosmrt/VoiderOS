@@ -22,6 +22,7 @@ SettingDef = namedtuple('SettingDef', 'key label kind choices lo hi',
                         defaults=((), None, None))
 
 SETTING_DEFS = (
+    SettingDef('language', 'language', 'choice', choices=('en', 'es')),
     SettingDef('font_family', 'font', 'font'),
     SettingDef('font_size', 'font size', 'int', lo=4, hi=999),
     SettingDef('text_color', 'text color', 'color'),
