@@ -29,9 +29,11 @@ ACTIVE — ready to implement next
 - F8 REDISEÑADO COMO F3 + CURSOR DE F3: HECHO (2026-11-24). Decisiones que tomé sin
   poder preguntar (corregir si no van):
   * Portada = página 1 (título grande + autor), blanco, y recién después la página de
-    título. Referencia = una página al final, antes del colofón. Texto por defecto
-    "Compuesto con VoiderOS"; el LINK sale de config.json (book_reference_url) y está
-    VACÍO: falta saber cuál es la página.
+    título. Referencia = una página al final, antes del colofón, que dice "Compuesto con
+    Voider / Descargalo en www.godplaystheartist.com" (config.json: book_reference_text
+    y book_reference_url; link vacío = sin link). DUDA: Federico dijo que eso "debería
+    enviarte a descargar Voider" y aclaró "estoy hablando del epílogo": ¿va DENTRO del
+    epílogo, o en la página de referencia que viene después de él? Hoy es lo segundo.
   * Prólogo, Dedicatoria y Epílogo se imprimen como capítulos (con el nombre del
     archivo de título). Una dedicatoria debería ser una página sola, centrada y sin
     título: SIN HACER.
