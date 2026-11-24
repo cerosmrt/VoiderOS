@@ -12,6 +12,8 @@ import glob
 import os
 import re
 
+from i18n import t
+
 import numpy as np
 
 # What whisper prints on silence/noise, or invents out of it.
@@ -68,9 +70,9 @@ class FasterWhisper:
     def available(self):
         """(True, '') when the library and the local model exist, else (False, why)."""
         if not self._has_lib():
-            return False, 'falta la librería faster-whisper (python)'
+            return False, t('dictation.no_lib')
         if not self._has_model(self.root, self.model_size):
-            return False, f"falta el modelo '{self.model_size}' en {self.root}"
+            return False, t('dictation.no_model', model=self.model_size, root=self.root)
         return True, ''
 
     def warm_up(self):

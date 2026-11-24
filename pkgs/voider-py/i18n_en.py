@@ -117,4 +117,14 @@ STRINGS = {
     'backup.bundle_no_cache': 'the cache needs to be prepared ({cache})',
     'backup.bundle_no_python': 'the Python installer is missing from the cache',
     'backup.bundle_no_wheels': 'the dependencies are missing from the cache',
+    # --- F4: export ---
+    'f4.title': 'Title',
+    'f4.book_title_prompt': 'Book title:',
+    'f4.language_title': 'Language',
+    'f4.language_prompt': 'Language of the book:',
+    'f4.pick_cover': 'Choose a cover',
+    'f4.images_filter': 'Images (*.png *.jpg *.jpeg)',
+    # --- dictation ---
+    'dictation.no_lib': 'the faster-whisper library (python) is missing',
+    'dictation.no_model': "the '{model}' model is missing in {root}",
 }
