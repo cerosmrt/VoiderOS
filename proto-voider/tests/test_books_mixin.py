@@ -281,17 +281,34 @@ def test_the_reference_switch_reaches_the_renderer(qapp, tmp_path):
     assert not any(p.kind == 'reference' for p in r.plan.pages)
 
 
-def test_the_reference_text_has_a_default_and_takes_the_link_from_the_config(qapp, tmp_path):
+def test_the_reference_sends_the_reader_to_download_voider(qapp, tmp_path):
+    """Federico: debería enviar a descargar Voider en www.godplaystheartist.com."""
+    app = _app(tmp_path)
+    texto = app._books_reference_text()
+    assert 'Voider' in texto and 'www.godplaystheartist.com' in texto
+    assert 'escarg' in texto                              # "Descargalo en …"
+
+
+def test_the_reference_page_carries_that_text(qapp, tmp_path):
     app = _app(tmp_path)
     bk = b.new_book(app.books, 'Mitad Humana', ['A.txt'])
     r, _ = app._books_renderer(bk)
-    assert 'VoiderOS' in r.reference and 'http' not in r.reference
-    app.config['book_reference_url'] = 'https://godplaystheartist.com'
-    r, _ = app._books_renderer(bk)
-    assert r.reference.endswith('https://godplaystheartist.com')
+    assert r.reference == app._books_reference_text()
+
+
+def test_the_link_and_the_text_can_be_changed_in_the_config(qapp, tmp_path):
+    app = _app(tmp_path)
+    app.config['book_reference_url'] = 'https://otra.página'
+    assert app._books_reference_text().endswith('https://otra.página')
     app.config['book_reference_text'] = 'Hecho con Voider'
-    r, _ = app._books_renderer(bk)
-    assert r.reference.startswith('Hecho con Voider')
+    assert app._books_reference_text().startswith('Hecho con Voider')
+
+
+def test_an_empty_link_means_no_link_not_the_default(qapp, tmp_path):
+    app = _app(tmp_path)
+    app.config['book_reference_url'] = ''
+    texto = app._books_reference_text()
+    assert 'godplaystheartist' not in texto and 'escarg' not in texto
 
 
 def test_a_book_with_only_a_prologue_can_be_printed(qapp, tmp_path):
