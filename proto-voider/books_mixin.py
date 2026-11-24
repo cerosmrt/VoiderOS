@@ -41,7 +41,7 @@ class BooksMixin:
         from PyQt6.QtGui import QFont
         from book_render import BookRenderer
         chapters, missing = [], []
-        for fname in book['capitulos']:
+        for fname in books.chapters_of(book):
             path = (self._library_path_cache.get(fname)
                     or os.path.join(self.void_dir, 'I', fname))
             if not os.path.isfile(path):
@@ -54,8 +54,17 @@ class BooksMixin:
                      int(self.config.get('reading_size', 13)))
         r = BookRenderer(book['titulo'], chapters, font, autor=book['autor'],
                          colofon=book['colofon'], sheets=book['hojas'],
-                         hyphenate_lang=self.config.get('reading_hyphen_lang', 'auto'))
+                         hyphenate_lang=self.config.get('reading_hyphen_lang', 'auto'),
+                         cover=book.get('portada', True),
+                         reference=self._books_reference_text() if book.get('referencia', True) else '')
         return r, missing
+
+    def _books_reference_text(self):
+        """La referencia al software de la página final: un texto y, si está
+        configurado, el link a la página (book_reference_url en config.json)."""
+        text = (self.config.get('book_reference_text') or 'Compuesto con VoiderOS').strip()
+        url = (self.config.get('book_reference_url') or '').strip()
+        return f'{text} · {url}' if url else text
 
     def _books_out_dir(self, book):
         return os.path.join(self.void_dir, 'book_packer',

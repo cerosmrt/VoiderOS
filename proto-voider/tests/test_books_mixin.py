@@ -20,7 +20,8 @@ from test_f3_undo import _f3_app, _read
 METHODS = ('_books_path', '_books_load', '_books_save', '_books_chapters_available',
            '_books_renderer', '_books_export', '_books_out_dir',
            '_books_on_chapter_renamed', '_books_on_chapter_deleted',
-           '_books_notify', '_books_update_file', '_reading_file_lines')
+           '_books_notify', '_books_update_file', '_reading_file_lines',
+           '_books_reference_text')
 
 
 @pytest.fixture(scope='module')
@@ -232,3 +233,69 @@ def test_without_a_catalog_file_f3_does_not_create_one(tmp_path):
     app.book_view.editor.text.return_value = 'Nuevo'
     app._book_try_rename()
     assert not (tmp_path / 'books.json').exists()
+
+
+# ── el esqueleto llega al libro impreso ──────────────────────────────────────
+
+def test_the_printed_book_follows_prologue_dedication_chapters_epilogue(qapp, tmp_path):
+    app = _app(tmp_path)
+    bk = b.new_book(app.books, 'Mitad Humana', ['A.txt'])
+    b.assign(bk, 'epilogo', 'C.txt')
+    b.assign(bk, 'prologo', 'B.txt')
+    r, missing = app._books_renderer(bk)
+    assert r.titles == ['B', 'A', 'C'] and missing == []
+
+
+def test_an_empty_role_is_not_printed(qapp, tmp_path):
+    app = _app(tmp_path)
+    bk = b.new_book(app.books, 'Mitad Humana', ['A.txt'])
+    r, _ = app._books_renderer(bk)
+    assert r.titles == ['A']
+
+
+def test_a_missing_role_file_is_reported(qapp, tmp_path):
+    app = _app(tmp_path)
+    bk = b.new_book(app.books, 'Mitad Humana', ['A.txt'])
+    b.assign(bk, 'prologo', 'Fantasma.txt')
+    r, missing = app._books_renderer(bk)
+    assert missing == ['Fantasma.txt'] and r.titles == ['A']
+
+
+def test_the_cover_switch_reaches_the_renderer(qapp, tmp_path):
+    app = _app(tmp_path)
+    bk = b.new_book(app.books, 'Mitad Humana', ['A.txt'])
+    r, _ = app._books_renderer(bk)
+    assert r.plan.pages[0].kind == 'cover'
+    bk['portada'] = False
+    r, _ = app._books_renderer(bk)
+    assert r.plan.pages[0].kind == 'title'
+
+
+def test_the_reference_switch_reaches_the_renderer(qapp, tmp_path):
+    app = _app(tmp_path)
+    bk = b.new_book(app.books, 'Mitad Humana', ['A.txt'])
+    r, _ = app._books_renderer(bk)
+    assert any(p.kind == 'reference' for p in r.plan.pages)
+    bk['referencia'] = False
+    r, _ = app._books_renderer(bk)
+    assert not any(p.kind == 'reference' for p in r.plan.pages)
+
+
+def test_the_reference_text_has_a_default_and_takes_the_link_from_the_config(qapp, tmp_path):
+    app = _app(tmp_path)
+    bk = b.new_book(app.books, 'Mitad Humana', ['A.txt'])
+    r, _ = app._books_renderer(bk)
+    assert 'VoiderOS' in r.reference and 'http' not in r.reference
+    app.config['book_reference_url'] = 'https://godplaystheartist.com'
+    r, _ = app._books_renderer(bk)
+    assert r.reference.endswith('https://godplaystheartist.com')
+    app.config['book_reference_text'] = 'Hecho con Voider'
+    r, _ = app._books_renderer(bk)
+    assert r.reference.startswith('Hecho con Voider')
+
+
+def test_a_book_with_only_a_prologue_can_be_printed(qapp, tmp_path):
+    app = _app(tmp_path)
+    bk = b.new_book(app.books, 'Chico', [])
+    b.assign(bk, 'prologo', 'A.txt')
+    assert len(app._books_export(bk, 'duplex')) == 1
