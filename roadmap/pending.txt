@@ -26,24 +26,23 @@ ACTIVE — ready to implement next
   3. F11 con letra grande: ARREGLADO (88dd4065): filas por métricas, tope de 14 pt y
      scroll (↑/↓, PgUp/PgDn, Home/End, rueda).
 
-- F8 REDISEÑADO COMO F3 + CURSOR DE F3: HECHO (2026-11-24). Decisiones que tomé sin
-  poder preguntar (corregir si no van):
-  * Portada = página 1 (título grande + autor), blanco, y recién después la página de
-    título. Referencia = una página al final, antes del colofón, que dice "Compuesto con
-    Voider / Descargalo en www.godplaystheartist.com" (config.json: book_reference_text
-    y book_reference_url; link vacío = sin link). DUDA: Federico dijo que eso "debería
-    enviarte a descargar Voider" y aclaró "estoy hablando del epílogo": ¿va DENTRO del
-    epílogo, o en la página de referencia que viene después de él? Hoy es lo segundo.
-  * Prólogo, Dedicatoria y Epílogo se imprimen como capítulos (con el nombre del
-    archivo de título). Una dedicatoria debería ser una página sola, centrada y sin
-    título: SIN HACER.
-  * Los capítulos se llenan EN ORDEN (no se puede dejar Cap 3 vacío con Cap 4 lleno).
-  * Título y autor se cambian con un cuadro de texto (Enter sobre la fila), no tipeando
-    en el anillo. Renombrar un libro en la lista SÍ es ←/→ o escribir, como en F3.
-  * En F3, editando, Enter sigue como antes (al principio abre el capítulo; después del
-    texto agrega una fila debajo).
-  * Los capítulos sólo salen de la biblioteca de F3 (I.txt); si F8 se abre sin haber
-    entrado a F3 en la sesión, la biblioteca se lee sola.
+- F8 REDISEÑADO COMO F3 + CURSOR DE F3: HECHO (2026-11-24). Respuestas de Federico:
+  * La página de referencia queda como está, al final: "Compuesto con Voider /
+    Descargalo en www.godplaystheartist.com" (config.json: book_reference_text y
+    book_reference_url; link vacío = sin link).
+  * Dedicatoria: página sola, a la derecha, centrada y en cursiva, sin título. HECHO.
+  * Prólogo y epílogo: sin título impreso; el índice los nombra. HECHO.
+  * Los capítulos se llenan en orden, sin huecos: queda así.
+  * Portada: anteportada (sólo el título, página 1) y portada (título + autor, página 3),
+    que es lo estándar en un libro de imprenta. La tapa de afuera es aparte. HECHO.
+  * Alt+↑/↓ reordena libros (en la lista) y capítulos (en el esqueleto). HECHO.
+  * Título y autor se cambian con un cuadro de texto (Enter sobre la fila); renombrar un
+    libro en la lista es ←/→ o escribir, como en F3. En F3, editando, Enter sigue como
+    antes. Los capítulos salen de la biblioteca de F3 (se lee sola si no se entró).
+  * Idea de Federico: F8 se parece a lo que pasa al entrar a un punto en F2 (el anillo de
+    ese párrafo): al entrar a un libro se abre el anillo de ESE libro, donde se arma todo.
+    Es lo que hace Enter hoy (el esqueleto). Si hace falta más para "armar bien todo",
+    falta decir qué.
 
 - EMPAQUETADOR DE LIBROS (F8): LO QUE FALTA (2026-11-23). La v1 anda de punta a
   punta en una ventana real (Xvfb) pero NADA se imprimió todavía:
