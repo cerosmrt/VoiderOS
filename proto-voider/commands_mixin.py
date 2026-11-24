@@ -5,6 +5,7 @@ import os
 
 import f1_commands
 import gravitor
+from i18n import t
 
 
 class CommandsMixin:
@@ -53,12 +54,11 @@ class CommandsMixin:
         status, kept, total = self._cmd_rem_apply(args)
         name = os.path.basename(self.f2_file)
         text = {
-            'ok': f'Quedaron {kept} de {total} líneas en {name}.',
-            'noquery': 'Falta la palabra. Por ejemplo: !rem vision',
-            'missing': f'No encuentro {name}.',
-            'nomatch': f'Ninguna de las {total} líneas de {name} tiene «{args}». '
-                       'No se tocó nada.',
-            'error': f'No se pudo escribir {name}.',
+            'ok': t('cmd.rem.ok', kept=kept, total=total, name=name),
+            'noquery': t('cmd.rem.noquery'),
+            'missing': t('cmd.missing', name=name),
+            'nomatch': t('cmd.rem.nomatch', total=total, name=name, args=args),
+            'error': t('cmd.error', name=name),
         }[status]
         self._cmd_message(text, warn=(status != 'ok'))
 
@@ -91,12 +91,11 @@ class CommandsMixin:
         status, removed, kept = self._cmd_sinpuntos_apply()
         name = os.path.basename(self.f2_file)
         text = {
-            'ok': f'Quité {removed} separadores de {name}: '
-                  f'{kept} líneas en un solo párrafo.',
-            'same': f'{name} ya es un solo párrafo.',
-            'empty': f'{name} no tiene líneas.',
-            'missing': f'No encuentro {name}.',
-            'error': f'No se pudo escribir {name}.',
+            'ok': t('cmd.sinpuntos.ok', removed=removed, name=name, kept=kept),
+            'same': t('cmd.sinpuntos.same', name=name),
+            'empty': t('cmd.sinpuntos.empty', name=name),
+            'missing': t('cmd.missing', name=name),
+            'error': t('cmd.error', name=name),
         }[status]
         self._cmd_message(text, warn=(status in ('missing', 'error')))
 

@@ -183,3 +183,20 @@ def test_widget_and_settings_texts_switch_language():
     assert i18n.t('keys.range', lo=1, hi=9) == 'number between 1 and 9'
     i18n.set_language('es')
     assert i18n.t('keys.range', lo=1, hi=9) == 'número entre 1 y 9'
+
+
+def test_command_messages_switch_language():
+    import i18n
+    i18n.set_language('en')
+    assert i18n.t('cmd.rem.ok', kept=2, total=5, name='a.txt') == 'Kept 2 of 5 lines in a.txt.'
+    i18n.set_language('es')
+    assert i18n.t('cmd.rem.ok', kept=2, total=5, name='a.txt') == 'Quedaron 2 de 5 líneas en a.txt.'
+
+
+def test_backup_texts_switch_language():
+    import i18n
+    i18n.set_language('en')
+    assert i18n.t('backup.done', files=3, size='1 MB', dest='/x') .startswith('Done: 3 files')
+    assert 'Copying the zip' in i18n.t('backup.copying_zip', done='1', total='2')
+    i18n.set_language('es')
+    assert i18n.t('backup.done', files=3, size='1 MB', dest='/x').startswith('Listo: 3 archivos')
