@@ -1,6 +1,7 @@
 # widgets.py - Widgets reutilizables
 import os
 import random
+from i18n import t
 from PyQt6.QtWidgets import QLineEdit, QWidget
 from PyQt6.QtGui import QPainter, QPixmap, QImage
 from PyQt6.QtCore import Qt, QTimer, QEvent, pyqtSignal
@@ -120,7 +121,7 @@ def draw_chapter_picker(painter, font, x, w, h, filter_str, matches, match_idx,
                          elide(texto, text_w))
 
     if is_new and filter_str.strip():
-        fila('⏎ crear  ' + target, 0, 1.0)
+        fila(t('widgets.create') + target, 0, 1.0)
     elif matches:
         cur = match_idx % len(matches)
         visible = max(1, h // lh)
@@ -135,14 +136,14 @@ def draw_chapter_picker(painter, font, x, w, h, filter_str, matches, match_idx,
     # del anillo ya da casi cero: se les pone un piso para que se lean.
     painter.setOpacity(0.45)
     painter.setPen(QColor(ink.red(), ink.green(), ink.blue(), ink.alpha()))
-    prompt = (filter_str + '▏') if filter_str else 'escribí para filtrar…'
+    prompt = (filter_str + '▏') if filter_str else t('widgets.filter_prompt')
     painter.drawText(QRect(x + pad, pad, text_w, fm.height() + 4),
                      Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
                      elide(prompt, text_w))
     painter.setOpacity(0.30)
     painter.drawText(QRect(x + pad, h - 34, text_w, 22),
                      Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
-                     '→ enviar   ⏎ nuevo   ⇥ ciclar')
+                     t('widgets.hints'))
     painter.setOpacity(1.0)
 
 

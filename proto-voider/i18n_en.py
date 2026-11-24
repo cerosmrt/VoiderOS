@@ -69,4 +69,15 @@ STRINGS = {
     'gravitor.no_corpus': 'The corpus is not available (is /mnt/data unmounted?).',
     'gravitor.nothing_found': 'Found nothing: {summary}.',
     'gravitor.created': 'Created: {name}\n\n{summary}.',
+    # --- F2 panel, settings (F10) ---
+    'widgets.create': '⏎ create  ',
+    'widgets.filter_prompt': 'type to filter…',
+    'widgets.hints': '→ send   ⏎ new   ⇥ cycle',
+    'keys.title': 'Settings',
+    'keys.clash': 'this key is also used by: {clash}',
+    'keys.refused': 'that key cannot be assigned',
+    'keys.press_new': 'press the new key (Esc cancels)',
+    'keys.range': 'number between {lo} and {hi}',
+    'keys.font_missing': 'that font is not installed',
+    'keys.font_name': 'type a font name',
 }

@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import QWidget
 from PyQt6.QtGui import QPainter, QColor, QFont, QFontMetrics
 from PyQt6.QtCore import Qt, QRect, pyqtSignal
 
+from i18n import t
 from keys_model import KeysModel, TITLE_ROW
 from widgets import row_alpha, LINE_SPACING
 
@@ -51,10 +52,10 @@ class KeysPanel(QWidget):
         if m.capturing:
             result = m.capture(key, mods)
             if result == 'ok':
-                self._note = (f"también usa esa tecla: {m.clash}" if m.clash else '')
+                self._note = (t('keys.clash', clash=m.clash) if m.clash else '')
                 self.remapped.emit(m.overrides)
             elif result == 'refused':
-                self._note = 'esa tecla no se puede asignar'
+                self._note = t('keys.refused')
             elif result == 'cancel':
                 self._note = ''
             event.accept()
@@ -110,7 +111,7 @@ class KeysPanel(QWidget):
     def _text(self, row):
         m = self.model
         if row.action == TITLE_ROW:
-            return 'Configuración'
+            return t('keys.title')
         is_cur = row is m.current() or row == m.current()
         if row.kind == 'setting':
             label = row.action.split(':', 1)[1].replace('_', ' ')
@@ -119,7 +120,7 @@ class KeysPanel(QWidget):
             return f"{label}   —   {row.keytext}"
         label = row.action.replace('_', ' ')
         if m.capturing and is_cur:
-            return f"{label}   —   apretá la tecla nueva (Esc cancela)"
+            return f"{label}   —   {t('keys.press_new')}"
         mark = ' *' if row.custom else ''
         return f"{label}   —   {row.keytext}{mark}"
 

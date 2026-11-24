@@ -172,3 +172,14 @@ def test_gravitor_texts_exist_in_both_languages():
     assert i18n.t('gravitor.nothing_found', summary='x') == 'Found nothing: x.'
     i18n.set_language('es')
     assert i18n.t('gravitor.nothing_found', summary='x') == 'No encontró nada: x.'
+
+
+def test_widget_and_settings_texts_switch_language():
+    import i18n
+    for lang, create in (('es', '⏎ crear  '), ('en', '⏎ create  ')):
+        i18n.set_language(lang)
+        assert i18n.t('widgets.create') == create
+    i18n.set_language('en')
+    assert i18n.t('keys.range', lo=1, hi=9) == 'number between 1 and 9'
+    i18n.set_language('es')
+    assert i18n.t('keys.range', lo=1, hi=9) == 'número entre 1 y 9'
