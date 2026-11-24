@@ -54,4 +54,19 @@ STRINGS = {
     'menu.item.tts_toggle': 'Read aloud',
     'menu.item.typewriter_toggle': 'Typewriter',
     'menu.item.dictation_toggle': 'Dictation (speak to write)',
+    # --- Gravitor ---
+    'gravitor.title': 'Gravitor',
+    'gravitor.words_help': ('Words  (space = all · comma = any ·\n'
+                            'grav*  *grav  *grav* = starts · ends · contains)'),
+    'gravitor.search_in': 'Search in',
+    'gravitor.source.i': 'My texts',
+    'gravitor.source.o': 'Corpus',
+    'gravitor.source.both': 'Both',
+    'gravitor.searching': 'Searching…',
+    'gravitor.searching_word': 'Searching',
+    'gravitor.cancel': 'Cancel',
+    'gravitor.cancelled': 'Cancelled. Nothing was created.',
+    'gravitor.no_corpus': 'The corpus is not available (is /mnt/data unmounted?).',
+    'gravitor.nothing_found': 'Found nothing: {summary}.',
+    'gravitor.created': 'Created: {name}\n\n{summary}.',
 }

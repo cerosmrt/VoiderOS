@@ -9,6 +9,7 @@ import os
 
 import gravitor
 from app_config import _save_config
+from i18n import t
 
 DEFAULT_BOOKS = 300     # libros de O/ por búsqueda (se cambia en F10)
 SOURCES = (('Mis textos', 'i'), ('Corpus', 'o'), ('Los dos', 'both'))
@@ -90,7 +91,7 @@ class GravitorMixin:
         from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QLineEdit,
                                      QComboBox, QDialogButtonBox)
         d = QDialog(self)
-        d.setWindowTitle('Gravitor')
+        d.setWindowTitle(t('gravitor.title'))
         d.setFixedWidth(self._BACKUP_DIALOG_WIDTH)
         d.setStyleSheet(
             'QDialog { background: black; } QLabel { color: white; }'
@@ -100,15 +101,14 @@ class GravitorMixin:
             'QPushButton { background: #222; color: white; border: 1px solid #888;'
             ' padding: 5px 14px; }')
         lay = QVBoxLayout(d)
-        lay.addWidget(QLabel('Palabras  (espacio = todas · coma = cualquiera ·\n'
-                             'grav*  *grav  *grav* = empieza · termina · contiene)'))
+        lay.addWidget(QLabel(t('gravitor.words_help')))
         entry = QLineEdit()
         lay.addWidget(entry)
-        lay.addWidget(QLabel('Buscar en'))
+        lay.addWidget(QLabel(t('gravitor.search_in')))
         combo = QComboBox()
         last = self.config.get('gravitor_source', 'i')
         for label, key in SOURCES:
-            combo.addItem(label, key)
+            combo.addItem(t('gravitor.source.' + key), key)
         combo.setCurrentIndex(max(0, [k for _, k in SOURCES].index(last)
                                   if last in [k for _, k in SOURCES] else 0))
         lay.addWidget(combo)
@@ -143,14 +143,14 @@ class GravitorMixin:
         # La búsqueda corre en un hilo; la barra se alimenta de `estado`, que el
         # hilo escribe y el tick (en el hilo de la interfaz) lee.
         estado = {'i': 0, 'n': 1, 'name': '', 'cancel': False}
-        barra = QProgressDialog('Buscando…', 'Cancelar', 0, 1000, self)
-        barra.setWindowTitle('Gravitor')
+        barra = QProgressDialog(t('gravitor.searching'), t('gravitor.cancel'), 0, 1000, self)
+        barra.setWindowTitle(t('gravitor.title'))
         barra.setWindowModality(Qt.WindowModality.WindowModal)
         barra.setMinimumDuration(0)
         barra.setAutoClose(False)
         barra.setAutoReset(False)
         barra.setFixedWidth(self._BACKUP_DIALOG_WIDTH)
-        barra.setLabelText('Buscando…\n ')
+        barra.setLabelText(t('gravitor.searching') + '\n ')
         barra.setFixedHeight(barra.sizeHint().height() + 12)
 
         def avance(i, n, name):
@@ -162,7 +162,7 @@ class GravitorMixin:
                 estado['cancel'] = True
             barra.setValue(int(1000 * estado['i'] / max(estado['n'], 1)))
             barra.setLabelText(self._progress_label(
-                'Buscando', estado['i'], estado['n'], estado['name']))
+                t('gravitor.searching_word'), estado['i'], estado['n'], estado['name']))
 
         try:
             barra.show()
@@ -175,20 +175,21 @@ class GravitorMixin:
         if result is None:
             return
         if result.cancelled:
-            QMessageBox.information(self, 'Gravitor', 'Cancelada. No se creó nada.')
+            QMessageBox.information(self, t('gravitor.title'), t('gravitor.cancelled'))
             return
         if result.unavailable and not result.sentences:
             QMessageBox.warning(
-                self, 'Gravitor',
-                'El corpus no está disponible (¿/mnt/data sin montar?).')
+                self, t('gravitor.title'), t('gravitor.no_corpus'))
             return
         fname = self._gravitor_finish(text, result)
         if fname is None:
-            QMessageBox.information(self, 'Gravitor',
-                                    f'No encontró nada: {result.summary()}.')
+            QMessageBox.information(
+                self, t('gravitor.title'),
+                t('gravitor.nothing_found', summary=result.summary()))
             return
         self.book_view._offset = 0.0
         self._book_show_editor()
         QMessageBox.information(
-            self, 'Gravitor',
-            f'Creado: {os.path.splitext(fname)[0]}\n\n{result.summary()}.')
+            self, t('gravitor.title'),
+            t('gravitor.created', name=os.path.splitext(fname)[0],
+              summary=result.summary()))
