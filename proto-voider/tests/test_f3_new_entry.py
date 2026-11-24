@@ -30,6 +30,8 @@ class FakeEditor:
     def setText(self, t): self._t = t
     def setReadOnly(self, b): self._ro = b
     def setCursorPosition(self, i): pass
+    def enter_edit(self, at_end=True): self.editing = True   # modo navegar de F3
+    def leave_edit(self): self.editing = False
 
 
 class FakeView:

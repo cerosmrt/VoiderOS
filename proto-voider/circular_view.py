@@ -375,6 +375,55 @@ class CustomLineEdit(QLineEdit):
         self.intercept_period = False  # set True on editors that use '.' as a command key
         self.home_end_doc = False      # set True on editors where Home/End jump the
                                        # whole document (first content line / last line)
+        # Modo navegar (F3, F8): sin cursor al ir arriba/abajo; Enter entra directo;
+        # ←/→ (o escribir, o un clic) muestran el cursor y editan el título.
+        self.browse_mode = False
+        self._editing = False
+        self._ro_wanted = False        # lo que pidió quien llama a setReadOnly
+
+    # ── modo navegar ─────────────────────────────────────────────────────────
+    #
+    # Un QLineEdit en sólo lectura NO dibuja el cursor (medido: 0 píxeles contra 14
+    # en modo editable). Así que navegar = sólo lectura, y editar = editable. Como
+    # F3 también usa sólo lectura para los puntos y el portal '0', se guarda aparte
+    # lo que pidió F3 (_ro_wanted) y el estado real se calcula de las dos cosas.
+
+    @property
+    def browsing(self):
+        """True mientras se navega (cursor oculto); False al editar el título."""
+        return self.browse_mode and not self._editing
+
+    def setReadOnly(self, ro):
+        self._ro_wanted = bool(ro)
+        super().setReadOnly(self._ro_wanted or self.browsing)
+
+    def set_browse_mode(self, on):
+        self.browse_mode = bool(on)
+        self._editing = False
+        super().setReadOnly(self._ro_wanted or self.browse_mode)
+
+    def enter_edit(self, at_end=True):
+        """Aparece el cursor y se edita el título. Las filas que F3 pidió de sólo
+        lectura (los puntos, el portal '0') no se editan: ahí no aparece cursor."""
+        if not self.browse_mode or self._ro_wanted:
+            return
+        self._editing = True
+        super().setReadOnly(False)
+        self.setCursorPosition(len(self.text()) if at_end else 0)
+
+    def leave_edit(self):
+        """Volver a navegar: el cursor se esconde."""
+        if not self.browse_mode:
+            return
+        self._editing = False
+        super().setReadOnly(True)
+        self.setCursorPosition(0)
+        self.deselect()
+
+    def mousePressEvent(self, event):
+        if self.browsing:
+            self.enter_edit(at_end=True)
+        super().mousePressEvent(event)
 
     def changeEvent(self, e):
         # Grow the line's height to fit the font so large sizes aren't clipped.
@@ -454,6 +503,23 @@ class CustomLineEdit(QLineEdit):
             event.accept()
             return
 
+        # Modo navegar: Enter entra directo, ←/→ empiezan a editar, y escribir también
+        # (la letra se escribe por el camino de siempre, ya con el cursor a la vista).
+        if self.browsing:
+            alt = bool(mods & Qt.KeyboardModifier.AltModifier)
+            if not (ctrl or shift or alt):
+                if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                    self.returnPressed.emit()
+                    event.accept()
+                    return
+                if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+                    self.enter_edit(at_end=(key == Qt.Key.Key_Right))
+                    event.accept()
+                    return
+            text = event.text()
+            if text and text.isprintable() and not (ctrl or alt):
+                self.enter_edit(at_end=True)
+
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             if ctrl:
                 # Ctrl+Enter NO es Enter. Esta rama no miraba el Ctrl, asi que
@@ -487,9 +553,11 @@ class CustomLineEdit(QLineEdit):
             event.accept()
         elif key == Qt.Key.Key_Up and mods == Qt.KeyboardModifier.NoModifier:
             self.upPressed.emit()
+            self.leave_edit()           # al navegar el cursor se esconde (modo navegar)
             event.accept()
         elif key == Qt.Key.Key_Down and mods == Qt.KeyboardModifier.NoModifier:
             self.downPressed.emit()
+            self.leave_edit()
             event.accept()
         elif key == Qt.Key.Key_Delete and ctrl:
             # Sólo al PRINCIPIO del renglón Ctrl+Delete es el comando de

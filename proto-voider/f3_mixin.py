@@ -57,6 +57,7 @@ class F3Mixin:
             view.editor.setText(self.book_ring.current())
             view.editor.setReadOnly(False)
         view.editor.setCursorPosition(0)
+        view.editor.leave_edit()        # al entrar a F3 se navega: sin cursor
         view.editor.show()
         view.editor.setFocus()
         view.update()
@@ -390,6 +391,7 @@ class F3Mixin:
         self.book_view.editor.setText('')
         self.book_view.editor.setReadOnly(False)
         self.book_view.editor.setCursorPosition(0)
+        self.book_view.editor.enter_edit(at_end=True)   # hay que tipear el nombre
         self.book_view.update()
 
     def _book_remove_entry(self, idx):
@@ -733,6 +735,7 @@ class F3Mixin:
         self.book_view.editor.setText('.' if cur == '.' else cur)
         self.book_view.editor.setReadOnly(cur == '.')
         self.book_view.editor.setCursorPosition(0)
+        self.book_view.editor.leave_edit()
         self.book_view.update()
 
     def _resolve_f3_index(self, active_fname):
