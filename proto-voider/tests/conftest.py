@@ -7,6 +7,16 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _spanish_interface():
+    """Los tests afirman los textos en español; el inglés (el idioma por defecto de la
+    app) se prueba explícito en tests/test_i18n.py y donde se pida."""
+    import i18n
+    i18n.set_language('es')
+    yield
+    i18n.set_language(i18n.DEFAULT_LANGUAGE)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_config(tmp_path, monkeypatch):
     """Redirect CONFIG_PATH to a per-test temp file in every module that holds it,
     so no test can ever write the real proto-voider/config.json. Tests carry tiny

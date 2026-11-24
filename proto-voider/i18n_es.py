@@ -1,0 +1,57 @@
+"""Catálogo en ESPAÑOL. Las mismas claves que i18n_en.py (hay un test que lo exige)."""
+
+STRINGS = {
+    # ── barra de menú ────────────────────────────────────────────────────────
+    'menu.file': 'Archivo',
+    'menu.views': 'Vistas',
+    'menu.edit': 'Edición',
+    'menu.export': 'Exportar',
+    'menu.options': 'Opciones',
+
+    'menu.item.export_doc': 'Exportar / guardar',
+    'menu.item.print_doc': 'Imprimir',
+    'menu.item.backup': 'Copia de seguridad',
+    'menu.item.commit_void': 'Guardar versión del void',
+    'menu.item.pick_active_file': 'Elegir archivo',
+    'menu.item.pick_dir': 'Elegir carpeta del void',
+    'menu.item.pick_book_dir': 'Elegir carpeta de libros',
+    'menu.item.open_trash': 'Tacho',
+    'menu.item.quit_app': 'Salir',
+
+    'menu.item.view_f1': 'F1  Escribir',
+    'menu.item.view_f2': 'F2  Documento',
+    'menu.item.view_f3': 'F3  Biblioteca',
+    'menu.item.view_f4': 'F4  Libro',
+    'menu.item.view_f5': 'F5  Párrafos',
+    'menu.item.view_f6': 'F6  Lector',
+    'menu.item.view_f7': 'F7  Corpus',
+    'menu.item.view_f8': 'F8  Libros',
+    'menu.item.view_f9': 'F9  Prosa',
+
+    'menu.item.scratch_toggle': 'Ir al cuaderno y volver',
+    'menu.item.title_toggle': 'Título fijo arriba',
+    'menu.item.rebase': 'Poner al inicio (F2)',
+    'menu.item.reformat_file': 'Reformatear archivo (F2)',
+    'menu.item.split_spaces': 'Separar por espacios (F2)',
+    'menu.item.shuffle_zero': 'Mezclar el cuaderno (F2)',
+    'menu.item.collapse_paragraphs': 'Juntar en un párrafo (F2)',
+    'menu.item.dispatch': 'Repartir párrafos (F2)',
+    'menu.item.split_chapter': 'Cortar capítulo (F2 / F3)',
+    'menu.item.merge_book': 'Unir libro (F3)',
+    'menu.item.gravitor': 'Gravitor: oraciones con palabras (F3)',
+
+    'menu.item.export_carousel': 'Carrusel',
+    'menu.item.export_carousel_cover': 'Portada del carrusel',
+    'menu.item.carousel_view_toggle': 'Vista previa del carrusel (F4)',
+    'menu.item.export_sale_bundle': 'Paquete de venta',
+    'menu.item.screenshot': 'Captura de pantalla',
+    'menu.item.circle_screenshot': 'Captura del círculo',
+    'menu.item.open_screenshots': 'Carpeta de capturas',
+
+    'menu.item.view_f10': 'Configuración y teclas',
+    'menu.item.help': 'Ayuda',
+    'menu.item.quit': 'Bloquear',
+    'menu.item.tts_toggle': 'Leer en voz alta',
+    'menu.item.typewriter_toggle': 'Máquina de escribir',
+    'menu.item.dictation_toggle': 'Dictado (hablar para escribir)',
+}

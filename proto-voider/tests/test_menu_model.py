@@ -73,3 +73,48 @@ def test_an_entry_that_only_works_in_one_view_says_which():
 def test_no_action_appears_twice():
     todas = [a for _, entries in MENUS for _, a in entries]
     assert len(todas) == len(set(todas))
+
+
+# ── los dos idiomas ──────────────────────────────────────────────────────────
+
+def test_the_menu_comes_in_english_when_the_language_is_english():
+    import i18n
+    i18n.set_language('en')
+    assert [title for title, _ in MENUS] == ['File', 'Views', 'Edit', 'Export', 'Options']
+    labels = {a: l for _, es in MENUS for l, a in es}
+    assert labels['print_doc'] == 'Print' and labels['quit'] == 'Lock'
+    assert labels['view_f8'] == 'F8  Books'
+
+
+def test_changing_the_language_changes_the_menu_without_rebuilding_anything():
+    import i18n
+    i18n.set_language('es')
+    es = [title for title, _ in MENUS]
+    i18n.set_language('en')
+    en = [title for title, _ in MENUS]
+    assert es != en and es[0] == 'Archivo' and en[0] == 'File'
+
+
+def test_both_languages_offer_exactly_the_same_actions_in_the_same_order():
+    import i18n
+    i18n.set_language('es')
+    es = [(t, [a for _, a in e]) for t, e in [(t, e) for t, e in MENUS]]
+    i18n.set_language('en')
+    en = [(t, [a for _, a in e]) for t, e in [(t, e) for t, e in MENUS]]
+    assert [a for _, a in es] == [a for _, a in en]
+
+
+def test_the_view_notes_survive_the_translation():
+    """Una entrada que sólo anda en una vista lleva la vista entre paréntesis, en los dos."""
+    import i18n
+    for lang in ('es', 'en'):
+        i18n.set_language(lang)
+        labels = {a: l for _, es in MENUS for l, a in es}
+        assert '(F2' in labels['reformat_file'] and '(F3' in labels['merge_book']
+        assert '(F4' in labels['carousel_view_toggle']
+
+
+def test_the_menu_acts_like_the_tuple_it_replaced():
+    assert len(MENUS) == 5
+    assert MENUS[1][0] == 'Vistas' and MENUS[1][1][0] == ('F1  Escribir', 'view_f1')
+    assert len(list(MENUS)) == 5
