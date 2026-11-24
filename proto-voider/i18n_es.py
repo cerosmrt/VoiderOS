@@ -117,4 +117,14 @@ STRINGS = {
     'backup.bundle_no_cache': 'falta preparar la caché ({cache})',
     'backup.bundle_no_python': 'falta el instalador de Python en la caché',
     'backup.bundle_no_wheels': 'faltan las dependencias en la caché',
+    # --- F4: exportar ---
+    'f4.title': 'Título',
+    'f4.book_title_prompt': 'Título del libro:',
+    'f4.language_title': 'Idioma',
+    'f4.language_prompt': 'Idioma del libro:',
+    'f4.pick_cover': 'Elegir portada',
+    'f4.images_filter': 'Imágenes (*.png *.jpg *.jpeg)',
+    # --- dictado ---
+    'dictation.no_lib': 'falta la librería faster-whisper (python)',
+    'dictation.no_model': "falta el modelo '{model}' en {root}",
 }

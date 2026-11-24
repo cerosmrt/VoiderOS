@@ -1,6 +1,7 @@
 # f4_mixin.py — F4 reading render methods
 import os
 
+from i18n import t
 from PyQt6.QtGui import QFont
 
 
@@ -149,7 +150,7 @@ class F4Mixin:
             return sections[0][0] or 'capitulo'
         from PyQt6.QtWidgets import QInputDialog
         out_name, ok = QInputDialog.getText(
-            self, 'Título', 'Título del libro:')
+            self, t('f4.title'), t('f4.book_title_prompt'))
         out_name = out_name.strip()
         if not ok or not out_name:
             print("✗ Carrusel cancelado (sin nombre).")
@@ -214,7 +215,8 @@ class F4Mixin:
         if out_name is None:
             return
         lang, ok = QInputDialog.getItem(
-            self, 'Idioma', 'Idioma del libro:', ['Español', 'English'], 0, False)
+            self, t('f4.language_title'), t('f4.language_prompt'),
+            ['Español', 'English'], 0, False)
         if not ok:
             print("✗ Bundle cancelado (sin idioma).")
             return
@@ -326,7 +328,7 @@ class F4Mixin:
         from PyQt6.QtWidgets import QFileDialog
         covers_dir = os.path.join(self.void_dir, 'covers')
         cover_path, _ = QFileDialog.getOpenFileName(
-            self, 'Elegir portada', covers_dir, 'Imágenes (*.png *.jpg *.jpeg)')
+            self, t('f4.pick_cover'), covers_dir, t('f4.images_filter'))
         if not cover_path:
             print("✗ Cancelado (sin portada).")
             return

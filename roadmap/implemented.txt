@@ -660,3 +660,10 @@ SESSION 2026-11-05 → 2026-11-18
   (una página al final) salen en el libro impreso. Se fue el cuadro grande de la v1.
 - ebooklib, langdetect y pyphen en los Python de Voider (1ddcd4d): al sistema le
   faltaban los tres (EPUB y hifenado).
+- Idioma de la interfaz, español e inglés intercambiables (fases 1 y 2). Inglés por
+  defecto; se cambia en F10 (ajuste `language`) y se ve al instante. Catálogos
+  i18n_es.py / i18n_en.py con t('clave'); un test exige las mismas claves en los dos
+  y un trinquete (test_i18n_ratchet.py) impide escribir español nuevo dentro del código.
+  Traducidos: barra de menú, panel de F2 ("crear", filtro, ayudas), ajustes de F10,
+  Gravitor, comandos !rem/!sinpuntos, backup (todos los carteles), diálogos de F4 y
+  dictado. Los mensajes de consola (print) quedan en español a propósito.

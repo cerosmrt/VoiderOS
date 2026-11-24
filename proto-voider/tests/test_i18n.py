@@ -200,3 +200,11 @@ def test_backup_texts_switch_language():
     assert 'Copying the zip' in i18n.t('backup.copying_zip', done='1', total='2')
     i18n.set_language('es')
     assert i18n.t('backup.done', files=3, size='1 MB', dest='/x').startswith('Listo: 3 archivos')
+
+
+def test_f4_prompts_switch_language():
+    import i18n
+    i18n.set_language('en')
+    assert i18n.t('f4.book_title_prompt') == 'Book title:'
+    i18n.set_language('es')
+    assert i18n.t('f4.book_title_prompt') == 'Título del libro:'

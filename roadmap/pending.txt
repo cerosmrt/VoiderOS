@@ -984,3 +984,8 @@ DISCARDED (do not implement)
 -----------------------------
 - TTS local two modes — discarded.
 - Void scanner — discarded for now.
+
+Idioma, lo que falta (i18n):
+- Los textos de F8 (libros, empaquetador, "Índice"/"Notas" del libro impreso): esperan
+  la decisión de si F8 se reemplaza por el panel lateral de libros en F3.
+- La pantalla de ayuda (F11) está sólo en inglés; no tiene versión en español.
