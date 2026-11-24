@@ -11,6 +11,7 @@ from collections import namedtuple
 from PyQt6.QtCore import Qt
 
 from app_config import _format_keybinding
+from i18n import t
 
 TITLE_ROW = '__title__'
 SET_PREFIX = 'set:'
@@ -161,7 +162,7 @@ class KeysModel:
         raw = self.buffer.strip()
         if d.kind == 'int':
             if not raw.isdigit() or not (d.lo <= int(raw) <= d.hi):
-                self.error = f"número entre {d.lo} y {d.hi}"
+                self.error = t('keys.range', lo=d.lo, hi=d.hi)
                 return ('refused', self.error)
             value = int(raw)
         elif d.kind == 'color':
@@ -173,11 +174,11 @@ class KeysModel:
             if self.fonts is not None:
                 match = next((f for f in self.fonts if f.lower() == raw.lower()), None)
                 if match is None:
-                    self.error = 'esa fuente no está instalada'
+                    self.error = t('keys.font_missing')
                     return ('refused', self.error)
                 raw = match
             if not raw:
-                self.error = 'escribí el nombre de una fuente'
+                self.error = t('keys.font_name')
                 return ('refused', self.error)
             value = raw
         self.values[d.key] = value

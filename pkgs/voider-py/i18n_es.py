@@ -69,4 +69,15 @@ STRINGS = {
     'gravitor.no_corpus': 'El corpus no está disponible (¿/mnt/data sin montar?).',
     'gravitor.nothing_found': 'No encontró nada: {summary}.',
     'gravitor.created': 'Creado: {name}\n\n{summary}.',
+    # --- F2 panel, ajustes (F10) ---
+    'widgets.create': '⏎ crear  ',
+    'widgets.filter_prompt': 'escribí para filtrar…',
+    'widgets.hints': '→ enviar   ⏎ nuevo   ⇥ ciclar',
+    'keys.title': 'Configuración',
+    'keys.clash': 'también usa esa tecla: {clash}',
+    'keys.refused': 'esa tecla no se puede asignar',
+    'keys.press_new': 'apretá la tecla nueva (Esc cancela)',
+    'keys.range': 'número entre {lo} y {hi}',
+    'keys.font_missing': 'esa fuente no está instalada',
+    'keys.font_name': 'escribí el nombre de una fuente',
 }
