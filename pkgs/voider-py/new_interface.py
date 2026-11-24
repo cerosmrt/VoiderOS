@@ -808,6 +808,7 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
                 self.book_view.editor.copyContext.connect(self._smart_copy)
                 self.book_view.editor.tabPressed.connect(self._book_tab)
                 self.book_view.editor.intercept_period = True
+                self.book_view.editor.set_browse_mode(True)   # sin cursor al navegar
                 self.book_view.editor.home_end_doc = True
                 self.book_view.editor.homePressed.connect(self._book_jump_start)
                 self.book_view.editor.endPressed.connect(self._book_jump_end)
