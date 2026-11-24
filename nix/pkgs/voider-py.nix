@@ -11,6 +11,9 @@ let
     watchdog
     python-pam
     faster-whisper  # dictado (Ctrl+Shift+Space)
+    ebooklib        # EPUB del paquete de venta (Ctrl+Shift+A) y de los libros de F8
+    langdetect      # idioma de cada párrafo, para el hifenado
+    pyphen          # hifenado de F4, PDF y libros de F8 (sin esto sale sin partir palabras)
   ]);
 
   qtwayland = pkgs.qt6.qtwayland;

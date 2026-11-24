@@ -8,7 +8,7 @@ let
 
   # Shared Python env — used by both voider-py and voider-proto
   voiderPython = pkgs.python3.withPackages (ps: with ps; [
-    pyqt6 numpy pyaudio watchdog langdetect pyphen
+    pyqt6 numpy pyaudio watchdog langdetect pyphen ebooklib
     faster-whisper  # dictado (Ctrl+Shift+Space): reconocimiento de voz offline; modelo en <void>/stt/
     ebooklib  # F4 Ctrl+Shift+A: EPUB export, part of the PDF+EPUB+TXT sale bundle
   ]);
