@@ -147,3 +147,56 @@ def test_a_chapter_ending_on_a_left_page_leaves_a_blank_before_the_next():
     assert plan.toc == [('a', 5), ('b', 7)]
     plan2 = bp.plan_book('M', [('a', 3), ('b', 1)], sheets=4)
     assert plan2.toc == [('a', 5), ('b', 9)]       # a: 5-7, blanco 8, b en 9
+
+
+# ── portada y referencia al software ─────────────────────────────────────────
+
+def test_with_a_cover_the_book_opens_cover_blank_title_blank():
+    plan = bp.plan_book('M', CHAPS, sheets=4, cover=True)
+    assert _kinds(plan)[:5] == ['cover', 'blank', 'title', 'blank', 'toc']
+    assert [p.number for p in plan.pages[:3]] == [1, 2, 3]
+
+
+def test_the_cover_shifts_every_chapter_two_pages_and_they_still_start_on_the_right():
+    sin = bp.plan_book('M', CHAPS, sheets=4)
+    con = bp.plan_book('M', CHAPS, sheets=4, cover=True)
+    assert [p for _, p in con.toc] == [p + 2 for _, p in sin.toc]
+    assert all(p % 2 == 1 for _, p in con.toc)
+
+
+def test_without_a_cover_nothing_changes():
+    assert _kinds(bp.plan_book('M', CHAPS, sheets=4)) == _kinds(
+        bp.plan_book('M', CHAPS, sheets=4, cover=False))
+
+
+def test_the_reference_page_follows_the_last_chapter():
+    plan = bp.plan_book('M', CHAPS, sheets=4, reference=True)
+    kinds = _kinds(plan)
+    assert kinds[plan.content_pages - 1] == 'reference'
+    assert kinds[plan.content_pages - 2] == 'chapter'
+
+
+def test_the_reference_page_counts_as_content_not_as_padding():
+    sin = bp.plan_book('M', CHAPS, sheets=4)
+    con = bp.plan_book('M', CHAPS, sheets=4, reference=True)
+    assert con.content_pages == sin.content_pages + 1
+
+
+def test_the_colophon_goes_after_the_reference():
+    plan = bp.plan_book('M', CHAPS, sheets=4, reference=True)
+    kinds = _kinds(plan)
+    assert plan.blank >= 1
+    assert kinds[plan.content_pages] == 'colophon'
+
+
+def test_content_page_count_knows_about_cover_and_reference():
+    for cover in (False, True):
+        for ref in (False, True):
+            assert bp.content_page_count(CHAPS, cover=cover, reference=ref) == bp.plan_book(
+                'M', CHAPS, sheets=4, cover=cover, reference=ref).content_pages
+
+
+def test_a_book_without_chapters_with_cover_and_reference_still_works():
+    plan = bp.plan_book('M', [], sheets=4, cover=True, reference=True)
+    assert _kinds(plan)[:4] == ['cover', 'blank', 'title', 'blank']
+    assert 'reference' in _kinds(plan) and len(plan.pages) % 16 == 0

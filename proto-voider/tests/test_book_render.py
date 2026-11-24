@@ -269,3 +269,56 @@ def test_the_clip_still_covers_the_whole_last_line_of_a_page(qapp):
 def test_the_last_page_of_a_chapter_keeps_the_whole_block(qapp):
     offsets, layout, clips = _clip_heights()
     assert clips[-1] == pytest.approx(layout.block_h)
+
+
+# ── portada y referencia al software ─────────────────────────────────────────
+
+def test_a_cover_page_is_drawn_and_it_is_not_the_title_page(qapp):
+    r = _renderer(cover=True)
+    assert r.plan.pages[0].kind == 'cover' and r.plan.pages[2].kind == 'title'
+    cover = _page_image(r, r.plan.pages[0])
+    assert _ink(cover) > 0
+    assert cover != _page_image(r, r.plan.pages[2])
+
+
+def test_the_cover_has_nothing_at_the_top_edge(qapp):
+    r = _renderer(cover=True)
+    img = _page_image(r, r.plan.pages[0])
+    assert _ink(img.copy(0, 0, img.width(), img.height() // 6)) == 0
+
+
+def test_without_cover_the_book_is_unchanged(qapp):
+    assert _renderer().plan.pages[0].kind == 'title'
+
+
+def test_the_reference_page_is_drawn_when_there_is_a_reference(qapp):
+    r = _renderer(reference='Compuesto con VoiderOS')
+    spec = next(p for p in r.plan.pages if p.kind == 'reference')
+    assert _ink(_page_image(r, spec)) > 0
+
+
+def test_without_a_reference_text_there_is_no_reference_page(qapp):
+    assert not any(p.kind == 'reference' for p in _renderer().plan.pages)
+
+
+def test_cover_and_reference_count_in_the_blank_page_table(qapp):
+    base = _renderer()
+    full = _renderer(cover=True, reference='x')
+    # la portada (con su dorso en blanco) suma 2 páginas y la referencia 1; las
+    # capítulos pueden correrse una página más para seguir cayendo a la derecha
+    assert full.content_pages >= base.content_pages + 3
+    assert full.signature_table() != base.signature_table() or full.blank == base.blank
+
+
+def test_every_imposed_page_still_appears_once_with_cover_and_reference(qapp):
+    r = _renderer(cover=True, reference='x')
+    seen = []
+    for s in imp.impose(len(r.plan.pages), r.plan.sheets):
+        seen += [p for p in (*s.front, *s.back) if p is not None]
+    assert sorted(seen) == list(range(1, len(r.plan.pages) + 1))
+
+
+def test_the_duplex_pdf_works_with_cover_and_reference(qapp, tmp_path):
+    r = _renderer(cover=True, reference='Compuesto con VoiderOS')
+    out = str(tmp_path / 'x.pdf')
+    assert r.write_duplex_pdf(out) == 2 * len(r.sheets())

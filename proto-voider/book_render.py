@@ -26,9 +26,13 @@ _MONTHS = ('enero febrero marzo abril mayo junio julio agosto septiembre octubre
 class BookRenderer:
 
     def __init__(self, titulo, chapters, font, autor='', colofon='', sheets=4,
-                 hyphenate_lang='auto', toc=True, colophon=True):
-        """chapters: [(título, líneas)] en el modelo de puntos."""
+                 hyphenate_lang='auto', toc=True, colophon=True, cover=False,
+                 reference=''):
+        """chapters: [(título, líneas)] en el modelo de puntos. cover: portada antes
+        del título. reference: el texto de la página final (la referencia al software);
+        vacío = sin esa página."""
         self.titulo, self.autor, self.colofon_text = titulo, autor, colofon
+        self.cover, self.reference = bool(cover), (reference or '').strip()
         self.font = QFont(font)
         self.ink = QColor('#111111')
         self.toc, self.colophon = toc, colophon
@@ -53,7 +57,8 @@ class BookRenderer:
         """Cambiar las hojas por cuadernillo: sólo se recalcula el relleno final."""
         self.plan = book_plan.plan_book(
             self.titulo, [(t, self.chapter_pages(i)) for i, t in enumerate(self.titles)],
-            sheets=sheets, toc=self.toc, colophon=self.colophon)
+            sheets=sheets, toc=self.toc, colophon=self.colophon,
+            cover=self.cover, reference=bool(self.reference))
 
     @property
     def content_pages(self):
@@ -93,8 +98,12 @@ class BookRenderer:
             doc, layout, offsets = self._docs[spec.chapter]
             draw_reading_page(painter, doc, layout, offsets, spec.part, self.ink)
             self._draw_number(painter, spec.number)
+        elif kind == 'cover':
+            self._draw_cover(painter)
         elif kind == 'title':
             self._draw_title(painter)
+        elif kind == 'reference':
+            self._draw_reference(painter)
         elif kind == 'toc':
             self._draw_toc(painter, spec)
         elif kind == 'colophon':
@@ -108,6 +117,35 @@ class BookRenderer:
         painter.setFont(self._font_scaled(0.85))
         painter.drawText(QRectF(0, self.page_h - bottom * 0.75, self.page_w, bottom * 0.5),
                          Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter, str(n))
+
+    def _draw_cover(self, painter):
+        """La portada: el título grande, una raya y el autor. Sin nada en los bordes."""
+        _, _, inner, outer = self._margins
+        w = self.page_w - inner - outer
+        painter.setFont(self._font_scaled(3.2))
+        painter.drawText(
+            QRectF(inner, self.page_h * 0.26, w, self.page_h * 0.30),
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
+            | Qt.TextFlag.TextWordWrap, self.titulo)
+        painter.setPen(QPen(self.ink, 0.6))
+        mid = self.page_w / 2
+        painter.drawLine(QPointF(mid - self.page_w * 0.08, self.page_h * 0.60),
+                         QPointF(mid + self.page_w * 0.08, self.page_h * 0.60))
+        if self.autor:
+            painter.setPen(self.ink)
+            painter.setFont(self._font_scaled(1.3))
+            painter.drawText(
+                QRectF(inner, self.page_h * 0.64, w, self.page_h * 0.08),
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter, self.autor)
+
+    def _draw_reference(self, painter):
+        """Una página al final con la referencia al software, chica y centrada."""
+        _, _, inner, outer = self._margins
+        painter.setFont(self._font_scaled(0.9, italic=True))
+        painter.drawText(
+            QRectF(inner, self.page_h * 0.62, self.page_w - inner - outer, self.page_h * 0.16),
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop
+            | Qt.TextFlag.TextWordWrap, self.reference)
 
     def _draw_title(self, painter):
         _, _, inner, outer = self._margins

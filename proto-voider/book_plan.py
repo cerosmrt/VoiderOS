@@ -18,7 +18,7 @@ TOC_LINES = 22      # entradas del índice por página
 
 @dataclass
 class PageSpec:
-    kind: str                   # title | blank | toc | chapter | colophon | notes
+    kind: str                   # cover | title | blank | toc | chapter | reference | colophon | notes
     number: int = 0             # número de página, desde 1 (la de título)
     chapter: int = None         # índice del capítulo (kind == 'chapter')
     part: int = None            # página dentro del capítulo / del índice, desde 0
@@ -39,10 +39,11 @@ def _toc_pages(n_chapters, toc, toc_lines):
     return -(-n_chapters // toc_lines) if (toc and n_chapters) else 0
 
 
-def _content(chapters, toc, toc_lines):
+def _content(chapters, toc, toc_lines, cover=False, reference=False):
     """Las páginas de contenido y dónde empieza cada capítulo. Lo comparten el plan
     y content_page_count, así no pueden discrepar."""
-    pages = [PageSpec('title'), PageSpec('blank')]
+    pages = [PageSpec('cover'), PageSpec('blank')] if cover else []
+    pages += [PageSpec('title'), PageSpec('blank')]
     n_toc = _toc_pages(len(chapters), toc, toc_lines)
     for part in range(n_toc):
         pages.append(PageSpec('toc', part=part))
@@ -53,16 +54,21 @@ def _content(chapters, toc, toc_lines):
         starts.append(len(pages) + 1)
         for part in range(max(1, n)):
             pages.append(PageSpec('chapter', chapter=i, part=part))
+    if reference:
+        pages.append(PageSpec('reference'))      # una página al final: cuenta como contenido
     return pages, starts, n_toc
 
 
-def content_page_count(chapters, toc=True, toc_lines=TOC_LINES):
-    return len(_content(chapters, toc, toc_lines)[0])
+def content_page_count(chapters, toc=True, toc_lines=TOC_LINES, cover=False,
+                       reference=False):
+    return len(_content(chapters, toc, toc_lines, cover, reference)[0])
 
 
-def plan_book(title, chapters, sheets=4, toc=True, colophon=True, toc_lines=TOC_LINES):
-    """chapters: [(título, páginas de texto)]. Devuelve un BookPlan."""
-    pages, starts, n_toc = _content(chapters, toc, toc_lines)
+def plan_book(title, chapters, sheets=4, toc=True, colophon=True, toc_lines=TOC_LINES,
+              cover=False, reference=False):
+    """chapters: [(título, páginas de texto)]. cover: una portada antes del título.
+    reference: una página al final con la referencia al software. → un BookPlan."""
+    pages, starts, n_toc = _content(chapters, toc, toc_lines, cover, reference)
     entries = [(name, starts[i]) for i, (name, _) in enumerate(chapters)]
     if n_toc:
         for p in pages:
