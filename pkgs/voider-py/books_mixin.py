@@ -13,6 +13,9 @@ from line_ring import LineRing
 
 
 BOOKS_HINT = 'Sin libros · Shift+Enter crea uno'
+# La referencia al software de la página final: manda al lector a descargar Voider.
+DEFAULT_REFERENCE_TEXT = 'Compuesto con Voider'
+DEFAULT_REFERENCE_URL = 'www.godplaystheartist.com'
 
 
 class BooksMixin:
@@ -63,11 +66,13 @@ class BooksMixin:
         return r, missing
 
     def _books_reference_text(self):
-        """La referencia al software de la página final: un texto y, si está
-        configurado, el link a la página (book_reference_url en config.json)."""
-        text = (self.config.get('book_reference_text') or 'Compuesto con VoiderOS').strip()
-        url = (self.config.get('book_reference_url') or '').strip()
-        return f'{text} · {url}' if url else text
+        """La referencia al software de la página final: un texto y el link para
+        descargar Voider. Los dos se cambian en config.json (book_reference_text,
+        book_reference_url); un link vacío ('') es "sin link", no "el de siempre"."""
+        text = (self.config.get('book_reference_text') or DEFAULT_REFERENCE_TEXT).strip()
+        url = self.config.get('book_reference_url')
+        url = DEFAULT_REFERENCE_URL if url is None else str(url).strip()
+        return f'{text}\nDescargalo en {url}' if url else text
 
     def _books_out_dir(self, book):
         return os.path.join(self.void_dir, 'book_packer',
