@@ -249,6 +249,9 @@ class FullscreenCircleApp(QMainWindow, IoMixin, F1Mixin, F2Mixin, F3Mixin,
         self.books = None           # F8: el catálogo de libros (books.json), al entrar
         self.books_ring = LineRing(['.'])
         self._books_ids = []
+        self._books_level = 'books'     # 'books' (la lista) o 'skeleton' (adentro de un libro)
+        self._books_open_id = None
+        self._books_row_keys = []
         # Working set: 100-book window, persisted across sessions
         self._ws_loaded = False
         self._ws_books = []  # [{"path": str, "position": int}, ...]

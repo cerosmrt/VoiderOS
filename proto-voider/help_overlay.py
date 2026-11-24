@@ -15,7 +15,7 @@ HELP = [
     ("F5",                "Fork — edit O/ line into I/"),
     ("F6",                "Read an O/ book — editable; Ctrl+Delete harvests"),
     ("F7",                "Working set — up to 8 O/ books"),
-    ("F8",                "Books — chapters into print-ready books; Enter packs, Shift+Enter new"),
+    ("F8",                "Books — Enter opens a book's skeleton (cover, title, prologue… chapters… epilogue); Ctrl+P bookbinder"),
     ("",                  ""),
     ("OTHER",             None),
     ("F9",                "Metronome — type BPM, circle pulses"),

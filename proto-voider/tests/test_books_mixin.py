@@ -299,3 +299,26 @@ def test_a_book_with_only_a_prologue_can_be_printed(qapp, tmp_path):
     bk = b.new_book(app.books, 'Chico', [])
     b.assign(bk, 'prologo', 'A.txt')
     assert len(app._books_export(bk, 'duplex')) == 1
+
+
+# ── F8 sin haber pasado por F3 ───────────────────────────────────────────────
+
+def test_the_available_chapters_load_the_library_if_f3_was_never_opened(tmp_path):
+    """La lista de capítulos sale de la biblioteca de F3; si en esta sesión no se entró a
+    F3 está vacía, y el selector de F8 no tenía nada que ofrecer."""
+    app = _app(tmp_path)
+    app._library_lines = []
+    llamadas = []
+
+    def cargar():
+        llamadas.append(1)
+        app._library_lines = ['.', 'A.txt', 'B.txt']
+    app._load_library = cargar
+    assert app._books_chapters_available() == ['A.txt', 'B.txt']
+    assert llamadas == [1]
+
+
+def test_an_already_loaded_library_is_not_read_again(tmp_path):
+    app = _app(tmp_path)
+    app._load_library = lambda: pytest.fail('no debería releer la biblioteca')
+    assert app._books_chapters_available() == ['A.txt', 'B.txt', 'C.txt']
