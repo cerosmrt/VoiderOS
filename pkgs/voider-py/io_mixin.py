@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QFileDialog
 from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
 
 from app_config import _save_config
+from i18n import t
 from line_ring import LineRing
 
 
@@ -1583,10 +1584,9 @@ class IoMixin:
             for bus, dev, nombre in self._detect_phones():
                 ds.append((f'📱 {nombre}', 'phone', (bus, dev)))
             return ds
-        destinos = self._run_in_thread(buscar, wait_text='Buscando pendrive o teléfono…')
+        destinos = self._run_in_thread(buscar, wait_text=t('backup.searching_drives'))
         if not destinos:
-            QMessageBox.information(self, 'Backup',
-                                    'No hay ningún pendrive ni teléfono conectado.')
+            QMessageBox.information(self, t('backup.title'), t('backup.no_drive'))
             return
 
         # Con más de uno, que elija; con uno solo, se muestra igual para aceptar.
@@ -1595,7 +1595,7 @@ class IoMixin:
             from PyQt6.QtWidgets import QInputDialog
             etiquetas = [d[0] for d in destinos]
             texto, ok = QInputDialog.getItem(
-                self, 'Backup', '¿A cuál?', etiquetas, 0, False)
+                self, t('backup.title'), t('backup.which'), etiquetas, 0, False)
             if not ok:
                 return
             elegido = destinos[etiquetas.index(texto)]
@@ -1604,12 +1604,10 @@ class IoMixin:
         mp = None
         if kind == 'phone':
             mp = self._run_in_thread(self._mount_phone, *dato,
-                                     wait_text='Abriendo el teléfono…')
+                                     wait_text=t('backup.opening_phone'))
             if mp is None:
                 QMessageBox.warning(
-                    self, 'Backup',
-                    'Teléfono detectado pero no accesible: desbloquealo y '
-                    'elegí "Transferencia de archivos".')
+                    self, t('backup.title'), t('backup.phone_locked'))
                 return
             dest_root = self._phone_backup_root(mp)
         else:
@@ -1624,25 +1622,22 @@ class IoMixin:
                 # sólo es verdad después de esto.
                 self._run_in_thread(
                     self._unmount_phone, mp,
-                    wait_text='Terminando de escribir en el teléfono…\n\nNo lo desenchufes.')
+                    wait_text=t('backup.finishing_phone'))
         if resultado is None:
             return
         archivos, zip_bytes, dest_zip, cancelado, ok = resultado
         print(f'📦 Backup: {archivos} archivos · {self._human_bytes(zip_bytes)} → {dest_zip}')
         if cancelado:
-            QMessageBox.information(self, 'Backup', 'Cancelado. No se copió nada.')
+            QMessageBox.information(self, t('backup.title'), t('backup.cancelled'))
             return
         if not ok:
             QMessageBox.warning(
-                self, 'Backup',
-                'El backup NO se completó: el zip no llegó entero al destino.\n'
-                'Mirá la consola para el detalle.')
+                self, t('backup.title'), t('backup.failed'))
             return
-        aviso = '\n\nYa podés desenchufar.'
         QMessageBox.information(
-            self, 'Backup',
-            f'Listo: {archivos} archivos · {self._human_bytes(zip_bytes)}'
-            f'\n\n{dest_zip}{aviso}')
+            self, t('backup.title'),
+            t('backup.done', files=archivos, size=self._human_bytes(zip_bytes),
+              dest=dest_zip) + t('backup.unplug_ok'))
 
     # Ancho fijo de los carteles del backup. La barra se veía cortada: cambiaba
     # de ancho con cada nombre de archivo y el compositor no la acompañaba.
@@ -1654,7 +1649,7 @@ class IoMixin:
             from PyQt6.QtWidgets import QProgressDialog, QApplication
             from PyQt6.QtCore import Qt
             d = QProgressDialog(texto, None, 0, 0, self)
-            d.setWindowTitle('Backup')
+            d.setWindowTitle(t('backup.title'))
             d.setWindowModality(Qt.WindowModality.WindowModal)
             d.setMinimumDuration(0)
             d.setFixedWidth(self._BACKUP_DIALOG_WIDTH)
@@ -1743,11 +1738,9 @@ class IoMixin:
         espera a que el pendrive los escriba de verdad (unos segundos): decirlo,
         en vez de quedarse mudo en 100%."""
         if total and hecho >= total:
-            return ('Terminando de escribir…\n'
-                    'No lo desenchufes todavía.'), True
-        return (f'Copiando el zip · {self._human_bytes(hecho)} de '
-                f'{self._human_bytes(total)}\n'
-                'No desenchufes hasta el "Listo".'), False
+            return t('backup.finishing_write'), True
+        return t('backup.copying_zip', done=self._human_bytes(hecho),
+                 total=self._human_bytes(total)), False
 
     def _progress_label(self, etapa, i, n, rel, ancho=56):
         """Dos líneas de largo acotado; un nombre largo se recorta al medio,
@@ -1841,11 +1834,11 @@ class IoMixin:
         """(True, '') si la caché tiene Python y dependencias; si no, por qué."""
         import glob
         if not os.path.isdir(cache):
-            return False, f'falta preparar la caché ({cache})'
+            return False, t('backup.bundle_no_cache', cache=cache)
         if not glob.glob(os.path.join(cache, 'python-*.exe')):
-            return False, 'falta el instalador de Python en la caché'
+            return False, t('backup.bundle_no_python')
         if not glob.glob(os.path.join(cache, 'wheels', '*.whl')):
-            return False, 'faltan las dependencias en la caché'
+            return False, t('backup.bundle_no_wheels')
         return True, ''
 
     def _requirements_txt(self):
@@ -2035,9 +2028,9 @@ exit /b 1
 
         files, total, skipped = self._run_in_thread(
             self._backup_plan, self.void_dir,
-            wait_text='Revisando el void…')
+            wait_text=t('backup.checking'))
         if not files:
-            QMessageBox.information(self, 'Backup', 'No hay nada que copiar.')
+            QMessageBox.information(self, t('backup.title'), t('backup.nothing'))
             return None
 
         nombre = self._backup_folder_name(dest_root)
@@ -2047,8 +2040,8 @@ exit /b 1
         detalle = (f'{len(files)} archivos · {self._human_bytes(total)}\n\n'
                    f'{dest_zip}')
         if skipped:
-            detalle += f'\n\n(sin seguir: {", ".join(skipped)})'
-        caja = QMessageBox(QMessageBox.Icon.Question, 'Backup', detalle,
+            detalle += '\n\n' + t('backup.skipped', names=', '.join(skipped))
+        caja = QMessageBox(QMessageBox.Icon.Question, t('backup.title'), detalle,
                            QMessageBox.StandardButton.Ok
                            | QMessageBox.StandardButton.Cancel, self)
         caja.setDefaultButton(QMessageBox.StandardButton.Ok)
@@ -2059,10 +2052,10 @@ exit /b 1
             if listo:
                 peso = self._human_bytes(self._dir_bytes(cache))
                 casilla = self._backup_checkbox(
-                    f'Incluir el programa (instalador para Windows, ≈{peso})')
+                    t('backup.include_program', size=peso))
             else:
                 casilla = self._backup_checkbox(
-                    f'Incluir el programa — no disponible: {motivo}', enabled=False)
+                    t('backup.program_unavailable', reason=motivo), enabled=False)
             caja.setCheckBox(casilla)
         if caja.exec() != QMessageBox.StandardButton.Ok:
             print('↩ Backup cancelado')
@@ -2080,11 +2073,11 @@ exit /b 1
         # el tick (en el hilo de la interfaz) lee: el hilo nunca toca widgets.
         tmpdir = tempfile.mkdtemp(prefix='voider-backup-')
         local_zip = os.path.join(tmpdir, nombre + '.zip')
-        estado = {'etapa': 'Armando el zip', 'i': 0, 'n': 1, 'rel': '',
+        estado = {'etapa': t('backup.building_zip'), 'i': 0, 'n': 1, 'rel': '',
                   'cancel': False}
 
-        barra = QProgressDialog('Armando el zip…', 'Cancelar', 0, 1000, self)
-        barra.setWindowTitle('Backup')
+        barra = QProgressDialog(t('backup.building_zip') + '…', t('backup.cancel'), 0, 1000, self)
+        barra.setWindowTitle(t('backup.title'))
         barra.setWindowModality(Qt.WindowModality.WindowModal)
         barra.setMinimumDuration(0)
         barra.setAutoClose(False)
@@ -2092,7 +2085,7 @@ exit /b 1
         barra.setFixedWidth(self._BACKUP_DIALOG_WIDTH)
         # Alto fijo para dos líneas de texto: sin esto el cartel no crecía al
         # cambiar el texto y el botón Cancelar quedaba cortado abajo.
-        barra.setLabelText('Armando el zip…\n ')
+        barra.setLabelText(t('backup.building_zip') + '…\n ')
         barra.setFixedHeight(barra.sizeHint().height() + 12)
 
         def avance_zip(i, n, rel):
@@ -2100,13 +2093,13 @@ exit /b 1
             return not estado['cancel']
 
         def avance_copia(hecho, total_bytes):
-            estado.update(etapa='Copiando', i=hecho, n=total_bytes)
+            estado.update(etapa=t('backup.copying'), i=hecho, n=total_bytes)
             return not estado['cancel']
 
         def tick():
             if barra.wasCanceled():
                 estado['cancel'] = True
-            if estado['etapa'] == 'Copiando':
+            if estado['etapa'] == t('backup.copying'):
                 texto, terminando = self._copy_label(estado['i'], estado['n'])
                 barra.setLabelText(texto)
                 if terminando:
