@@ -148,6 +148,10 @@ class KeyRouterMixin:
             self.print_doc(); event.accept(); return
         if self._matches(key, mods, 'print_doc') and self.current_view == 3:
             self.print_vault(); event.accept(); return
+        # F8: Imprimir y Exportar abren el bookbinder (los ajustes de impresión)
+        if (self._matches(key, mods, 'print_doc')
+                or self._matches(key, mods, 'export_doc')) and self.current_view == 7:
+            self._books_open_bookbinder(); event.accept(); return
         if self._matches(key, mods, 'export_doc') and self.current_view == 2:
             self.export_book(); event.accept(); return
         if self._matches(key, mods, 'export_doc') and self.current_view == 1:
@@ -196,8 +200,14 @@ class KeyRouterMixin:
                 self._reader_para_nav(-1); event.accept()
             elif self.current_view == 5 and self._matches(key, mods, 'para_next'):
                 self._reader_para_nav(1); event.accept()
+            elif (self.current_view == 7 and key in (Qt.Key.Key_Up, Qt.Key.Key_Down)
+                  and mods == (Qt.KeyboardModifier.AltModifier | Qt.KeyboardModifier.ShiftModifier)):
+                self._books_duplicate(); event.accept()      # F8: duplicar como edición
             elif key == Qt.Key.Key_Escape:
-                self.switch_to_view(0); event.accept()
+                # En F8, Esc primero sale del esqueleto de un libro; en la lista, a F1.
+                if not (self.current_view == 7 and self._books_escape()):
+                    self.switch_to_view(0)
+                event.accept()
             elif self._matches(key, mods, 'quit'):
                 self._show_lock_screen(); event.accept()
         elif self.current_view == 8:   # F9 prose editor
