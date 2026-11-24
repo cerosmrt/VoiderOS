@@ -203,6 +203,10 @@ class KeyRouterMixin:
             elif (self.current_view == 7 and key in (Qt.Key.Key_Up, Qt.Key.Key_Down)
                   and mods == (Qt.KeyboardModifier.AltModifier | Qt.KeyboardModifier.ShiftModifier)):
                 self._books_duplicate(); event.accept()      # F8: duplicar como edición
+            elif self.current_view == 7 and self._matches(key, mods, 'swap_up'):
+                self._books_move(-1); event.accept()         # F8: mover libro / capítulo
+            elif self.current_view == 7 and self._matches(key, mods, 'swap_down'):
+                self._books_move(1); event.accept()
             elif key == Qt.Key.Key_Escape:
                 # En F8, Esc primero sale del esqueleto de un libro; en la lista, a F1.
                 if not (self.current_view == 7 and self._books_escape()):

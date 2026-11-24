@@ -18,7 +18,7 @@ TOC_LINES = 22      # entradas del índice por página
 
 @dataclass
 class PageSpec:
-    kind: str                   # cover | title | blank | toc | chapter | reference | colophon | notes
+    kind: str                   # cover | title | dedication | blank | toc | chapter | reference | colophon | notes
     number: int = 0             # número de página, desde 1 (la de título)
     chapter: int = None         # índice del capítulo (kind == 'chapter')
     part: int = None            # página dentro del capítulo / del índice, desde 0
@@ -39,11 +39,13 @@ def _toc_pages(n_chapters, toc, toc_lines):
     return -(-n_chapters // toc_lines) if (toc and n_chapters) else 0
 
 
-def _content(chapters, toc, toc_lines, cover=False, reference=False):
+def _content(chapters, toc, toc_lines, cover=False, reference=False, dedication=False):
     """Las páginas de contenido y dónde empieza cada capítulo. Lo comparten el plan
     y content_page_count, así no pueden discrepar."""
     pages = [PageSpec('cover'), PageSpec('blank')] if cover else []
     pages += [PageSpec('title'), PageSpec('blank')]
+    if dedication:                               # una página sola, a la derecha
+        pages += [PageSpec('dedication'), PageSpec('blank')]
     n_toc = _toc_pages(len(chapters), toc, toc_lines)
     for part in range(n_toc):
         pages.append(PageSpec('toc', part=part))
@@ -60,15 +62,15 @@ def _content(chapters, toc, toc_lines, cover=False, reference=False):
 
 
 def content_page_count(chapters, toc=True, toc_lines=TOC_LINES, cover=False,
-                       reference=False):
-    return len(_content(chapters, toc, toc_lines, cover, reference)[0])
+                       reference=False, dedication=False):
+    return len(_content(chapters, toc, toc_lines, cover, reference, dedication)[0])
 
 
 def plan_book(title, chapters, sheets=4, toc=True, colophon=True, toc_lines=TOC_LINES,
-              cover=False, reference=False):
+              cover=False, reference=False, dedication=False):
     """chapters: [(título, páginas de texto)]. cover: una portada antes del título.
     reference: una página al final con la referencia al software. → un BookPlan."""
-    pages, starts, n_toc = _content(chapters, toc, toc_lines, cover, reference)
+    pages, starts, n_toc = _content(chapters, toc, toc_lines, cover, reference, dedication)
     entries = [(name, starts[i]) for i, (name, _) in enumerate(chapters)]
     if n_toc:
         for p in pages:

@@ -46,14 +46,36 @@ class BooksMixin:
         ya no existe se saltean y se avisan; sin ninguno legible no hay libro."""
         from PyQt6.QtGui import QFont
         from book_render import BookRenderer
-        chapters, missing = [], []
-        for fname in books.chapters_of(book):
+        missing = []
+
+        def read(fname):
             path = (self._library_path_cache.get(fname)
                     or os.path.join(self.void_dir, 'I', fname))
             if not os.path.isfile(path):
                 missing.append(fname)
-                continue
-            chapters.append((os.path.splitext(fname)[0], self._reading_file_lines(path)))
+                return None
+            return self._reading_file_lines(path)
+
+        # Prólogo y epílogo se imprimen sin el título del archivo (el índice los nombra);
+        # la dedicatoria es una página sola; los capítulos llevan su título.
+        chapters, dedication = [], ''
+        if book.get('prologo'):
+            lines = read(book['prologo'])
+            if lines is not None:
+                chapters.append(('Prólogo', lines, False))
+        if book.get('dedicatoria'):
+            lines = read(book['dedicatoria'])
+            if lines is not None:
+                dedication = '\n'.join(l.strip() for l in lines
+                                       if l.strip() and l.strip() != '.')
+        for fname in book['capitulos']:
+            lines = read(fname)
+            if lines is not None:
+                chapters.append((os.path.splitext(fname)[0], lines, True))
+        if book.get('epilogo'):
+            lines = read(book['epilogo'])
+            if lines is not None:
+                chapters.append(('Epílogo', lines, False))
         if not chapters:
             return None, missing
         font = QFont(self.config.get('reading_font', 'EB Garamond'),
@@ -61,7 +83,7 @@ class BooksMixin:
         r = BookRenderer(book['titulo'], chapters, font, autor=book['autor'],
                          colofon=book['colofon'], sheets=book['hojas'],
                          hyphenate_lang=self.config.get('reading_hyphen_lang', 'auto'),
-                         cover=book.get('portada', True),
+                         cover=book.get('portada', True), dedication=dedication,
                          reference=self._books_reference_text() if book.get('referencia', True) else '')
         return r, missing
 
@@ -410,6 +432,28 @@ class BooksMixin:
         if self._books_ids:
             self.books_ring.index = min(idx, len(self._books_ids) - 1)
         self._books_refresh_editor()
+
+    def _books_move(self, delta):
+        """Alt+↑/↓, como en F3. En la lista mueve el libro; en el esqueleto, el capítulo
+        marcado (el cursor lo sigue). Los lugares con nombre y los interruptores no se
+        mueven: están en su lugar a propósito."""
+        if self._books_level == 'books':
+            book = self._books_current()
+            if book is not None and books.move_book(self.books, book['id'], delta):
+                self._books_save()
+                self._books_rebuild_ring(select_id=book['id'])
+                self._books_refresh_editor()
+            return
+        key = self._books_current_key()
+        book = self._books_open_book()
+        if book is None or not key or not key.startswith('cap:'):
+            return
+        n = int(key[4:])
+        caps = book['capitulos']
+        if n - 1 < len(caps) and books.move_chapter(book, caps[n - 1], delta):
+            self._books_save()
+            self._books_rebuild_ring(select_key=f'cap:{n + delta}')
+            self._books_refresh_editor()
 
     def _books_duplicate(self):
         """Alt+Shift+↑/↓: el libro marcado como edición nueva, justo debajo."""

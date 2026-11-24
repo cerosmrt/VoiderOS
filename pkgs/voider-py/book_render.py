@@ -27,21 +27,26 @@ class BookRenderer:
 
     def __init__(self, titulo, chapters, font, autor='', colofon='', sheets=4,
                  hyphenate_lang='auto', toc=True, colophon=True, cover=False,
-                 reference=''):
-        """chapters: [(título, líneas)] en el modelo de puntos. cover: portada antes
-        del título. reference: el texto de la página final (la referencia al software);
-        vacío = sin esa página."""
+                 reference='', dedication=''):
+        """chapters: [(título, líneas)] o [(título, líneas, mostrar_título)] en el modelo
+        de puntos (el título de un capítulo con mostrar_título=False no se imprime en su
+        página, pero el índice lo nombra). cover: anteportada (sólo el título) antes de
+        la portada. reference: el texto de la página final (la referencia al software).
+        dedication: el texto de la dedicatoria, en una página sola. Vacío = sin esa página."""
         self.titulo, self.autor, self.colofon_text = titulo, autor, colofon
         self.cover, self.reference = bool(cover), (reference or '').strip()
+        self.dedication = (dedication or '').strip()
         self.font = QFont(font)
         self.ink = QColor('#111111')
         self.toc, self.colophon = toc, colophon
         self.page_w, self.page_h = A5_PT
-        self.titles = [t for t, _ in chapters]
+        self.titles = [c[0] for c in chapters]
+        self.show_title = [c[2] if len(c) > 2 else True for c in chapters]
         self._docs = []
-        for title, lines in chapters:
+        for c, show in zip(chapters, self.show_title):
+            title, lines = c[0], c[1]
             doc, _, layout = build_reading_document(
-                [(title, lines)], self.font, page_pt=A5_PT,
+                [(title if show else '', lines)], self.font, page_pt=A5_PT,
                 hyphenate_lang=hyphenate_lang, ink=self.ink)
             offsets = compute_page_offsets(doc, layout.block_h, layout.title_blocks)
             self._docs.append((doc, layout, offsets))
@@ -58,7 +63,8 @@ class BookRenderer:
         self.plan = book_plan.plan_book(
             self.titulo, [(t, self.chapter_pages(i)) for i, t in enumerate(self.titles)],
             sheets=sheets, toc=self.toc, colophon=self.colophon,
-            cover=self.cover, reference=bool(self.reference))
+            cover=self.cover, reference=bool(self.reference),
+            dedication=bool(self.dedication))
 
     @property
     def content_pages(self):
@@ -102,6 +108,8 @@ class BookRenderer:
             self._draw_cover(painter)
         elif kind == 'title':
             self._draw_title(painter)
+        elif kind == 'dedication':
+            self._draw_dedication(painter)
         elif kind == 'reference':
             self._draw_reference(painter)
         elif kind == 'toc':
@@ -119,24 +127,23 @@ class BookRenderer:
                          Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter, str(n))
 
     def _draw_cover(self, painter):
-        """La portada: el título grande, una raya y el autor. Sin nada en los bordes."""
+        """La anteportada: sólo el título, chico y centrado. El autor va en la portada
+        (la página siguiente), como en un libro de imprenta."""
         _, _, inner, outer = self._margins
-        w = self.page_w - inner - outer
-        painter.setFont(self._font_scaled(3.2))
+        painter.setFont(self._font_scaled(1.7))
         painter.drawText(
-            QRectF(inner, self.page_h * 0.26, w, self.page_h * 0.30),
+            QRectF(inner, self.page_h * 0.36, self.page_w - inner - outer, self.page_h * 0.16),
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
             | Qt.TextFlag.TextWordWrap, self.titulo)
-        painter.setPen(QPen(self.ink, 0.6))
-        mid = self.page_w / 2
-        painter.drawLine(QPointF(mid - self.page_w * 0.08, self.page_h * 0.60),
-                         QPointF(mid + self.page_w * 0.08, self.page_h * 0.60))
-        if self.autor:
-            painter.setPen(self.ink)
-            painter.setFont(self._font_scaled(1.3))
-            painter.drawText(
-                QRectF(inner, self.page_h * 0.64, w, self.page_h * 0.08),
-                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter, self.autor)
+
+    def _draw_dedication(self, painter):
+        """La dedicatoria: una página sola, el texto centrado y en cursiva, sin título."""
+        _, _, inner, outer = self._margins
+        painter.setFont(self._font_scaled(1.05, italic=True))
+        painter.drawText(
+            QRectF(inner, self.page_h * 0.30, self.page_w - inner - outer, self.page_h * 0.34),
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
+            | Qt.TextFlag.TextWordWrap, self.dedication)
 
     def _draw_reference(self, painter):
         """Una página al final con la referencia al software, chica y centrada."""
