@@ -263,3 +263,168 @@ def test_the_file_is_readable_utf8_with_accents(tmp_path):
 ])
 def test_group_at_returns_the_chapters_of_the_f3_book_under_the_cursor(lines, index, want):
     assert b.group_at(lines, index) == want
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# El esqueleto del libro: lugares con nombre (prólogo, dedicatoria, epílogo), los
+# capítulos numerados, y dos interruptores (portada, referencia al software).
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _bk(caps=('A.txt', 'B.txt', 'C.txt')):
+    d = b.empty()
+    return d, b.new_book(d, 'Mitad Humana', list(caps))
+
+
+def test_a_new_book_has_empty_roles_and_both_switches_on():
+    d, bk = _bk()
+    assert (bk['prologo'], bk['dedicatoria'], bk['epilogo']) == ('', '', '')
+    assert bk['portada'] is True and bk['referencia'] is True
+
+
+def test_an_old_book_without_the_new_fields_still_loads(tmp_path):
+    p = tmp_path / 'books.json'
+    p.write_text(json.dumps({'libros': [{'id': 'l1', 'titulo': 'A', 'capitulos': ['X.txt']}]}),
+                 encoding='utf-8')
+    bk = b.load(str(p))['libros'][0]
+    assert bk['capitulos'] == ['X.txt'] and bk['prologo'] == '' and bk['portada'] is True
+
+
+def test_the_print_order_is_prologue_dedication_chapters_epilogue():
+    d, bk = _bk(['C1.txt', 'C2.txt'])
+    b.assign(bk, 'epilogo', 'E.txt')
+    b.assign(bk, 'dedicatoria', 'D.txt')
+    b.assign(bk, 'prologo', 'P.txt')
+    assert b.chapters_of(bk) == ['P.txt', 'D.txt', 'C1.txt', 'C2.txt', 'E.txt']
+
+
+def test_empty_roles_are_not_printed():
+    d, bk = _bk(['C1.txt'])
+    b.assign(bk, 'prologo', 'P.txt')
+    assert b.chapters_of(bk) == ['P.txt', 'C1.txt']
+
+
+def test_assigning_a_role_replaces_the_previous_file():
+    d, bk = _bk([])
+    b.assign(bk, 'prologo', 'P.txt')
+    b.assign(bk, 'prologo', 'Q.txt')
+    assert bk['prologo'] == 'Q.txt'
+
+
+def test_a_file_can_only_be_in_one_place_of_the_same_book():
+    d, bk = _bk(['A.txt', 'B.txt'])
+    b.assign(bk, 'prologo', 'B.txt')                    # B pasa de capítulo 2 a prólogo
+    assert bk['prologo'] == 'B.txt' and bk['capitulos'] == ['A.txt']
+
+
+def test_chapter_slot_n_fills_in_order_and_replaces_an_occupied_one():
+    d, bk = _bk(['A.txt', 'B.txt'])
+    b.assign(bk, 'cap:3', 'C.txt')                      # el que sigue
+    assert bk['capitulos'] == ['A.txt', 'B.txt', 'C.txt']
+    b.assign(bk, 'cap:2', 'Z.txt')                      # reemplaza el 2
+    assert bk['capitulos'] == ['A.txt', 'Z.txt', 'C.txt']
+
+
+def test_a_slot_past_the_end_just_appends():
+    d, bk = _bk(['A.txt'])
+    b.assign(bk, 'cap:5', 'E.txt')
+    assert bk['capitulos'] == ['A.txt', 'E.txt']
+
+
+def test_clearing_a_chapter_slot_closes_the_gap():
+    d, bk = _bk(['A.txt', 'B.txt', 'C.txt'])
+    assert b.clear_slot(bk, 'cap:2') is True
+    assert bk['capitulos'] == ['A.txt', 'C.txt']
+    assert b.clear_slot(bk, 'cap:9') is False
+
+
+def test_clearing_a_role_empties_it():
+    d, bk = _bk([])
+    b.assign(bk, 'epilogo', 'E.txt')
+    assert b.clear_slot(bk, 'epilogo') is True and bk['epilogo'] == ''
+    assert b.clear_slot(bk, 'epilogo') is False
+
+
+def test_slot_file_reads_any_slot():
+    d, bk = _bk(['A.txt'])
+    b.assign(bk, 'prologo', 'P.txt')
+    assert (b.slot_file(bk, 'prologo'), b.slot_file(bk, 'cap:1'),
+            b.slot_file(bk, 'cap:2'), b.slot_file(bk, 'epilogo')) == ('P.txt', 'A.txt', '', '')
+
+
+def test_books_containing_sees_the_roles_too():
+    d, bk = _bk(['A.txt'])
+    b.assign(bk, 'prologo', 'P.txt')
+    assert b.books_containing(d, 'P.txt') == [bk]
+
+
+def test_remove_chapter_also_clears_a_role():
+    d, bk = _bk(['A.txt'])
+    b.assign(bk, 'prologo', 'P.txt')
+    assert b.remove_chapter(bk, 'P.txt') is True and bk['prologo'] == ''
+
+
+def test_renaming_a_chapter_follows_it_into_a_role():
+    d, bk = _bk(['A.txt'])
+    b.assign(bk, 'epilogo', 'E.txt')
+    assert b.rename_chapter_everywhere(d, 'E.txt', 'Final.txt') == 1
+    assert bk['epilogo'] == 'Final.txt'
+
+
+def test_dropping_a_chapter_empties_the_role_that_had_it():
+    d, bk = _bk(['A.txt'])
+    b.assign(bk, 'prologo', 'P.txt')
+    assert b.drop_chapter_everywhere(d, 'P.txt') == 1 and bk['prologo'] == ''
+
+
+def test_missing_chapters_checks_the_roles_too():
+    d, bk = _bk(['A.txt'])
+    b.assign(bk, 'prologo', 'P.txt')
+    assert b.missing_chapters(bk, {'A.txt'}) == ['P.txt']
+
+
+def test_the_skeleton_rows_are_in_the_order_federico_described():
+    d, bk = _bk(['A.txt', 'B.txt'])
+    keys = [r['key'] for r in b.rows(bk)]
+    assert keys[:5] == ['portada', 'titulo', 'autor', 'prologo', 'dedicatoria']
+    assert keys[5:11] == ['cap:1', 'cap:2', 'cap:3', 'cap:4', 'cap:5', 'cap:6']
+    assert keys[11:] == ['epilogo', 'referencia', '.']
+
+
+def test_there_are_always_six_chapter_slots_and_one_empty_after_the_last():
+    d, bk = _bk(['A.txt'])
+    assert sum(1 for r in b.rows(bk) if r['key'].startswith('cap:')) == 6
+    d, bk = _bk([f'C{i}.txt' for i in range(9)])
+    caps = [r['key'] for r in b.rows(bk) if r['key'].startswith('cap:')]
+    assert caps == [f'cap:{i}' for i in range(1, 11)]   # 9 llenos + 1 vacío para el próximo
+
+
+def test_a_row_shows_the_label_and_what_fills_it():
+    d, bk = _bk(['Power.txt'])
+    b.assign(bk, 'prologo', 'Intro.txt')
+    rows = {r['key']: r for r in b.rows(bk)}
+    assert rows['cap:1']['text'] == 'Cap 1 · Power'
+    assert rows['cap:2']['text'] == 'Cap 2 · —'
+    assert rows['prologo']['text'] == 'Prólogo · Intro'
+    assert rows['dedicatoria']['text'] == 'Dedicatoria · —'
+    assert rows['titulo']['text'] == 'Título · Mitad Humana'
+    assert rows['autor']['text'] == 'Autor · —'
+
+
+def test_the_switches_read_as_yes_or_no():
+    d, bk = _bk([])
+    rows = {r['key']: r for r in b.rows(bk)}
+    assert rows['portada']['text'] == 'Portada · sí' and rows['referencia']['text'].endswith('sí')
+    bk['portada'] = False
+    assert {r['key']: r for r in b.rows(bk)}['portada']['text'] == 'Portada · no'
+
+
+def test_toggle_flips_a_switch():
+    d, bk = _bk([])
+    assert b.toggle(bk, 'portada') is False and bk['portada'] is False
+    assert b.toggle(bk, 'portada') is True
+    assert b.toggle(bk, 'referencia') is False
+
+
+def test_the_end_row_is_a_dot():
+    d, bk = _bk([])
+    assert b.rows(bk)[-1] == {'key': '.', 'label': '.', 'text': '.'}
