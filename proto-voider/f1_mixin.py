@@ -1,4 +1,6 @@
 # f1_mixin.py — F1 normal view + scratch mode methods
+import sys
+
 from PyQt6.QtCore import Qt
 
 from circular_view import CircularView
@@ -11,10 +13,22 @@ class F1Mixin:
     # Wayland (which doesn't expose lock state to clients). Overridable in tests.
     _CAPSLOCK_LED_GLOB = '/sys/class/leds/*capslock*/brightness'
 
+    def _caps_state_windows(self):
+        """Caps Lock en Windows: GetKeyState(VK_CAPITAL). El bit de abajo es "prendido"
+        (el de arriba sólo dice que la tecla está apretada en este instante)."""
+        try:
+            import ctypes
+            return bool(ctypes.windll.user32.GetKeyState(0x14) & 1)
+        except Exception:
+            return False
+
     def _capslock_on(self):
         """True if Caps Lock is on (any keyboard's LED lit). Best-effort: False if
         the sysfs LED isn't readable. Drives F1 scriptio-continua: with Caps on,
-        the spacebar releases the line to the void instead of typing a space."""
+        the spacebar releases the line to the void instead of typing a space.
+        En Windows no hay /sys: se le pregunta al sistema."""
+        if sys.platform == 'win32':
+            return self._caps_state_windows()
         import glob
         try:
             for p in glob.glob(self._CAPSLOCK_LED_GLOB):
